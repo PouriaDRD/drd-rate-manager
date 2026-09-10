@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.9.1
+ * Version: 0.10.0
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.9.1",
+	version: "0.10.0",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -3369,7 +3369,7 @@ async function showMarketManager(
 
 					{
 						text:
-							"👁 پیش‌نمایش",
+							"📄 پیش‌نمایش",
 
 						callback_data:
 							"market:preview",
@@ -3463,7 +3463,7 @@ async function showMarketPreview(
 		message.chat.id,
 		message.message_id,
 		[
-			"<b>👁 پیش‌نمایش</b>",
+			"<b>📄 پیش‌نمایش</b>",
 			"",
 			"⏳ در حال دریافت قیمت‌های جدید...",
 		].join("\n"),
@@ -3483,7 +3483,7 @@ async function showMarketPreview(
 		message.chat.id,
 		message.message_id,
 		[
-			"<b>👁 پیش‌نمایش پست</b>",
+			"<b>📄 پیش‌نمایش پست</b>",
 			"",
 			buildChannelMarketPost(
 				env,
@@ -3631,7 +3631,7 @@ async function publishMarketNow(
 					[
 						{
 							text:
-								"👁 پیش‌نمایش جدید",
+								"📄 پیش‌نمایش جدید",
 
 							callback_data:
 								"market:preview",
@@ -3949,10 +3949,7 @@ function buildChannelMarketPost(
 	if (
 		snapshot.crypto.length
 	) {
-		lines.push(
-			"🪙 <b>رمزارزها</b>",
-			"",
-		);
+		const cryptoLines = [];
 
 		for (
 			const coin
@@ -3966,7 +3963,7 @@ function buildChannelMarketPost(
 					),
 				);
 
-			lines.push(
+			cryptoLines.push(
 				`<b>${name}</b>`,
 			);
 
@@ -3974,7 +3971,7 @@ function buildChannelMarketPost(
 				coin.price === null ||
 				coin.price === undefined
 			) {
-				lines.push(
+				cryptoLines.push(
 					"<b>نامشخص</b>",
 					"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
 					"",
@@ -3983,14 +3980,16 @@ function buildChannelMarketPost(
 				continue;
 			}
 
-			lines.push(
+			cryptoLines.push(
 				formatOptionalUsd(
 					coin.price,
 				),
 
 				coin.change24h !== null &&
 				coin.change24h !== undefined
-					? `${formatChangeIcon(coin.change24h)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
+					? `${formatChangeIcon(
+						coin.change24h,
+					)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
 						coin.change24h,
 					)}`
 					: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
@@ -3998,18 +3997,22 @@ function buildChannelMarketPost(
 				"",
 			);
 		}
+
+		lines.push(
+			"🪙 <b>رمزارزها</b>",
+			`<blockquote expandable>${cryptoLines
+				.join("\\n")
+				.trim()}</blockquote>`,
+			"",
+			"",
+		);
 	}
 
-	lines.push(
-		"",
-		"🥇 <b>طلا و فلزات</b>",
-		"",
-
+	const metalsLines = [
 		"<b>طلای ۱۸ عیار</b>",
 		formatOptionalToman(
 			snapshot.metals.gram18,
 		),
-
 		"",
 
 		"<b>مظنه طلا</b>",
@@ -4021,21 +4024,23 @@ function buildChannelMarketPost(
 				)
 				: null,
 		),
-
 		"",
 
 		"<b>انس طلا</b>",
 		formatOptionalUsd(
 			snapshot.metals.gold,
 		),
-
 		"",
 
 		"<b>نقره</b>",
 		formatOptionalUsd(
 			snapshot.metals.silver,
 		),
+	];
 
+	lines.push(
+		"🥇 <b>طلا و فلزات</b>",
+		`<blockquote expandable>${metalsLines.join("\\n")}</blockquote>`,
 		"",
 		"━━━━━━━━━━━━",
 		"",
@@ -4067,7 +4072,7 @@ function buildChannelMarketPost(
 		);
 	}
 
-	return lines.join("\n");
+	return lines.join("\\n");
 }
 
 /* ============================================================
