@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.10.0
+ * Version: 0.10.1
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.10.0",
+	version: "0.10.1",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -4001,7 +4001,7 @@ function buildChannelMarketPost(
 		lines.push(
 			"🪙 <b>رمزارزها</b>",
 			`<blockquote expandable>${cryptoLines
-				.join("\\n")
+				.join("\n")
 				.trim()}</blockquote>`,
 			"",
 			"",
@@ -4040,7 +4040,7 @@ function buildChannelMarketPost(
 
 	lines.push(
 		"🥇 <b>طلا و فلزات</b>",
-		`<blockquote expandable>${metalsLines.join("\\n")}</blockquote>`,
+		`<blockquote expandable>${metalsLines.join("\n")}</blockquote>`,
 		"",
 		"━━━━━━━━━━━━",
 		"",
@@ -4072,7 +4072,7 @@ function buildChannelMarketPost(
 		);
 	}
 
-	return lines.join("\\n");
+	return lines.join("\n");
 }
 
 /* ============================================================
