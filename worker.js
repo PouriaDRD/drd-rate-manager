@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.10.1
+ * Version: 0.11.0
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.10.2",
+	version: "0.11.0",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -3478,22 +3478,14 @@ async function showMarketPreview(
 			env,
 		);
 
-	await editTelegramMessage(
+	await editTelegramRichMessage(
 		env,
 		message.chat.id,
 		message.message_id,
-		[
-			"<b>📄 پیش‌نمایش پست</b>",
-			"",
-			buildChannelMarketPost(
-				env,
-				snapshot,
-			),
-			"",
-			buildNote(
-				"این پیش‌نمایش هنوز در کانال منتشر نشده است.",
-			),
-		].join("\n"),
+		buildChannelMarketRichMessage(
+			env,
+			snapshot,
+		),
 		{
 			inline_keyboard: [
 				[
@@ -3583,10 +3575,10 @@ async function publishMarketNow(
 
 	try {
 		const result =
-			await sendTelegramMessage(
+			await sendTelegramRichMessage(
 				env,
 				env.TELEGRAM_CHANNEL_ID,
-				buildChannelMarketPost(
+				buildChannelMarketRichMessage(
 					env,
 					snapshot,
 				),
@@ -3934,164 +3926,103 @@ function buildChannelMarketPost(
 	snapshot,
 ) {
 	const lines = [
-		rtlLine("⚡️ <b>نبض بازار</b>"),
+		"⚡️ <b>نبض بازار</b>",
 		"",
-
-		rtlLine("💵 <b>تتر</b>"),
-		rtlLine(
-			formatOptionalToman(
-				snapshot.usdt.price,
-			),
+		"💵 <b>تتر</b>",
+		formatOptionalToman(
+			snapshot.usdt.price,
 		),
-
 		"",
+		"",
+		"🪙 <b>رمزارزها</b>",
 		"",
 	];
 
-	if (
-		snapshot.crypto.length
+	for (
+		const coin
+		of snapshot.crypto
 	) {
-		const cryptoLines = [];
+		const name = escapeHtml(
+			getPersianCoinName(
+				coin.id,
+				coin.name,
+			),
+		);
 
-		for (
-			const coin
-			of snapshot.crypto
+		lines.push(
+			`<b>${name}</b>`,
+		);
+
+		if (
+			coin.price === null ||
+			coin.price === undefined
 		) {
-			const name =
-				escapeHtml(
-					getPersianCoinName(
-						coin.id,
-						coin.name,
-					),
-				);
-
-			cryptoLines.push(
-				rtlLine(
-					`<b>${name}</b>`,
-				),
-			);
-
-			if (
-				coin.price === null ||
-				coin.price === undefined
-			) {
-				cryptoLines.push(
-					rtlLine(
-						"<b>نامشخص</b>",
-					),
-					rtlLine(
-						"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
-					),
-					"",
-				);
-
-				continue;
-			}
-
-			cryptoLines.push(
-				rtlLine(
-					formatOptionalUsd(
-						coin.price,
-					),
-				),
-
-				rtlLine(
-					coin.change24h !== null &&
-					coin.change24h !== undefined
-						? `${formatChangeIcon(
-							coin.change24h,
-						)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
-							coin.change24h,
-						)}`
-						: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
-				),
-
+			lines.push(
+				"<b>نامشخص</b>",
+				"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
 				"",
 			);
+			continue;
 		}
 
 		lines.push(
-			rtlLine(
-				"🪙 <b>رمزارزها</b>",
+			formatOptionalUsd(
+				coin.price,
 			),
-			"",
-			`<blockquote expandable>${cryptoLines
-				.join("\n")
-				.trim()}</blockquote>`,
-			"",
+			coin.change24h !== null &&
+			coin.change24h !== undefined
+				? `${formatChangeIcon(
+					coin.change24h,
+				)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
+					coin.change24h,
+				)}`
+				: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
 			"",
 		);
 	}
 
-	const metalsLines = [
-		rtlLine(
-			"<b>طلای ۱۸ عیار</b>",
-		),
-		rtlLine(
-			formatOptionalToman(
-				snapshot.metals.gram18,
-			),
-		),
-		"",
-
-		rtlLine(
-			"<b>مظنه طلا</b>",
-		),
-		rtlLine(
-			formatOptionalToman(
-				snapshot.metals.mazaneh !== null
-					? roundToNearest(
-						snapshot.metals.mazaneh,
-						1000,
-					)
-					: null,
-			),
-		),
-		"",
-
-		rtlLine(
-			"<b>انس طلا</b>",
-		),
-		rtlLine(
-			formatOptionalUsd(
-				snapshot.metals.gold,
-			),
-		),
-		"",
-
-		rtlLine(
-			"<b>نقره</b>",
-		),
-		rtlLine(
-			formatOptionalUsd(
-				snapshot.metals.silver,
-			),
-		),
-	];
-
 	lines.push(
-		rtlLine(
-			"🥇 <b>طلا و فلزات</b>",
+		"",
+		"🥇 <b>طلا و فلزات</b>",
+		"",
+		"<b>طلای ۱۸ عیار</b>",
+		formatOptionalToman(
+			snapshot.metals.gram18,
 		),
 		"",
-		`<blockquote expandable>${metalsLines.join("\n")}</blockquote>`,
-		"",
-		rtlLine("━━━━━━━━━━━━"),
-		"",
-
-		rtlLine(
-			`🕒 <b>${escapeHtml(
-				formatIranTime(
-					env,
-					snapshot.createdAt,
-				),
-			)}</b>  ·  📅 <b>${escapeHtml(
-				formatIranDate(
-					env,
-					snapshot.createdAt,
-				),
-			)}</b>`,
+		"<b>مظنه طلا</b>",
+		formatOptionalToman(
+			snapshot.metals.mazaneh !== null
+				? roundToNearest(
+					snapshot.metals.mazaneh,
+					1000,
+				)
+				: null,
 		),
+		"",
+		"<b>انس طلا</b>",
+		formatOptionalUsd(
+			snapshot.metals.gold,
+		),
+		"",
+		"<b>نقره</b>",
+		formatOptionalUsd(
+			snapshot.metals.silver,
+		),
+		"",
+		"━━━━━━━━━━━━",
+		"",
+		`🕒 <b>${escapeHtml(
+			formatIranTime(
+				env,
+				snapshot.createdAt,
+			),
+		)}</b>  ·  📅 <b>${escapeHtml(
+			formatIranDate(
+				env,
+				snapshot.createdAt,
+			),
+		)}</b>`,
 	);
 
 	const handle =
@@ -4102,15 +4033,128 @@ function buildChannelMarketPost(
 	if (handle) {
 		lines.push(
 			"",
-			`<blockquote>${rtlLine(
-				`🚀 ${escapeHtml(
-					handle,
-				)}`,
-			)}</blockquote>`,
+			`🚀 ${escapeHtml(handle)}`,
 		);
 	}
 
 	return lines.join("\n");
+}
+
+function buildChannelMarketRichMessage(
+	env,
+	snapshot,
+) {
+	const cryptoHtml = snapshot.crypto
+		.map((coin) => {
+			const name = escapeHtml(
+				getPersianCoinName(
+					coin.id,
+					coin.name,
+				),
+			);
+
+			const price =
+				coin.price === null ||
+				coin.price === undefined
+					? "<b>نامشخص</b>"
+					: formatOptionalUsd(
+						coin.price,
+					);
+
+			const change =
+				coin.change24h !== null &&
+				coin.change24h !== undefined
+					? `${formatChangeIcon(
+						coin.change24h,
+					)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
+						coin.change24h,
+					)}`
+					: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>";
+
+			return [
+				"<p>",
+				`<b>${name}</b><br>`,
+				`${price}<br>`,
+				change,
+				"</p>",
+			].join("");
+		})
+		.join("");
+
+	const mazaneh =
+		snapshot.metals.mazaneh !== null
+			? roundToNearest(
+				snapshot.metals.mazaneh,
+				1000,
+			)
+			: null;
+
+	const handle =
+		getChannelHandle(
+			env,
+		);
+
+	const html = [
+		"<p><b>⚡️ نبض بازار</b></p>",
+		"<p>",
+		"💵 <b>تتر</b><br>",
+		formatOptionalToman(
+			snapshot.usdt.price,
+		),
+		"</p>",
+		"<details>",
+		"<summary>🪙 <b>رمزارزها</b></summary>",
+		cryptoHtml || "<p><b>نامشخص</b></p>",
+		"</details>",
+		"<details>",
+		"<summary>🥇 <b>طلا و فلزات</b></summary>",
+		"<p><b>طلای ۱۸ عیار</b><br>",
+		formatOptionalToman(
+			snapshot.metals.gram18,
+		),
+		"</p>",
+		"<p><b>مظنه طلا</b><br>",
+		formatOptionalToman(
+			mazaneh,
+		),
+		"</p>",
+		"<p><b>انس طلا</b><br>",
+		formatOptionalUsd(
+			snapshot.metals.gold,
+		),
+		"</p>",
+		"<p><b>نقره</b><br>",
+		formatOptionalUsd(
+			snapshot.metals.silver,
+		),
+		"</p>",
+		"</details>",
+		"<hr/>",
+		"<p>",
+		`🕒 <b>${escapeHtml(
+			formatIranTime(
+				env,
+				snapshot.createdAt,
+			),
+		)}</b>  ·  📅 <b>${escapeHtml(
+			formatIranDate(
+				env,
+				snapshot.createdAt,
+			),
+		)}</b>`,
+		"</p>",
+		handle
+			? `<footer>🚀 ${escapeHtml(
+				handle,
+			)}</footer>`
+			: "",
+	].join("");
+
+	return {
+		html,
+		is_rtl: true,
+		skip_entity_detection: false,
+	};
 }
 
 /* ============================================================
@@ -6784,10 +6828,10 @@ async function performAutomaticPublish(
 		);
 
 	const result =
-		await sendTelegramMessage(
+		await sendTelegramRichMessage(
 			env,
 			env.TELEGRAM_CHANNEL_ID,
-			buildChannelMarketPost(
+			buildChannelMarketRichMessage(
 				env,
 				snapshot,
 			),
@@ -8451,6 +8495,95 @@ async function sendTelegramMessage(
 				: {}),
 		},
 	);
+}
+
+async function sendTelegramRichMessage(
+	env,
+	chatId,
+	richMessage,
+	replyMarkup = null,
+) {
+	return telegramApi(
+		env,
+		"sendRichMessage",
+		{
+			chat_id:
+				chatId,
+
+			rich_message:
+				richMessage,
+
+			...(replyMarkup
+				? {
+					reply_markup:
+						replyMarkup,
+				}
+				: {}),
+		},
+	);
+}
+
+async function editTelegramRichMessage(
+	env,
+	chatId,
+	messageId,
+	richMessage,
+	replyMarkup = null,
+) {
+	try {
+		return await telegramApi(
+			env,
+			"editMessageText",
+			{
+				chat_id:
+					chatId,
+
+				message_id:
+					Number(
+						messageId,
+					),
+
+				rich_message:
+					richMessage,
+
+				...(replyMarkup
+					? {
+						reply_markup:
+							replyMarkup,
+					}
+					: {}),
+			},
+		);
+	} catch (error) {
+		console.warn(
+			"telegram.rich_preview_fallback",
+			errorMessage(error),
+		);
+
+		return editTelegramMessage(
+			env,
+			chatId,
+			messageId,
+			buildRichMessageFallbackText(
+				richMessage,
+			),
+			replyMarkup,
+		);
+	}
+}
+
+function buildRichMessageFallbackText(
+	richMessage,
+) {
+	return [
+		"<b>📄 پیش‌نمایش Rich Message</b>",
+		"",
+		"این نسخه با Rich Message رسمی تلگرام و RTL سراسری منتشر می‌شود.",
+		"",
+		buildNote(
+			"اگر کلاینت فعلی پیش‌نمایش Rich Message را پشتیبانی نکند، انتشار کانال همچنان از sendRichMessage استفاده می‌کند.",
+		),
+	].join("\n");
 }
 
 async function editTelegramMessage(
