@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.11.1
+ * Version: 0.11.2
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.11.1",
+	version: "0.11.2",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -4010,6 +4010,7 @@ function buildChannelMarketPost(
 			snapshot.metals.silver,
 		),
 		"",
+		"",
 		"━━━━━━━━━━━━",
 		"",
 		`🕒 <b>${escapeHtml(
@@ -4152,6 +4153,7 @@ function buildChannelMarketRichMessage(
 			snapshot.usdt.price,
 		),
 		"</p>",
+		"<p><br></p>",
 
 		"<p><b>🪙 رمزارزها</b></p>",
 		firstCryptoHtml,
@@ -4163,6 +4165,7 @@ function buildChannelMarketRichMessage(
 				"</details>",
 			].join("")
 			: "",
+		"<p><br></p>",
 
 		"<p><b>🥇 طلا و فلزات</b></p>",
 		"<p><b>طلای ۱۸ عیار</b><br>",
@@ -4174,6 +4177,7 @@ function buildChannelMarketRichMessage(
 		"<summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>",
 		remainingMetalsHtml,
 		"</details>",
+		"<p><br></p>",
 
 		"<hr/>",
 		`<p>${footerTime}</p>`,
