@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.10.1",
+	version: "0.10.2",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -3934,12 +3934,14 @@ function buildChannelMarketPost(
 	snapshot,
 ) {
 	const lines = [
-		"⚡️ <b>نبض بازار</b>",
+		rtlLine("⚡️ <b>نبض بازار</b>"),
 		"",
 
-		"💵 <b>تتر</b>",
-		formatOptionalToman(
-			snapshot.usdt.price,
+		rtlLine("💵 <b>تتر</b>"),
+		rtlLine(
+			formatOptionalToman(
+				snapshot.usdt.price,
+			),
 		),
 
 		"",
@@ -3964,7 +3966,9 @@ function buildChannelMarketPost(
 				);
 
 			cryptoLines.push(
-				`<b>${name}</b>`,
+				rtlLine(
+					`<b>${name}</b>`,
+				),
 			);
 
 			if (
@@ -3972,8 +3976,12 @@ function buildChannelMarketPost(
 				coin.price === undefined
 			) {
 				cryptoLines.push(
-					"<b>نامشخص</b>",
-					"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
+					rtlLine(
+						"<b>نامشخص</b>",
+					),
+					rtlLine(
+						"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
+					),
 					"",
 				);
 
@@ -3981,25 +3989,32 @@ function buildChannelMarketPost(
 			}
 
 			cryptoLines.push(
-				formatOptionalUsd(
-					coin.price,
+				rtlLine(
+					formatOptionalUsd(
+						coin.price,
+					),
 				),
 
-				coin.change24h !== null &&
-				coin.change24h !== undefined
-					? `${formatChangeIcon(
-						coin.change24h,
-					)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
-						coin.change24h,
-					)}`
-					: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
+				rtlLine(
+					coin.change24h !== null &&
+					coin.change24h !== undefined
+						? `${formatChangeIcon(
+							coin.change24h,
+						)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
+							coin.change24h,
+						)}`
+						: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
+				),
 
 				"",
 			);
 		}
 
 		lines.push(
-			"🪙 <b>رمزارزها</b>",
+			rtlLine(
+				"🪙 <b>رمزارزها</b>",
+			),
+			"",
 			`<blockquote expandable>${cryptoLines
 				.join("\n")
 				.trim()}</blockquote>`,
@@ -4009,53 +4024,74 @@ function buildChannelMarketPost(
 	}
 
 	const metalsLines = [
-		"<b>طلای ۱۸ عیار</b>",
-		formatOptionalToman(
-			snapshot.metals.gram18,
+		rtlLine(
+			"<b>طلای ۱۸ عیار</b>",
+		),
+		rtlLine(
+			formatOptionalToman(
+				snapshot.metals.gram18,
+			),
 		),
 		"",
 
-		"<b>مظنه طلا</b>",
-		formatOptionalToman(
-			snapshot.metals.mazaneh !== null
-				? roundToNearest(
-					snapshot.metals.mazaneh,
-					1000,
-				)
-				: null,
+		rtlLine(
+			"<b>مظنه طلا</b>",
+		),
+		rtlLine(
+			formatOptionalToman(
+				snapshot.metals.mazaneh !== null
+					? roundToNearest(
+						snapshot.metals.mazaneh,
+						1000,
+					)
+					: null,
+			),
 		),
 		"",
 
-		"<b>انس طلا</b>",
-		formatOptionalUsd(
-			snapshot.metals.gold,
+		rtlLine(
+			"<b>انس طلا</b>",
+		),
+		rtlLine(
+			formatOptionalUsd(
+				snapshot.metals.gold,
+			),
 		),
 		"",
 
-		"<b>نقره</b>",
-		formatOptionalUsd(
-			snapshot.metals.silver,
+		rtlLine(
+			"<b>نقره</b>",
+		),
+		rtlLine(
+			formatOptionalUsd(
+				snapshot.metals.silver,
+			),
 		),
 	];
 
 	lines.push(
-		"🥇 <b>طلا و فلزات</b>",
+		rtlLine(
+			"🥇 <b>طلا و فلزات</b>",
+		),
+		"",
 		`<blockquote expandable>${metalsLines.join("\n")}</blockquote>`,
 		"",
-		"━━━━━━━━━━━━",
+		rtlLine("━━━━━━━━━━━━"),
 		"",
 
-		`🕒 <b>${escapeHtml(
-			formatIranTime(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>  ·  📅 <b>${escapeHtml(
-			formatIranDate(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>`,
+		rtlLine(
+			`🕒 <b>${escapeHtml(
+				formatIranTime(
+					env,
+					snapshot.createdAt,
+				),
+			)}</b>  ·  📅 <b>${escapeHtml(
+				formatIranDate(
+					env,
+					snapshot.createdAt,
+				),
+			)}</b>`,
+		),
 	);
 
 	const handle =
@@ -4066,8 +4102,10 @@ function buildChannelMarketPost(
 	if (handle) {
 		lines.push(
 			"",
-			`<blockquote>🚀 ${escapeHtml(
-				handle,
+			`<blockquote>${rtlLine(
+				`🚀 ${escapeHtml(
+					handle,
+				)}`,
 			)}</blockquote>`,
 		);
 	}
@@ -8678,6 +8716,20 @@ async function safeReadResponseText(
  * GENERAL HELPERS
  * ============================================================
  */
+
+function rtlLine(
+	value,
+) {
+	const text = String(
+		value ?? "",
+	);
+
+	if (!text) {
+		return "";
+	}
+
+	return `\u200F${text}`;
+}
 
 function buildNote(
 	text,
