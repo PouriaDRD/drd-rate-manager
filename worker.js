@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.11.0
+ * Version: 0.11.1
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,7 +15,7 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.11.0",
+	version: "0.11.1",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
@@ -4044,42 +4044,58 @@ function buildChannelMarketRichMessage(
 	env,
 	snapshot,
 ) {
-	const cryptoHtml = snapshot.crypto
-		.map((coin) => {
-			const name = escapeHtml(
-				getPersianCoinName(
-					coin.id,
-					coin.name,
-				),
-			);
+	const LRI = "\u2066";
+	const PDI = "\u2069";
 
-			const price =
-				coin.price === null ||
-				coin.price === undefined
-					? "<b>نامشخص</b>"
-					: formatOptionalUsd(
-						coin.price,
-					);
+	const isolateLtr = (value) =>
+		`${LRI}${value}${PDI}`;
 
-			const change =
-				coin.change24h !== null &&
-				coin.change24h !== undefined
-					? `${formatChangeIcon(
-						coin.change24h,
-					)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
-						coin.change24h,
-					)}`
-					: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>";
+	const buildCryptoItemHtml = (coin) => {
+		const name = escapeHtml(
+			getPersianCoinName(
+				coin.id,
+				coin.name,
+			),
+		);
 
-			return [
-				"<p>",
-				`<b>${name}</b><br>`,
-				`${price}<br>`,
-				change,
-				"</p>",
-			].join("");
-		})
-		.join("");
+		const price =
+			coin.price === null ||
+			coin.price === undefined
+				? "<b>نامشخص</b>"
+				: formatOptionalUsd(
+					coin.price,
+				);
+
+		const change =
+			coin.change24h !== null &&
+			coin.change24h !== undefined
+				? `${formatChangeIcon(
+					coin.change24h,
+				)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
+					coin.change24h,
+				)}`
+				: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>";
+
+		return [
+			"<p>",
+			`<b>${name}</b><br>`,
+			`${price}<br>`,
+			change,
+			"</p>",
+		].join("");
+	};
+
+	const [firstCoin, ...remainingCoins] =
+		snapshot.crypto;
+
+	const firstCryptoHtml = firstCoin
+		? buildCryptoItemHtml(firstCoin)
+		: "<p><b>نامشخص</b></p>";
+
+	const remainingCryptoHtml =
+		remainingCoins
+			.map(buildCryptoItemHtml)
+			.join("");
 
 	const mazaneh =
 		snapshot.metals.mazaneh !== null
@@ -4089,30 +4105,7 @@ function buildChannelMarketRichMessage(
 			)
 			: null;
 
-	const handle =
-		getChannelHandle(
-			env,
-		);
-
-	const html = [
-		"<p><b>⚡️ نبض بازار</b></p>",
-		"<p>",
-		"💵 <b>تتر</b><br>",
-		formatOptionalToman(
-			snapshot.usdt.price,
-		),
-		"</p>",
-		"<details>",
-		"<summary>🪙 <b>رمزارزها</b></summary>",
-		cryptoHtml || "<p><b>نامشخص</b></p>",
-		"</details>",
-		"<details>",
-		"<summary>🥇 <b>طلا و فلزات</b></summary>",
-		"<p><b>طلای ۱۸ عیار</b><br>",
-		formatOptionalToman(
-			snapshot.metals.gram18,
-		),
-		"</p>",
+	const remainingMetalsHtml = [
 		"<p><b>مظنه طلا</b><br>",
 		formatOptionalToman(
 			mazaneh,
@@ -4128,25 +4121,64 @@ function buildChannelMarketRichMessage(
 			snapshot.metals.silver,
 		),
 		"</p>",
-		"</details>",
-		"<hr/>",
+	].join("");
+
+	const handle =
+		getChannelHandle(
+			env,
+		);
+
+	const footerTime = isolateLtr(
+		`🕒 ${formatIranTime(
+			env,
+			snapshot.createdAt,
+		)} · 📅 ${formatIranDate(
+			env,
+			snapshot.createdAt,
+		)}`,
+	);
+
+	const footerChannel = handle
+		? isolateLtr(
+			`🚀 ${escapeHtml(handle)}`,
+		)
+		: "";
+
+	const html = [
+		"<p><b>⚡️ نبض بازار</b></p>",
 		"<p>",
-		`🕒 <b>${escapeHtml(
-			formatIranTime(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>  ·  📅 <b>${escapeHtml(
-			formatIranDate(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>`,
+		"💵 <b>تتر</b><br>",
+		formatOptionalToman(
+			snapshot.usdt.price,
+		),
 		"</p>",
+
+		"<p><b>🪙 رمزارزها</b></p>",
+		firstCryptoHtml,
+		remainingCoins.length
+			? [
+				"<details>",
+				"<summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>",
+				remainingCryptoHtml,
+				"</details>",
+			].join("")
+			: "",
+
+		"<p><b>🥇 طلا و فلزات</b></p>",
+		"<p><b>طلای ۱۸ عیار</b><br>",
+		formatOptionalToman(
+			snapshot.metals.gram18,
+		),
+		"</p>",
+		"<details>",
+		"<summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>",
+		remainingMetalsHtml,
+		"</details>",
+
+		"<hr/>",
+		`<p>${footerTime}</p>`,
 		handle
-			? `<footer>🚀 ${escapeHtml(
-				handle,
-			)}</footer>`
+			? `<blockquote>${footerChannel}</blockquote>`
 			: "",
 	].join("");
 
