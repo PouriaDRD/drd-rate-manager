@@ -1,7 +1,7 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.11.2
+ * Version: 0.11.3
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
  *
@@ -15,10 +15,47 @@
 const APP = {
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.11.2",
+	version: "0.11.3",
 	schemaVersion: 6,
 	apiVersion: "v1",
 };
+
+/* ============================================================
+ * RUNTIME CACHES
+ *
+ * Cloudflare isolates may serve multiple invocations. Keeping
+ * immutable Intl formatters and the database bootstrap promise
+ * at module scope avoids repeating relatively expensive setup
+ * work on warm invocations.
+ * ============================================================
+ */
+
+let databaseBootstrapPromise = null;
+
+const dateTimeFormatterCache = new Map();
+
+const faIntegerFormatter = new Intl.NumberFormat(
+	"en-US",
+	{
+		maximumFractionDigits: 0,
+	},
+);
+
+const faPriceLargeFormatter = new Intl.NumberFormat(
+	"en-US",
+	{
+		maximumFractionDigits: 2,
+		minimumFractionDigits: 0,
+	},
+);
+
+const faPriceSmallFormatter = new Intl.NumberFormat(
+	"en-US",
+	{
+		maximumFractionDigits: 4,
+		minimumFractionDigits: 0,
+	},
+);
 
 const USDT_SOURCE_PRIORITY = [
 	"wallex",
@@ -125,7 +162,7 @@ const COIN_NAMES_FA = {
 export default {
 	async fetch(request, env, ctx) {
 		try {
-			await ensureDatabase(env);
+			await ensureDatabaseReady(env);
 
 			const url =
 				new URL(request.url);
@@ -252,11 +289,13 @@ export default {
 		env,
 		ctx,
 	) {
-		ctx.waitUntil(
-			handleScheduledTick(
-				controller,
-				env,
-			),
+		// Keep the scheduled path deliberately lean.
+		// Database migrations/bootstrap are handled by HTTP
+		// invocations and must never run every minute.
+		await handleScheduledTick(
+			controller,
+			env,
+			ctx,
 		);
 	},
 };
@@ -265,6 +304,20 @@ export default {
  * DATABASE
  * ============================================================
  */
+
+async function ensureDatabaseReady(env) {
+	if (!databaseBootstrapPromise) {
+		databaseBootstrapPromise =
+			ensureDatabase(env).catch(
+				(error) => {
+					databaseBootstrapPromise = null;
+					throw error;
+				},
+			);
+	}
+
+	return databaseBootstrapPromise;
+}
 
 async function ensureDatabase(env) {
 	if (!env.DB) {
@@ -556,6 +609,18 @@ async function ensureDefaultSettings(
 		auto_publish_last_success_at:
 			"0",
 
+		auto_publish_last_tick_at:
+			"0",
+
+		auto_publish_last_attempt_at:
+			"0",
+
+		auto_publish_last_error_at:
+			"0",
+
+		auto_publish_last_skip_reason:
+			"",
+
 		auto_publish_last_error:
 			"",
 	};
@@ -662,6 +727,45 @@ async function getSetting(
 	return (
 		result?.value ??
 		fallback
+	);
+}
+
+async function getSettingsMap(
+	env,
+	keys,
+) {
+	const uniqueKeys = [
+		...new Set(
+			keys.map(String),
+		),
+	];
+
+	if (!uniqueKeys.length) {
+		return new Map();
+	}
+
+	const placeholders =
+		uniqueKeys
+			.map(() => "?")
+			.join(", ");
+
+	const result =
+		await env.DB
+			.prepare(`
+				SELECT key, value
+				FROM settings
+				WHERE key IN (${placeholders})
+			`)
+			.bind(...uniqueKeys)
+			.all();
+
+	return new Map(
+		(result.results ?? []).map(
+			(row) => [
+				String(row.key),
+				row.value,
+			],
+		),
 	);
 }
 
@@ -2431,82 +2535,77 @@ async function sendIdMessage(
 async function getAutomationSettings(
 	env,
 ) {
-	const [
-		autoEnabled,
-		interval,
-		quietEnabled,
-		quietStart,
-		quietEnd,
-		lastRun,
-		lastSuccess,
-		lastError,
-	] = await Promise.all([
-		getSetting(
-			env,
-			"auto_publish_enabled",
-			"false",
-		),
+	const keys = [
+		"auto_publish_enabled",
+		"publish_interval_minutes",
+		"quiet_hours_enabled",
+		"quiet_hours_start",
+		"quiet_hours_end",
+		"auto_publish_last_run_at",
+		"auto_publish_last_success_at",
+		"auto_publish_last_tick_at",
+		"auto_publish_last_attempt_at",
+		"auto_publish_last_error_at",
+		"auto_publish_last_skip_reason",
+		"auto_publish_last_error",
+	];
 
-		getSetting(
+	const settings =
+		await getSettingsMap(
 			env,
-			"publish_interval_minutes",
-			String(
-				DEFAULT_PUBLISH_INTERVAL_MINUTES,
+			keys,
+		);
+
+	const get = (
+		key,
+		fallback,
+	) =>
+		settings.has(key)
+			? settings.get(key)
+			: fallback;
+
+	const quietStart =
+		String(
+			get(
+				"quiet_hours_start",
+				DEFAULT_QUIET_HOURS.start,
 			),
-		),
+		);
 
-		getSetting(
-			env,
-			"quiet_hours_enabled",
-			"false",
-		),
-
-		getSetting(
-			env,
-			"quiet_hours_start",
-			DEFAULT_QUIET_HOURS.start,
-		),
-
-		getSetting(
-			env,
-			"quiet_hours_end",
-			DEFAULT_QUIET_HOURS.end,
-		),
-
-		getSetting(
-			env,
-			"auto_publish_last_run_at",
-			"0",
-		),
-
-		getSetting(
-			env,
-			"auto_publish_last_success_at",
-			"0",
-		),
-
-		getSetting(
-			env,
-			"auto_publish_last_error",
-			"",
-		),
-	]);
+	const quietEnd =
+		String(
+			get(
+				"quiet_hours_end",
+				DEFAULT_QUIET_HOURS.end,
+			),
+		);
 
 	return {
 		enabled:
 			parseBoolean(
-				autoEnabled,
+				get(
+					"auto_publish_enabled",
+					"false",
+				),
 			),
 
 		intervalMinutes:
 			normalizePublishInterval(
-				interval,
+				get(
+					"publish_interval_minutes",
+					String(
+						DEFAULT_PUBLISH_INTERVAL_MINUTES,
+					),
+				),
 			),
 
 		quietHours: {
 			enabled:
 				parseBoolean(
-					quietEnabled,
+					get(
+						"quiet_hours_enabled",
+						"false",
+					),
 				),
 
 			start:
@@ -2526,18 +2625,58 @@ async function getAutomationSettings(
 
 		lastRunAt:
 			normalizeTimestamp(
-				lastRun,
+				get(
+					"auto_publish_last_run_at",
+					"0",
+				),
 			),
 
 		lastSuccessAt:
 			normalizeTimestamp(
-				lastSuccess,
+				get(
+					"auto_publish_last_success_at",
+					"0",
+				),
+			),
+
+		lastTickAt:
+			normalizeTimestamp(
+				get(
+					"auto_publish_last_tick_at",
+					"0",
+				),
+			),
+
+		lastAttemptAt:
+			normalizeTimestamp(
+				get(
+					"auto_publish_last_attempt_at",
+					"0",
+				),
+			),
+
+		lastErrorAt:
+			normalizeTimestamp(
+				get(
+					"auto_publish_last_error_at",
+					"0",
+				),
+			),
+
+		lastSkipReason:
+			String(
+				get(
+					"auto_publish_last_skip_reason",
+					"",
+				) ?? "",
 			),
 
 		lastError:
 			String(
-				lastError ??
+				get(
+					"auto_publish_last_error",
 					"",
+				) ?? "",
 			),
 	};
 }
@@ -2673,6 +2812,24 @@ async function showAutomationSettings(
 			env,
 			automation.lastSuccessAt,
 		)}</b>`,
+		`🫀 آخرین Cron Tick: <b>${formatOptionalSystemDateTime(
+			env,
+			automation.lastTickAt,
+		)}</b>`,
+		`🎯 آخرین تلاش: <b>${formatOptionalSystemDateTime(
+			env,
+			automation.lastAttemptAt,
+		)}</b>`,
+		automation.lastError
+			? `⚠️ آخرین خطا: <code>${escapeHtml(
+				automation.lastError.slice(0, 180),
+			)}</code>`
+			: "✅ خطای ثبت‌شده‌ای وجود ندارد",
+		automation.lastSkipReason
+			? `ℹ️ وضعیت آخر: <code>${escapeHtml(
+				automation.lastSkipReason,
+			)}</code>`
+			: "",
 		"",
 		`⏭ انتشار بعدی: <b>${
 			automation.enabled
@@ -6698,42 +6855,196 @@ function serializeSourceStatus(
  * ============================================================
  */
 
+async function getCronAutomationState(
+	env,
+) {
+	const keys = [
+		"bot_enabled",
+		"auto_publish_enabled",
+		"publish_interval_minutes",
+		"quiet_hours_enabled",
+		"quiet_hours_start",
+		"quiet_hours_end",
+		"auto_publish_last_run_at",
+		"auto_publish_last_tick_at",
+		"auto_publish_last_skip_reason",
+	];
+
+	const settings =
+		await getSettingsMap(
+			env,
+			keys,
+		);
+
+	const get = (key, fallback) =>
+		settings.has(key)
+			? settings.get(key)
+			: fallback;
+
+	const quietStart = String(
+		get(
+			"quiet_hours_start",
+			DEFAULT_QUIET_HOURS.start,
+		),
+	);
+
+	const quietEnd = String(
+		get(
+			"quiet_hours_end",
+			DEFAULT_QUIET_HOURS.end,
+		),
+	);
+
+	return {
+		globalEnabled:
+			parseBoolean(
+				get(
+					"bot_enabled",
+					"true",
+				),
+			),
+
+		enabled:
+			parseBoolean(
+				get(
+					"auto_publish_enabled",
+					"false",
+				),
+			),
+
+		intervalMinutes:
+			normalizePublishInterval(
+				get(
+					"publish_interval_minutes",
+					String(
+						DEFAULT_PUBLISH_INTERVAL_MINUTES,
+					),
+				),
+			),
+
+		quietHours: {
+			enabled:
+				parseBoolean(
+					get(
+						"quiet_hours_enabled",
+						"false",
+					),
+				),
+
+			start:
+				isValidTimeString(quietStart)
+					? quietStart
+					: DEFAULT_QUIET_HOURS.start,
+
+			end:
+				isValidTimeString(quietEnd)
+					? quietEnd
+					: DEFAULT_QUIET_HOURS.end,
+		},
+
+		lastRunAt:
+			normalizeTimestamp(
+				get(
+					"auto_publish_last_run_at",
+					"0",
+				),
+			),
+
+		lastTickAt:
+			normalizeTimestamp(
+				get(
+					"auto_publish_last_tick_at",
+					"0",
+				),
+			),
+
+		lastSkipReason:
+			String(
+				get(
+					"auto_publish_last_skip_reason",
+					"",
+				) ?? "",
+			),
+	};
+}
+
+async function writeCronHealth(
+	env,
+	values,
+) {
+	try {
+		await setSettings(
+			env,
+			values,
+		);
+	} catch (error) {
+		console.warn(
+			"cron.health_write_failed",
+			errorMessage(error),
+		);
+	}
+}
+
 async function handleScheduledTick(
 	controller,
 	env,
+	ctx,
 ) {
-	try {
-		await ensureDatabase(
-			env,
-		);
+	const now =
+		Number(
+			controller?.scheduledTime,
+		) || Date.now();
 
-		if (
-			!(
-				await getGlobalEnabled(
-					env,
-				)
-			)
-		) {
-			return;
+	try {
+		if (!env.DB) {
+			throw new Error(
+				'D1 binding "DB" is not configured.',
+			);
 		}
 
+		// IMPORTANT: do not call ensureDatabase() here.
+		// Running migrations/default seeding on every minute was
+		// the main source of avoidable CPU work on Cron invocations.
 		const automation =
-			await getAutomationSettings(
+			await getCronAutomationState(
 				env,
 			);
 
-		if (
-			!automation.enabled
-		) {
+		if (!automation.globalEnabled) {
+			if (
+				automation.lastSkipReason !==
+				"bot_disabled"
+			) {
+				await writeCronHealth(
+					env,
+					{
+						auto_publish_last_tick_at:
+							String(now),
+						auto_publish_last_skip_reason:
+							"bot_disabled",
+					},
+				);
+			}
 			return;
 		}
 
-		const now =
-			Number(
-				controller
-					?.scheduledTime,
-			) ||
-			Date.now();
+		if (!automation.enabled) {
+			if (
+				automation.lastSkipReason !==
+				"automation_disabled"
+			) {
+				await writeCronHealth(
+					env,
+					{
+						auto_publish_last_tick_at:
+							String(now),
+						auto_publish_last_skip_reason:
+							"automation_disabled",
+					},
+				);
+			}
+			return;
+		}
 
 		if (
 			isInsideQuietHours(
@@ -6742,6 +7053,20 @@ async function handleScheduledTick(
 				automation.quietHours,
 			)
 		) {
+			if (
+				automation.lastSkipReason !==
+				"quiet_hours"
+			) {
+				await writeCronHealth(
+					env,
+					{
+						auto_publish_last_tick_at:
+							String(now),
+						auto_publish_last_skip_reason:
+							"quiet_hours",
+					},
+				);
+			}
 			return;
 		}
 
@@ -6752,6 +7077,24 @@ async function handleScheduledTick(
 				automation.intervalMinutes,
 			)
 		) {
+			// Persist only a lightweight heartbeat every 5 minutes.
+			// This is enough for Cron health diagnostics without
+			// writing to D1 on every one-minute trigger.
+			if (
+				!automation.lastTickAt ||
+				now - automation.lastTickAt >=
+					5 * 60 * 1000
+			) {
+				await writeCronHealth(
+					env,
+					{
+						auto_publish_last_tick_at:
+							String(now),
+						auto_publish_last_skip_reason:
+							"interval_not_due",
+					},
+				);
+			}
 			return;
 		}
 
@@ -6766,30 +7109,47 @@ async function handleScheduledTick(
 			return;
 		}
 
+		await setSettings(
+			env,
+			{
+				auto_publish_last_tick_at:
+					String(now),
+				auto_publish_last_attempt_at:
+					String(now),
+				auto_publish_last_skip_reason:
+					"",
+			},
+		);
+
 		await performAutomaticPublish(
 			env,
 			now,
 		);
 	} catch (error) {
+		const message =
+			errorMessage(error).slice(
+				0,
+				500,
+			);
+
 		console.error(
 			"cron.error",
-			errorMessage(error),
+			message,
 		);
 
-		try {
-			await setSetting(
-				env,
-				"auto_publish_last_error",
-				errorMessage(
-					error,
-				).slice(
-					0,
-					500,
-				),
-			);
-		} catch {
-			// Ignore.
-		}
+		await writeCronHealth(
+			env,
+			{
+				auto_publish_last_tick_at:
+					String(now),
+				auto_publish_last_error_at:
+					String(now),
+				auto_publish_last_error:
+					message,
+				auto_publish_last_skip_reason:
+					"error",
+			},
+		);
 	}
 }
 
@@ -6803,8 +7163,7 @@ function isAutoPublishDue(
 	}
 
 	return (
-		now -
-			lastRunAt >=
+		now - lastRunAt >=
 		intervalMinutes *
 			60 *
 			1000
@@ -6816,31 +7175,43 @@ async function claimAutoPublishSlot(
 	expectedLastRunAt,
 	now,
 ) {
+	const expected =
+		String(
+			expectedLastRunAt || 0,
+		);
+
 	const result =
 		await env.DB
 			.prepare(`
-				UPDATE settings
-				SET
-					value = ?,
-					updated_at = ?
-				WHERE
-					key = 'auto_publish_last_run_at'
-					AND value = ?
+				INSERT INTO settings (
+					key,
+					value,
+					created_at,
+					updated_at
+				)
+				VALUES (
+					'auto_publish_last_run_at',
+					?,
+					?,
+					?
+				)
+				ON CONFLICT(key)
+				DO UPDATE SET
+					value = excluded.value,
+					updated_at = excluded.updated_at
+				WHERE settings.value = ?
 			`)
 			.bind(
 				String(now),
-				Date.now(),
-				String(
-					expectedLastRunAt ||
-						0,
-				),
+				now,
+				now,
+				expected,
 			)
 			.run();
 
 	return (
 		Number(
-			result?.meta?.changes ??
-				0,
+			result?.meta?.changes ?? 0,
 		) > 0
 	);
 }
@@ -6849,9 +7220,7 @@ async function performAutomaticPublish(
 	env,
 	timestamp,
 ) {
-	if (
-		!env.TELEGRAM_CHANNEL_ID
-	) {
+	if (!env.TELEGRAM_CHANNEL_ID) {
 		throw new Error(
 			"TELEGRAM_CHANNEL_ID is missing",
 		);
@@ -6877,33 +7246,40 @@ async function performAutomaticPublish(
 		env,
 		{
 			auto_publish_last_success_at:
-				String(
-					timestamp,
-				),
-
+				String(timestamp),
+			auto_publish_last_error_at:
+				"0",
 			auto_publish_last_error:
+				"",
+			auto_publish_last_skip_reason:
 				"",
 		},
 	);
 
-	await addAuditLog(
-		env,
-		"system",
-		"market.auto_published",
-		{
-			messageId:
-				result?.message_id ??
-					null,
-
-			partial:
-				snapshot.partial,
-
-			errors:
-				snapshot.errors,
-
-			timestamp,
-		},
-	);
+	// Audit is useful but non-critical. Keep it outside the
+	// success path so a log failure can never mark publishing
+	// itself as failed.
+	try {
+		await addAuditLog(
+			env,
+			"system",
+			"market.auto_published",
+			{
+				messageId:
+					result?.message_id ?? null,
+				partial:
+					snapshot.partial,
+				errors:
+					snapshot.errors,
+				timestamp,
+			},
+		);
+	} catch (error) {
+		console.warn(
+			"cron.audit_failed",
+			errorMessage(error),
+		);
+	}
 }
 
 function isInsideQuietHours(
@@ -8173,6 +8549,31 @@ async function handleAutomationApi(
 					).toISOString()
 					: null,
 
+			last_tick_at:
+				automation.lastTickAt
+					? new Date(
+						automation.lastTickAt,
+					).toISOString()
+					: null,
+
+			last_attempt_at:
+				automation.lastAttemptAt
+					? new Date(
+						automation.lastAttemptAt,
+					).toISOString()
+					: null,
+
+			last_error_at:
+				automation.lastErrorAt
+					? new Date(
+						automation.lastErrorAt,
+					).toISOString()
+					: null,
+
+			last_skip_reason:
+				automation.lastSkipReason ||
+					null,
+
 			last_error:
 				automation.lastError ||
 					null,
@@ -8962,30 +9363,51 @@ function timeStringToMinutes(
 	);
 }
 
+function getCachedDateTimeFormatter(
+	cacheKey,
+	locale,
+	options,
+) {
+	let formatter =
+		dateTimeFormatterCache.get(
+			cacheKey,
+		);
+
+	if (!formatter) {
+		formatter =
+			new Intl.DateTimeFormat(
+				locale,
+				options,
+			);
+
+		dateTimeFormatterCache.set(
+			cacheKey,
+			formatter,
+		);
+	}
+
+	return formatter;
+}
+
 function getTimeMinutesInTimezone(
 	env,
 	timestamp,
 ) {
+	const timezone =
+		getTimezone(env);
+
 	const parts =
-		new Intl.DateTimeFormat(
+		getCachedDateTimeFormatter(
+			`time-parts:${timezone}`,
 			"en-US",
 			{
-				timeZone:
-					getTimezone(env),
-
-				hour:
-					"2-digit",
-
-				minute:
-					"2-digit",
-
-				hour12:
-					false,
+				timeZone: timezone,
+				hour: "2-digit",
+				minute: "2-digit",
+				hour12: false,
 			},
 		).formatToParts(
-			new Date(
-				timestamp,
-			),
+			new Date(timestamp),
 		);
 
 	const hour =
@@ -9189,10 +9611,10 @@ function formatFaInteger(
 	value,
 ) {
 	const formatted =
-		Math.round(
-			Number(value),
-		).toLocaleString(
-			"en-US",
+		faIntegerFormatter.format(
+			Math.round(
+				Number(value),
+			),
 		);
 
 	return toFaDigits(
@@ -9210,18 +9632,11 @@ function formatFaPrice(
 		Number(value);
 
 	const formatted =
-		number.toLocaleString(
-			"en-US",
-			{
-				maximumFractionDigits:
-					number >= 1000
-						? 2
-						: 4,
-
-				minimumFractionDigits:
-					0,
-			},
-		);
+		(
+			number >= 1000
+				? faPriceLargeFormatter
+				: faPriceSmallFormatter
+		).format(number);
 
 	return toFaDigits(
 		formatted
@@ -9329,104 +9744,72 @@ function formatIranDate(
 	env,
 	timestamp,
 ) {
-	return new Intl.DateTimeFormat(
+	const timezone = getTimezone(env);
+
+	return getCachedDateTimeFormatter(
+		`iran-date:${timezone}`,
 		"fa-IR",
 		{
-			timeZone:
-				getTimezone(env),
-
-			year:
-				"numeric",
-
-			month:
-				"2-digit",
-
-			day:
-				"2-digit",
+			timeZone: timezone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
 		},
-	).format(
-		new Date(
-			timestamp,
-		),
-	);
+	).format(new Date(timestamp));
 }
 
 function formatIranTime(
 	env,
 	timestamp,
 ) {
-	return new Intl.DateTimeFormat(
+	const timezone = getTimezone(env);
+
+	return getCachedDateTimeFormatter(
+		`iran-time:${timezone}`,
 		"fa-IR",
 		{
-			timeZone:
-				getTimezone(env),
-
-			hour:
-				"2-digit",
-
-			minute:
-				"2-digit",
-
-			hour12:
-				false,
+			timeZone: timezone,
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
 		},
-	).format(
-		new Date(
-			timestamp,
-		),
-	);
+	).format(new Date(timestamp));
 }
 
 function formatSystemDate(
 	env,
 	timestamp,
 ) {
-	return new Intl.DateTimeFormat(
+	const timezone = getTimezone(env);
+
+	return getCachedDateTimeFormatter(
+		`system-date:${timezone}`,
 		"en-CA",
 		{
-			timeZone:
-				getTimezone(env),
-
-			year:
-				"numeric",
-
-			month:
-				"2-digit",
-
-			day:
-				"2-digit",
+			timeZone: timezone,
+			year: "numeric",
+			month: "2-digit",
+			day: "2-digit",
 		},
-	).format(
-		new Date(
-			timestamp,
-		),
-	);
+	).format(new Date(timestamp));
 }
 
 function formatSystemTime(
 	env,
 	timestamp,
 ) {
-	return new Intl.DateTimeFormat(
+	const timezone = getTimezone(env);
+
+	return getCachedDateTimeFormatter(
+		`system-time:${timezone}`,
 		"en-GB",
 		{
-			timeZone:
-				getTimezone(env),
-
-			hour:
-				"2-digit",
-
-			minute:
-				"2-digit",
-
-			hour12:
-				false,
+			timeZone: timezone,
+			hour: "2-digit",
+			minute: "2-digit",
+			hour12: false,
 		},
-	).format(
-		new Date(
-			timestamp,
-		),
-	);
+	).format(new Date(timestamp));
 }
 
 function formatSystemDateTime(
