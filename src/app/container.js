@@ -15,11 +15,15 @@ import { MarketCacheRepository } from "../repositories/market-cache.repository.j
 import { SecureSettingsRepository } from "../repositories/secure-settings.repository.js";
 import { SettingsRepository } from "../repositories/settings.repository.js";
 import { SourceStatusRepository } from "../repositories/source-status.repository.js";
+import { WebAdminRepository } from "../repositories/web-admin.repository.js";
+import { WebAuthAttemptRepository } from "../repositories/web-auth-attempt.repository.js";
+import { WebSessionRepository } from "../repositories/web-session.repository.js";
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
+import { WebAuthService } from "../services/web-auth.service.js";
 
 /** Dependency composition root. */
 export function createServices(env) {
@@ -38,6 +42,10 @@ export function createServices(env) {
 	const admins = new AdminRepository(runtimeEnv, config);
 	const adminInput = new AdminInputRepository(runtimeEnv);
 	const audit = new AuditRepository(runtimeEnv);
+	const webAdmins = new WebAdminRepository(runtimeEnv);
+	const webSessions = new WebSessionRepository(runtimeEnv);
+	const webAuthAttempts = new WebAuthAttemptRepository(runtimeEnv);
+	const webAuth = new WebAuthService(runtimeEnv, webAdmins, webSessions, webAuthAttempts);
 	const http = new HttpClient();
 	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http);
 	const sources = new MarketSources(runtimeEnv, http, statuses, config);
@@ -73,6 +81,10 @@ export function createServices(env) {
 		admins,
 		adminInput,
 		audit,
+		webAdmins,
+		webSessions,
+		webAuthAttempts,
+		webAuth,
 		http,
 		coinGecko,
 		sources,

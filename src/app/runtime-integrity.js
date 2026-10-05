@@ -4,7 +4,6 @@ import { MarketPostBuilder } from "../market/market-post.builder.js";
 import { AutomationService } from "../services/automation.service.js";
 import { MarketService } from "../services/market.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
-import { SettingsService } from "../services/settings.service.js";
 
 export function runtimeIntegrity() {
 	const contracts = [
@@ -13,7 +12,6 @@ export function runtimeIntegrity() {
 		[CoinGeckoClient.prototype, "fetchMarketBundle"],
 		[TelegramClient.prototype, "sendRichMessage"],
 		[AutomationService.prototype, "tick"],
-		[SettingsService.prototype, "refresh"],
 		[SecureSettingsService.prototype, "refresh"],
 	];
 	return contracts.every(([target, method]) => typeof target?.[method] === "function");

@@ -1,5 +1,6 @@
 import { ApiController } from "../controllers/api.controller.js";
 import { TelegramController } from "../controllers/telegram.controller.js";
+import { WebAdminAuthController } from "../controllers/web-admin-auth.controller.js";
 import { Database } from "../database/database.js";
 import { jsonResponse } from "../http/responses.js";
 import { createServices } from "./container.js";
@@ -12,6 +13,7 @@ export class Application {
 		this.services = createServices(env);
 		this.api = new ApiController(this.services);
 		this.telegram = new TelegramController(this.services);
+		this.webAdmin = new WebAdminAuthController(this.services);
 	}
 
 	async fetch(request) {
@@ -19,11 +21,15 @@ export class Application {
 		await this.services.secureSettingsService.refresh();
 		await this.services.config.refresh();
 		const url = new URL(request.url);
-		const apiResponse = await this.api.route(request, url);
-		if (apiResponse) return apiResponse;
+		if (url.pathname === "/" || url.pathname.startsWith("/api/")) {
+			const apiResponse = await this.api.route(request, url);
+			if (apiResponse) return apiResponse;
+		}
 		if (request.method === "POST" && url.pathname === "/telegram/webhook") {
 			return this.telegram.handleWebhook(request);
 		}
+		const webAdminResponse = await this.webAdmin.route(request, url);
+		if (webAdminResponse) return webAdminResponse;
 		return jsonResponse({ success: false, message: "Not found" }, 404);
 	}
 

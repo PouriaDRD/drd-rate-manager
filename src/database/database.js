@@ -42,6 +42,42 @@ export class Database {
 				created_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL
 			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS web_admin_users (
+				id INTEGER PRIMARY KEY,
+				username TEXT NOT NULL UNIQUE,
+				password_hash TEXT NOT NULL,
+				password_salt TEXT NOT NULL,
+				password_algorithm TEXT NOT NULL,
+				password_iterations INTEGER NOT NULL,
+				admin_path TEXT NOT NULL UNIQUE,
+				must_complete_bootstrap INTEGER NOT NULL DEFAULT 1,
+				credential_version INTEGER NOT NULL DEFAULT 1,
+				last_login_at INTEGER NOT NULL DEFAULT 0,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS web_admin_sessions (
+				token_hash TEXT PRIMARY KEY,
+				user_id INTEGER NOT NULL,
+				csrf_hash TEXT NOT NULL,
+				credential_version INTEGER NOT NULL,
+				created_at INTEGER NOT NULL,
+				last_seen_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL,
+				ip_hash TEXT NOT NULL,
+				user_agent TEXT NOT NULL DEFAULT '',
+				FOREIGN KEY(user_id) REFERENCES web_admin_users(id) ON DELETE CASCADE
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS web_auth_attempts (
+				attempt_key TEXT PRIMARY KEY,
+				failure_count INTEGER NOT NULL DEFAULT 0,
+				window_started_at INTEGER NOT NULL,
+				locked_until INTEGER NOT NULL DEFAULT 0,
+				updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_web_admin_sessions_user_id ON web_admin_sessions(user_id)"),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_web_admin_sessions_expires_at ON web_admin_sessions(expires_at)"),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_web_auth_attempts_updated_at ON web_auth_attempts(updated_at)"),
 			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS admins (
 				user_id TEXT PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT,
 				is_active INTEGER NOT NULL DEFAULT 1, added_by TEXT NOT NULL,

@@ -43,7 +43,8 @@ test("phase 1.3 exposes modular runtime contracts", () => {
 test("composition root wires shared services", () => {
 	const env = { DB: fakeDb() };
 	const services = createServices(env);
-	assert.equal(services.env, env);
+	assert.equal(services.rawEnv, env);
+	assert.equal(services.env.DB, env.DB);
 	assert.equal(services.market.settings, services.settings);
 	assert.equal(services.market.cache, services.cache);
 	assert.equal(services.market.sources, services.sources);
@@ -81,7 +82,7 @@ test("API OPTIONS keeps CORS contract", async () => {
 
 test("Telegram webhook rejects an invalid configured secret before parsing the update", async () => {
 	const controller = new TelegramController({
-		env: { TELEGRAM_WEBHOOK_SECRET: "expected" },
+		config: { telegramWebhookSecret: "expected" },
 	});
 	const response = await controller.handleWebhook(
 		new Request("https://example.test/telegram/webhook", {

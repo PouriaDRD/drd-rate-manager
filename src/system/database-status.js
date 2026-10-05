@@ -14,6 +14,9 @@ export async function databaseStatus(services) {
 	const latencyMs = Date.now() - started;
 	const tables = [
 		"admins",
+		"web_admin_users",
+		"web_admin_sessions",
+		"web_auth_attempts",
 		"settings",
 		"secure_settings",
 		"source_status",
