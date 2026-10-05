@@ -1,0 +1,124 @@
+import { APP, USDT_SOURCE_PRIORITY } from "../config/app.js";
+import {
+	capitalize,
+	errorMessage,
+	failure,
+	nullableNumber,
+	sourceLabel,
+	success,
+} from "../utils/core.js";
+
+/** Market source clients for USDT and Iranian gold. */
+export class MarketSources {
+	constructor(env, http, statuses) {
+		this.env = env;
+		this.http = http;
+		this.statuses = statuses;
+	}
+
+	async resolveUsdt() {
+		for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+			const source = USDT_SOURCE_PRIORITY[index];
+			const result = await this[`check${capitalize(source)}`]();
+			await this.statuses.save(source, result);
+			if (result.success) {
+				return { ...result, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
+			}
+		}
+		return failure("All USDT sources failed");
+	}
+
+	async checkAllUsdt() {
+		const [wallex, tabdeal, exir] = await Promise.all([
+			this.checkWallex(),
+			this.checkTabdeal(),
+			this.checkExir(),
+		]);
+		await this.statuses.saveMany({ wallex, tabdeal, exir });
+		return { wallex, tabdeal, exir };
+	}
+
+	async checkWallex() {
+		return this.#timed("wallex", async () => {
+			const url = this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const markets = data?.result?.markets;
+			const market = Array.isArray(markets)
+				? markets.find((item) => String(item.symbol || "").toUpperCase() === "USDTTMN")
+				: null;
+			const price = nullableNumber(market?.price);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Wallex response", response.status);
+		});
+	}
+
+	async checkTabdeal() {
+		return this.#timed("tabdeal", async () => {
+			const url = this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.asks?.[0]?.[0]);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Tabdeal response", response.status);
+		});
+	}
+
+	async checkExir() {
+		return this.#timed("exir", async () => {
+			const url = this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.asks?.[0]?.[0] ?? data?.ask?.[0]?.price ?? data?.asks?.[0]?.price);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Exir response", response.status);
+		});
+	}
+
+	async checkWallGold() {
+		const result = await this.#timed("wallgold", async () => {
+			const url = this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.result?.price);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid WallGold response", response.status);
+		});
+		await this.statuses.save("wallgold", result);
+		return result;
+	}
+
+	async #timed(_source, operation) {
+		const startedAt = Date.now();
+		try {
+			const result = await operation();
+			return { ...result, latency: Date.now() - startedAt };
+		} catch (error) {
+			return failure(errorMessage(error), null, Date.now() - startedAt);
+		}
+	}
+}
