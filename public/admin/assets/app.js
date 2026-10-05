@@ -24,48 +24,24 @@ const state = {
   activeView: "dashboard",
   sourceData: null,
   assets: [],
+  automationData: null,
+  automationCountdownTimer: null,
 };
 
 const basePath = `/${location.pathname.split("/").filter(Boolean)[0] || "admin"}`;
 const api = new AdminApi(basePath);
 const media = matchMedia("(prefers-color-scheme: dark)");
 
-const els = {
-  authScreen: document.querySelector("#auth-screen"),
-  appShell: document.querySelector("#app-shell"),
-  loginForm: document.querySelector("#login-form"),
-  bootstrapForm: document.querySelector("#bootstrap-form"),
-  loginError: document.querySelector("#login-error"),
-  bootstrapError: document.querySelector("#bootstrap-error"),
-  userName: document.querySelector("#user-name"),
-  userAvatar: document.querySelector("#user-avatar"),
-  adminRoute: document.querySelector("#admin-route-value"),
-  pageTitle: document.querySelector("#page-title"),
-  pageEyebrow: document.querySelector("#page-eyebrow"),
-  dashboardView: document.querySelector("#dashboard-view"),
-  marketView: document.querySelector("#market-view"),
-  sourcesView: document.querySelector("#sources-view"),
-  assetsView: document.querySelector("#assets-view"),
-  settingsView: document.querySelector("#settings-view"),
-  placeholderView: document.querySelector("#placeholder-view"),
-  placeholderIndex: document.querySelector("#placeholder-index"),
-  placeholderTitle: document.querySelector("#placeholder-title"),
-  placeholderDescription: document.querySelector("#placeholder-description"),
-  sidebar: document.querySelector("#sidebar"),
-  sidebarOverlay: document.querySelector("#sidebar-overlay"),
-  toast: document.querySelector("#toast"),
-  logout: document.querySelector("#logout-button"),
-  preferencesForm: document.querySelector("#preferences-form"),
-  adminLanguage: document.querySelector("#admin-language-select"),
-  adminTheme: document.querySelector("#admin-theme-select"),
-  telegramLanguage: document.querySelector("#telegram-language-select"),
-  previewPanel: document.querySelector("#preview-panel"),
-  previewContent: document.querySelector("#preview-content"),
-  sourcesList: document.querySelector("#sources-list"),
-  priorityList: document.querySelector("#usdt-priority-list"),
-  assetsList: document.querySelector("#assets-list"),
-  assetSearch: document.querySelector("#asset-search"),
-};
+const els = Object.fromEntries([
+  "auth-screen","app-shell","login-form","bootstrap-form","login-error","bootstrap-error",
+  "user-name","user-avatar","admin-route-value","page-title","page-eyebrow","dashboard-view",
+  "market-view","sources-view","assets-view","automation-view","settings-view","placeholder-view",
+  "placeholder-index","placeholder-title","placeholder-description","sidebar","sidebar-overlay","toast",
+  "logout-button","preferences-form","admin-language-select","admin-theme-select","telegram-language-select",
+  "preview-panel","preview-content","sources-list","usdt-priority-list","assets-list","asset-search",
+  "asset-count","automation-form","automation-enabled","automation-interval","automation-quiet-enabled",
+  "automation-quiet-start","automation-quiet-end","automation-refresh-market","automation-history",
+].map((id) => [camel(id), document.querySelector(`#${id}`)]));
 
 initialize();
 
@@ -88,19 +64,28 @@ function bindEvents() {
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
     button.addEventListener("click", () => activateView(button.dataset.view));
   });
+
   document.querySelector("#sidebar-open")?.addEventListener("click", openSidebar);
   document.querySelector("#sidebar-close")?.addEventListener("click", closeSidebar);
   els.sidebarOverlay?.addEventListener("click", closeSidebar);
   els.loginForm?.addEventListener("submit", submitLogin);
   els.bootstrapForm?.addEventListener("submit", submitBootstrap);
   els.preferencesForm?.addEventListener("submit", savePreferencesForm);
-  els.logout?.addEventListener("click", submitLogout);
+  els.logoutButton?.addEventListener("click", submitLogout);
+
   document.querySelector("#market-refresh")?.addEventListener("click", refreshMarket);
   document.querySelector("#market-preview")?.addEventListener("click", showMarketPreview);
   document.querySelector("#market-publish")?.addEventListener("click", publishMarket);
-  document.querySelector("#sources-reload")?.addEventListener("click", loadSources);
+  document.querySelector("#sources-reload")?.addEventListener("click", (event) => runBusy(event.currentTarget, loadSources));
   document.querySelector("#assets-refresh")?.addEventListener("click", refreshAssets);
   els.assetSearch?.addEventListener("input", renderAssets);
+
+  document.querySelector("#automation-reload")?.addEventListener("click", (event) => runBusy(event.currentTarget, loadAutomation));
+  els.automationForm?.addEventListener("submit", saveAutomationSettings);
+  document.querySelector("#automation-dry-run")?.addEventListener("click", automationDryRun);
+  document.querySelector("#automation-force-run")?.addEventListener("click", automationForceRun);
+  document.querySelector("#automation-history-refresh")?.addEventListener("click", refreshAutomationHistory);
+
   document.querySelector("#preview-close")?.addEventListener("click", () => {
     els.previewPanel.hidden = true;
   });
@@ -114,19 +99,14 @@ async function restoreSession() {
     const payload = await api.session();
     state.user = payload.user;
     state.csrfToken = payload.csrf_token || "";
-    if (payload.user?.mustCompleteBootstrap) {
-      showBootstrap();
-      return;
-    }
+    if (payload.user?.mustCompleteBootstrap) return showBootstrap();
     await hydratePreferences();
     showApp();
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) {
-      showLogin();
-      return;
-    }
     showLogin();
-    showToast(t(state.language, "networkError"), "error");
+    if (!(error instanceof ApiError && error.status === 401)) {
+      showToast(t(state.language, "networkError"), "error");
+    }
   }
 }
 
@@ -182,17 +162,13 @@ async function submitBootstrap(event) {
   const submit = event.submitter;
   setBusy(submit, true);
   try {
-    const payload = await api.bootstrap(
-      {
-        username: document.querySelector("#bootstrap-username").value,
-        password: document.querySelector("#bootstrap-password").value,
-        admin_path: document.querySelector("#bootstrap-path").value,
-      },
-      state.csrfToken,
-    );
+    const payload = await api.bootstrap({
+      username: document.querySelector("#bootstrap-username").value,
+      password: document.querySelector("#bootstrap-password").value,
+      admin_path: document.querySelector("#bootstrap-path").value,
+    }, state.csrfToken);
     showToast(t(state.language, "bootstrapDone"), "success");
-    const nextPath = String(payload.admin_path || "").replace(/\/$/, "");
-    location.replace(`${location.origin}${nextPath}/`);
+    location.replace(`${location.origin}${String(payload.admin_path || "").replace(/\/$/, "")}/`);
   } catch (error) {
     showFormError(els.bootstrapError, error.message || t(state.language, "bootstrapFailed"));
     setBusy(submit, false);
@@ -201,21 +177,22 @@ async function submitBootstrap(event) {
 
 async function submitLogout() {
   if (!state.csrfToken) return;
-  setBusy(els.logout, true);
+  setBusy(els.logoutButton, true);
   try {
     await api.logout(state.csrfToken);
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 401)) {
       showToast(error.message || t(state.language, "networkError"), "error");
-      setBusy(els.logout, false);
+      setBusy(els.logoutButton, false);
       return;
     }
   }
+  stopAutomationCountdown();
   state.user = null;
   state.csrfToken = "";
   showLogin();
   showToast(t(state.language, "signedOut"), "success");
-  setBusy(els.logout, false);
+  setBusy(els.logoutButton, false);
 }
 
 async function savePreferencesForm(event) {
@@ -224,9 +201,9 @@ async function savePreferencesForm(event) {
   setBusy(submit, true);
   try {
     await persistPreferences({
-      admin_ui_language: els.adminLanguage.value,
-      admin_ui_theme: els.adminTheme.value,
-      telegram_language: els.telegramLanguage.value,
+      admin_ui_language: els.adminLanguageSelect.value,
+      admin_ui_theme: els.adminThemeSelect.value,
+      telegram_language: els.telegramLanguageSelect.value,
     });
   } catch (error) {
     showToast(error.message || t(state.language, "networkError"), "error");
@@ -236,30 +213,27 @@ async function savePreferencesForm(event) {
 }
 
 function showLogin() {
+  stopAutomationCountdown();
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
   els.loginForm.hidden = false;
   els.bootstrapForm.hidden = true;
   document.querySelector("#login-password").value = "";
-  requestAnimationFrame(() => document.querySelector("#login-username")?.focus());
 }
-
 function showBootstrap() {
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
   els.loginForm.hidden = true;
   els.bootstrapForm.hidden = false;
   document.querySelector("#bootstrap-password").value = "";
-  requestAnimationFrame(() => document.querySelector("#bootstrap-username")?.focus());
 }
-
 function showApp() {
   els.authScreen.hidden = true;
   els.appShell.hidden = false;
   const username = String(state.user?.username || "admin");
   els.userName.textContent = username;
   els.userAvatar.textContent = username.slice(0, 1).toUpperCase();
-  els.adminRoute.textContent = `${basePath}/`;
+  els.adminRouteValue.textContent = `${basePath}/`;
   activateView(state.activeView);
 }
 
@@ -272,12 +246,12 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  els.dashboardView.hidden = view !== "dashboard";
-  els.marketView.hidden = view !== "market";
-  els.sourcesView.hidden = view !== "sources";
-  els.assetsView.hidden = view !== "assets";
-  els.settingsView.hidden = view !== "settings";
-  const placeholder = !["dashboard", "market", "sources", "assets", "settings"].includes(view);
+  const realViews = ["dashboard", "market", "sources", "assets", "automation", "settings"];
+  for (const key of realViews) {
+    const node = document.querySelector(`#${key}-view`);
+    if (node) node.hidden = key !== view;
+  }
+  const placeholder = !realViews.includes(view);
   els.placeholderView.hidden = !placeholder;
   if (placeholder) {
     els.placeholderIndex.textContent = VIEWS[view].index;
@@ -291,6 +265,8 @@ async function activateView(view) {
     if (view === "market") await loadMarket();
     if (view === "sources") await loadSources();
     if (view === "assets") await loadAssets();
+    if (view === "automation") await loadAutomation();
+    else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
   } catch (error) {
     showToast(error.message || t(state.language, "networkError"), "error");
@@ -315,48 +291,27 @@ async function loadMarket() {
   const { data } = await api.market();
   renderMarket(data);
 }
-
 async function refreshMarket(event) {
-  setBusy(event.currentTarget, true);
-  try {
+  await runBusy(event.currentTarget, async () => {
     const { data } = await api.refreshMarket(state.csrfToken);
     renderMarket(data);
     showToast(t(state.language, "marketUpdated"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-  } finally {
-    setBusy(event.currentTarget, false);
-  }
+  });
 }
-
 async function showMarketPreview(event) {
-  setBusy(event.currentTarget, true);
-  try {
+  await runBusy(event.currentTarget, async () => {
     const { data } = await api.marketPreview();
-    els.previewContent.textContent = data.fallback_html || data.rich?.html || "—";
-    els.previewPanel.hidden = false;
-    els.previewPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-  } finally {
-    setBusy(event.currentTarget, false);
-  }
+    showPreview(data.fallback_html || data.rich?.html || "—");
+  });
 }
-
 async function publishMarket(event) {
   if (!confirm(t(state.language, "publishConfirm"))) return;
-  setBusy(event.currentTarget, true);
-  try {
+  await runBusy(event.currentTarget, async () => {
     await api.publishMarket(state.csrfToken);
     showToast(t(state.language, "marketPublished"), "success");
     await loadDashboard();
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-  } finally {
-    setBusy(event.currentTarget, false);
-  }
+  });
 }
-
 function renderMarket(data) {
   setText("market-usdt", formatToman(data.usdt?.price_toman));
   setText("market-usdt-source", data.usdt?.source || "—");
@@ -367,246 +322,256 @@ function renderMarket(data) {
   setText("market-cache", t(state.language, data.cache?.from_cache ? "fromCache" : "refreshed"));
   setText("market-cache-time", data.time ? `${data.date || ""} · ${data.time}` : "—");
   setText("crypto-count", String(data.crypto?.length || 0));
-
   const list = document.querySelector("#crypto-list");
   list.replaceChildren();
   for (const coin of data.crypto || []) {
-    const row = document.createElement("div");
-    row.className = "data-row";
-    const name = document.createElement("strong");
-    name.textContent = state.language === "fa" ? coin.name_fa || coin.name : coin.name || coin.symbol;
-    const price = document.createElement("span");
-    price.textContent = formatUsd(coin.price_usd);
-    price.dir = "ltr";
-    const change = document.createElement("span");
-    const value = Number(coin.change_24h_percent);
-    change.textContent = Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—";
-    change.className = value > 0 ? "change-positive" : value < 0 ? "change-negative" : "";
-    change.dir = "ltr";
-    row.append(name, price, change);
+    const row = el("div", "data-row");
+    row.append(
+      textEl("strong", state.language === "fa" ? coin.name_fa || coin.name : coin.name || coin.symbol),
+      textEl("span", formatUsd(coin.price_usd), "", "ltr"),
+      textEl("span", formatPercent(coin.change_24h_percent), changeClass(coin.change_24h_percent), "ltr"),
+    );
     list.append(row);
   }
 }
 
 async function loadSources() {
   const { data } = await api.sources();
-  state.sourceData = data || { sources: {}, usdt_priority: [] };
+  state.sourceData = data;
   renderSources();
 }
-
 function renderSources() {
-  if (!state.sourceData) return;
+  const data = state.sourceData || {};
   els.sourcesList.replaceChildren();
-  for (const source of Object.values(state.sourceData.sources || {})) {
-    const card = document.createElement("article");
-    card.className = "panel-card source-card";
-
-    const head = document.createElement("div");
-    head.className = "source-card-head";
-    const identity = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = source.label;
-    const kind = document.createElement("span");
-    kind.className = "metric-detail";
-    kind.textContent = source.kind === "usdt" ? "USDT / TMN" : source.kind === "gold" ? "Iran Gold" : "Global Market";
-    identity.append(title, kind);
-
-    const toggle = document.createElement("button");
-    toggle.className = source.enabled ? "status-button is-enabled" : "status-button";
-    toggle.type = "button";
-    toggle.textContent = t(state.language, source.enabled ? "sourceEnabled" : "sourceDisabled");
-    toggle.addEventListener("click", () => updateSourceState(source.name, !source.enabled, toggle));
-    head.append(identity, toggle);
-
-    const status = source.status || {};
-    const grid = document.createElement("div");
-    grid.className = "source-meta-grid";
-    grid.append(
-      sourceMeta(t(state.language, "sourceStatus"), status.success ? "OK" : status.message || "—"),
-      sourceMeta(t(state.language, "httpStatus"), status.status ?? "—"),
-      sourceMeta(t(state.language, "latency"), status.latency == null ? "—" : `${status.latency}ms`),
-      sourceMeta(t(state.language, "lastCheck"), status.lastCheckedAt ? formatDateTime(status.lastCheckedAt) : t(state.language, "neverChecked")),
-    );
-
-    const actions = document.createElement("div");
-    actions.className = "action-row";
-    const testButton = document.createElement("button");
-    testButton.className = "secondary-button compact-button";
-    testButton.type = "button";
-    testButton.textContent = t(state.language, "testSource");
-    testButton.addEventListener("click", () => testSource(source.name, testButton));
-    actions.append(testButton);
-
-    card.append(head, grid, actions);
-    els.sourcesList.append(card);
+  for (const [name, item] of Object.entries(data.sources || {})) {
+    const row = el("div", "source-row");
+    const title = el("div");
+    title.append(textEl("strong", item.label || name), textEl("div", sourceStatusText(item), "row-meta"));
+    const toggle = inputSwitch(item.enabled, async (checked, input) => {
+      await mutateControl(input, async () => {
+        await api.updateSource(name, checked, state.csrfToken);
+        await loadSources();
+        showToast(t(state.language, "sourceUpdated"), "success");
+      });
+    });
+    const test = button(t(state.language, "test"), "secondary-button compact-button", async (buttonNode) => {
+      await runBusy(buttonNode, async () => {
+        await api.testSource(name, state.csrfToken);
+        await loadSources();
+        showToast(t(state.language, "sourceTested"), "success");
+      });
+    });
+    row.append(title, textEl("span", formatLatency(item.status?.latency), "row-meta"), toggle, test);
+    els.sourcesList.append(row);
   }
-  renderPriority();
+  renderPriority(data.usdt_priority || []);
 }
-
-function sourceMeta(label, value) {
-  const box = document.createElement("div");
-  box.className = "source-meta";
-  const key = document.createElement("span");
-  key.textContent = label;
-  const content = document.createElement("strong");
-  content.textContent = String(value ?? "—");
-  box.append(key, content);
-  return box;
-}
-
-function renderPriority() {
+function renderPriority(priority) {
   els.priorityList.replaceChildren();
-  const priority = [...(state.sourceData?.usdt_priority || [])];
-  priority.forEach((sourceName, index) => {
-    const row = document.createElement("div");
-    row.className = "priority-row";
-    const position = document.createElement("span");
-    position.className = "priority-index";
-    position.textContent = String(index + 1).padStart(2, "0");
-    const label = document.createElement("strong");
-    label.textContent = state.sourceData?.sources?.[sourceName]?.label || sourceName;
-    const actions = document.createElement("div");
-    actions.className = "priority-actions";
-    for (const [delta, key, glyph] of [[-1, "moveUp", "↑"], [1, "moveDown", "↓"]]) {
-      const button = document.createElement("button");
-      button.className = "icon-button mini-icon";
-      button.type = "button";
-      button.textContent = glyph;
-      button.title = t(state.language, key);
-      button.disabled = index + delta < 0 || index + delta >= priority.length;
-      button.addEventListener("click", () => movePriority(index, index + delta, button));
-      actions.append(button);
-    }
-    row.append(position, label, actions);
+  priority.forEach((name, index) => {
+    const row = el("div", "priority-row");
+    const actions = el("div", "action-row");
+    const up = button("↑", "icon-button", () => movePriority(index, -1));
+    const down = button("↓", "icon-button", () => movePriority(index, 1));
+    up.disabled = index === 0;
+    down.disabled = index === priority.length - 1;
+    actions.append(up, down);
+    row.append(textEl("span", String(index + 1), "nav-glyph"), textEl("strong", sourceLabel(name)), actions);
     els.priorityList.append(row);
   });
 }
-
-async function movePriority(from, to, button) {
-  if (!state.sourceData || from === to) return;
-  const next = [...state.sourceData.usdt_priority];
-  [next[from], next[to]] = [next[to], next[from]];
-  setBusy(button, true);
+async function movePriority(index, delta) {
+  const priority = [...(state.sourceData?.usdt_priority || [])];
+  const target = index + delta;
+  if (target < 0 || target >= priority.length) return;
+  [priority[index], priority[target]] = [priority[target], priority[index]];
   try {
-    const { data } = await api.updateUsdtPriority(next, state.csrfToken);
-    state.sourceData.usdt_priority = data.usdt_priority;
-    renderPriority();
-    showToast(t(state.language, "prioritySaved"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-    setBusy(button, false);
-  }
-}
-
-async function updateSourceState(source, enabled, button) {
-  setBusy(button, true);
-  try {
-    await api.updateSource(source, enabled, state.csrfToken);
+    await api.updateUsdtPriority(priority, state.csrfToken);
     await loadSources();
-    showToast(t(state.language, "sourceUpdated"), "success");
-    await loadDashboard();
+    showToast(t(state.language, "priorityUpdated"), "success");
   } catch (error) {
     showToast(error.message || t(state.language, "networkError"), "error");
-    setBusy(button, false);
-  }
-}
-
-async function testSource(source, button) {
-  setBusy(button, true);
-  try {
-    await api.testSource(source, state.csrfToken);
-    await loadSources();
-    showToast(t(state.language, "sourceTested"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-    setBusy(button, false);
   }
 }
 
 async function loadAssets() {
   const { data } = await api.assets();
   state.assets = data.assets || [];
-  setText("assets-enabled-count", data.enabled_count ?? 0);
-  setText("assets-total-count", data.count ?? 0);
   renderAssets();
 }
-
 function renderAssets() {
-  if (!els.assetsList) return;
   const query = String(els.assetSearch?.value || "").trim().toLowerCase();
-  const filtered = state.assets.filter((asset) => {
-    if (!query) return true;
-    return [asset.id, asset.symbol, asset.name, asset.name_fa]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query));
+  const filtered = state.assets.filter((item) => {
+    return !query || [item.id, item.name, item.name_fa, item.symbol].some((value) =>
+      String(value || "").toLowerCase().includes(query)
+    );
   });
   els.assetsList.replaceChildren();
-  if (!filtered.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty-state compact-empty";
-    empty.textContent = t(state.language, "noAssets");
-    els.assetsList.append(empty);
-    return;
-  }
-  for (const asset of filtered) {
-    const row = document.createElement("article");
-    row.className = "panel-card asset-row";
-    const identity = document.createElement("div");
-    identity.className = "asset-identity";
-    const symbol = document.createElement("strong");
-    symbol.textContent = asset.symbol || asset.id;
-    const name = document.createElement("span");
-    name.textContent = state.language === "fa" ? asset.name_fa || asset.name : asset.name || asset.id;
-    identity.append(symbol, name);
-    const rank = document.createElement("span");
-    rank.className = "asset-rank";
-    rank.textContent = asset.market_cap_rank == null ? "—" : `#${asset.market_cap_rank}`;
-    const toggle = document.createElement("button");
-    toggle.className = asset.enabled ? "status-button is-enabled" : "status-button";
-    toggle.type = "button";
-    toggle.textContent = t(state.language, asset.enabled ? "sourceEnabled" : "sourceDisabled");
-    toggle.addEventListener("click", () => updateAssetState(asset.id, !asset.enabled, toggle));
+  for (const item of filtered) {
+    const row = el("div", "asset-row");
+    const identity = el("div");
+    identity.append(
+      textEl("strong", state.language === "fa" ? item.name_fa || item.name : item.name),
+      textEl("div", `${item.symbol || ""} · ${item.id}`, "row-meta"),
+    );
+    const rank = textEl("span", item.market_cap_rank == null ? "—" : `#${item.market_cap_rank}`, "row-meta");
+    const toggle = inputSwitch(item.enabled, async (checked, input) => {
+      await mutateControl(input, async () => {
+        await api.updateAsset(item.id, checked, state.csrfToken);
+        item.enabled = checked;
+        renderAssets();
+        showToast(t(state.language, "assetUpdated"), "success");
+      });
+    });
     row.append(identity, rank, toggle);
     els.assetsList.append(row);
   }
+  els.assetCount.textContent = `${filtered.length} / ${state.assets.length}`;
 }
-
-async function updateAssetState(id, enabled, button) {
-  setBusy(button, true);
-  try {
-    await api.updateAsset(id, enabled, state.csrfToken);
-    await loadAssets();
-    showToast(t(state.language, "assetUpdated"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-    setBusy(button, false);
-  }
-}
-
 async function refreshAssets(event) {
-  const button = event?.currentTarget;
-  setBusy(button, true);
-  try {
+  await runBusy(event.currentTarget, async () => {
     const { data } = await api.refreshAssets(state.csrfToken);
     state.assets = data.assets || [];
-    setText("assets-enabled-count", data.enabled_count ?? 0);
-    setText("assets-total-count", data.count ?? 0);
     renderAssets();
-    showToast(t(state.language, "assetsRefreshed"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-  } finally {
-    setBusy(button, false);
-  }
+    showToast(t(state.language, "assetsUpdated"), "success");
+  });
 }
 
+async function loadAutomation() {
+  const { data } = await api.automation();
+  state.automationData = data;
+  renderAutomation(data);
+}
+function renderAutomation(data) {
+  const settings = data.settings || {};
+  const diagnostics = data.diagnostics || {};
+  els.automationEnabled.checked = Boolean(settings.enabled);
+  renderIntervalOptions(data.interval_options || [], settings.interval_minutes);
+  els.automationQuietEnabled.checked = Boolean(settings.quiet_hours?.enabled);
+  els.automationQuietStart.value = settings.quiet_hours?.start || "01:00";
+  els.automationQuietEnd.value = settings.quiet_hours?.end || "10:30";
+
+  setText("automation-status", t(state.language, settings.enabled ? "enabled" : "disabled"));
+  setText("automation-can-publish", `${t(state.language, "canPublishNow")}: ${t(state.language, diagnostics.can_publish_now ? "yes" : "no")}`);
+  setText("automation-reason", reasonText(diagnostics.reason));
+  setText("automation-current-slot", formatDateTime(diagnostics.current_slot_at));
+  setText("automation-next-slot", `${t(state.language, "nextAlignedSlot")}: ${formatDateTime(diagnostics.next_aligned_slot_at)}`);
+  setText("automation-next-publish", formatDateTime(diagnostics.next_publish_at));
+  setText("automation-retry-slot", `${t(state.language, "retrySlot")}: ${formatDateTime(settings.retry_slot_at)}`);
+  setText("automation-last-attempt", formatDateTime(settings.last_attempt_at));
+  setText("automation-last-success", formatDateTime(settings.last_success_at));
+  setText("automation-retry-detail", formatDateTime(settings.retry_slot_at));
+  setText("automation-last-error", settings.last_error || "—");
+  renderAutomationHistory(data.history || []);
+  startAutomationCountdown(diagnostics.next_publish_at);
+}
+function renderIntervalOptions(options, selected) {
+  els.automationInterval.replaceChildren();
+  for (const value of options) {
+    const option = document.createElement("option");
+    option.value = String(value);
+    option.textContent = `${value} ${t(state.language, "minutes")}`;
+    option.selected = Number(value) === Number(selected);
+    els.automationInterval.append(option);
+  }
+}
+async function saveAutomationSettings(event) {
+  event.preventDefault();
+  const submit = event.submitter;
+  await runBusy(submit, async () => {
+    const { data } = await api.updateAutomationSettings({
+      enabled: els.automationEnabled.checked,
+      interval_minutes: Number(els.automationInterval.value),
+      quiet_hours: {
+        enabled: els.automationQuietEnabled.checked,
+        start: els.automationQuietStart.value,
+        end: els.automationQuietEnd.value,
+      },
+    }, state.csrfToken);
+    state.automationData = data;
+    renderAutomation(data);
+    showToast(t(state.language, "automationSaved"), "success");
+    await loadDashboard();
+  });
+}
+async function automationDryRun(event) {
+  await runBusy(event.currentTarget, async () => {
+    const { data } = await api.automationDryRun({
+      refresh_market: els.automationRefreshMarket.checked,
+    }, state.csrfToken);
+    showPreview(data.preview?.fallback_html || data.preview?.rich?.html || "—");
+    showToast(t(state.language, "dryRunReady"), "success");
+    await loadAutomation();
+  });
+}
+async function automationForceRun(event) {
+  if (!confirm(t(state.language, "forceRunConfirm"))) return;
+  await runBusy(event.currentTarget, async () => {
+    await api.automationForceRun({
+      refresh_market: els.automationRefreshMarket.checked,
+    }, state.csrfToken);
+    showToast(t(state.language, "forceRunDone"), "success");
+    await Promise.all([loadAutomation(), loadDashboard()]);
+  });
+}
+async function refreshAutomationHistory(event) {
+  await runBusy(event.currentTarget, async () => {
+    const { data } = await api.automationHistory(20);
+    if (state.automationData) state.automationData.history = data || [];
+    renderAutomationHistory(data || []);
+  });
+}
+function renderAutomationHistory(history) {
+  els.automationHistory.replaceChildren();
+  if (!history.length) {
+    els.automationHistory.append(textEl("p", t(state.language, "noHistory"), "muted"));
+    return;
+  }
+  for (const run of history) {
+    const row = el("div", "history-row");
+    row.append(
+      badge(t(state.language, `mode_${run.mode}`), run.mode),
+      badge(t(state.language, `status_${run.status}`), run.status),
+      textEl("span", reasonText(run.reason), "row-meta"),
+      textEl("span", formatDateTime(run.finished_at), "row-meta", "ltr"),
+    );
+    if (run.error) row.title = run.error;
+    els.automationHistory.append(row);
+  }
+}
+function startAutomationCountdown(nextPublishAt) {
+  stopAutomationCountdown();
+  const target = Date.parse(nextPublishAt || "");
+  const render = () => {
+    if (!Number.isFinite(target)) return setText("automation-countdown", "—");
+    const seconds = Math.max(0, Math.ceil((target - Date.now()) / 1000));
+    setText("automation-countdown", `${t(state.language, "countdown")}: ${formatDuration(seconds)}`);
+    if (seconds <= 0) {
+      stopAutomationCountdown();
+      if (state.activeView === "automation") {
+        setTimeout(() => loadAutomation().catch(() => {}), 1500);
+      }
+    }
+  };
+  render();
+  state.automationCountdownTimer = setInterval(render, 1000);
+}
+function stopAutomationCountdown() {
+  if (state.automationCountdownTimer) clearInterval(state.automationCountdownTimer);
+  state.automationCountdownTimer = null;
+}
+
+function syncPreferencesForm() {
+  if (!els.adminLanguageSelect) return;
+  els.adminLanguageSelect.value = state.language;
+  els.adminThemeSelect.value = state.theme;
+  els.telegramLanguageSelect.value = state.telegramLanguage;
+}
 async function toggleLanguage() {
   const previous = state.language;
   state.language = state.language === "fa" ? "en" : "fa";
   writePreference(LANG_KEY, state.language);
-  applyLanguage(state.language);
-  refreshLanguageButtons();
-  activateView(state.activeView);
+  applyPreferences();
   if (state.user && !state.user.mustCompleteBootstrap) {
     try {
       await persistPreferences({ admin_ui_language: state.language });
@@ -614,34 +579,30 @@ async function toggleLanguage() {
       state.language = previous;
       applyPreferences();
       showToast(error.message || t(state.language, "networkError"), "error");
+      return;
     }
   }
+  if (state.activeView === "automation" && state.automationData) renderAutomation(state.automationData);
+  if (state.activeView === "sources" && state.sourceData) renderSources();
+  if (state.activeView === "assets") renderAssets();
+  refreshLanguageButtons();
 }
-
-async function cycleTheme() {
-  const previous = state.theme;
+function cycleTheme() {
   const index = THEME_ORDER.indexOf(state.theme);
   state.theme = THEME_ORDER[(index + 1) % THEME_ORDER.length];
   writePreference(THEME_KEY, state.theme);
   applyTheme();
   if (state.user && !state.user.mustCompleteBootstrap) {
-    try {
-      await persistPreferences({ admin_ui_theme: state.theme });
-    } catch (error) {
-      state.theme = previous;
-      applyTheme();
-      showToast(error.message || t(state.language, "networkError"), "error");
-    }
+    persistPreferences({ admin_ui_theme: state.theme }).catch((error) =>
+      showToast(error.message || t(state.language, "networkError"), "error")
+    );
   }
 }
-
 function applyPreferences() {
   applyLanguage(state.language);
   applyTheme();
   refreshLanguageButtons();
-  syncPreferencesForm();
 }
-
 function applyTheme() {
   const resolved = state.theme === "system" ? (media.matches ? "dark" : "light") : state.theme;
   document.documentElement.dataset.theme = resolved;
@@ -649,112 +610,169 @@ function applyTheme() {
     node.textContent = state.theme === "system" ? "◐" : state.theme === "dark" ? "●" : "○";
   });
 }
-
-function syncPreferencesForm() {
-  if (els.adminLanguage) els.adminLanguage.value = state.language;
-  if (els.adminTheme) els.adminTheme.value = state.theme;
-  if (els.telegramLanguage) els.telegramLanguage.value = state.telegramLanguage;
-}
-
 function refreshLanguageButtons() {
   document.querySelectorAll('[data-action="lang-toggle"]').forEach((button) => {
-    button.textContent = state.language === "fa" ? "EN" : "فا";
+    button.textContent = state.language === "fa" ? "EN" : "FA";
   });
 }
 
-function togglePassword(id) {
-  const input = document.getElementById(id);
-  if (input) input.type = input.type === "password" ? "text" : "password";
-}
-
 function openSidebar() {
-  els.sidebar?.classList.add("is-open");
-  if (els.sidebarOverlay) els.sidebarOverlay.hidden = false;
+  els.sidebar.classList.add("is-open");
+  els.sidebarOverlay.hidden = false;
 }
-
 function closeSidebar() {
-  els.sidebar?.classList.remove("is-open");
-  if (els.sidebarOverlay) els.sidebarOverlay.hidden = true;
+  els.sidebar.classList.remove("is-open");
+  els.sidebarOverlay.hidden = true;
+}
+function togglePassword(id) {
+  const input = document.querySelector(`#${id}`);
+  if (!input) return;
+  input.type = input.type === "password" ? "text" : "password";
 }
 
-function setBusy(button, busy) {
-  if (!button) return;
-  button.disabled = busy;
-  button.setAttribute("aria-busy", busy ? "true" : "false");
+function showPreview(text) {
+  els.previewContent.textContent = String(text || "—");
+  els.previewPanel.hidden = false;
+  els.previewPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
-
-function setText(id, value) {
-  const node = document.getElementById(id);
-  if (node) node.textContent = value == null || value === "" ? "—" : String(value);
+function showToast(message, type = "info") {
+  els.toast.textContent = String(message || "");
+  els.toast.dataset.type = type;
+  els.toast.hidden = false;
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => { els.toast.hidden = true; }, 3500);
 }
-
-function formatToman(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  const locale = state.language === "fa" ? "fa-IR" : "en-US";
-  const unit = state.language === "fa" ? "تومان" : "Toman";
-  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number)} ${unit}`;
-}
-
-function formatUsd(value) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: number >= 100 ? 2 : 4,
-  }).format(number);
-}
-
-function formatDateTime(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(state.language === "fa" ? "fa-IR" : "en-GB", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function showFormError(node, message) {
   if (!node) return;
-  node.textContent = String(message || "");
+  node.textContent = message;
   node.hidden = false;
 }
-
 function clearFormError(node) {
   if (!node) return;
   node.textContent = "";
   node.hidden = true;
 }
-
-let toastTimer = 0;
-function showToast(message, kind = "") {
-  clearTimeout(toastTimer);
-  els.toast.textContent = String(message || "");
-  els.toast.className = `toast${kind ? ` is-${kind}` : ""}`;
-  els.toast.hidden = false;
-  toastTimer = setTimeout(() => {
-    els.toast.hidden = true;
-  }, 4200);
+function setBusy(buttonNode, busy) {
+  if (!buttonNode) return;
+  buttonNode.disabled = Boolean(busy);
+  buttonNode.setAttribute("aria-busy", busy ? "true" : "false");
 }
-
-function readPreference(key, fallback) {
+async function runBusy(buttonNode, operation) {
+  setBusy(buttonNode, true);
   try {
-    return localStorage.getItem(key) || fallback;
-  } catch {
-    return fallback;
+    return await operation();
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+    return null;
+  } finally {
+    setBusy(buttonNode, false);
   }
 }
-
-function writePreference(key, value) {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // Local cache is optional. D1 remains the authenticated source of truth.
-  }
+async function mutateControl(control, operation) {
+  control.disabled = true;
+  try { await operation(); }
+  catch (error) {
+    control.checked = !control.checked;
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally { control.disabled = false; }
 }
 
+function inputSwitch(checked, onChange) {
+  const label = el("label", "switch-row");
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = Boolean(checked);
+  input.addEventListener("change", () => onChange(input.checked, input));
+  label.append(input);
+  return label;
+}
+function button(label, className, onClick) {
+  const node = textEl("button", label, className);
+  node.type = "button";
+  node.addEventListener("click", () => onClick(node));
+  return node;
+}
+function badge(label, kind) {
+  return textEl("span", label, `history-badge ${kind || ""}`.trim());
+}
+function el(tag, className = "") {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  return node;
+}
+function textEl(tag, value, className = "", dir = "") {
+  const node = el(tag, className);
+  node.textContent = String(value ?? "");
+  if (dir) node.dir = dir;
+  return node;
+}
+function setText(id, value) {
+  const node = document.querySelector(`#${id}`);
+  if (node) node.textContent = String(value ?? "—");
+}
+function camel(id) {
+  return id.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+}
+function sourceLabel(name) {
+  return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", coingecko: "CoinGecko", wallgold: "WallGold" })[name] || name;
+}
+function sourceStatusText(item) {
+  const status = item?.status || {};
+  const health = status.success ? "OK" : status.message || "—";
+  const http = status.status == null ? "—" : status.status;
+  return `${health} · HTTP ${http} · ${formatDateTime(status.lastCheckedAt || status.last_checked_at)}`;
+}
+function reasonText(reason) {
+  if (!reason) return "—";
+  return t(state.language, `reason_${reason}`);
+}
+function formatToman(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? new Intl.NumberFormat(state.language === "fa" ? "fa-IR" : "en-US").format(number) : "—";
+}
+function formatUsd(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 4 }).format(number)}` : "—";
+}
+function formatPercent(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number >= 0 ? "+" : ""}${number.toFixed(2)}%` : "—";
+}
+function changeClass(value) {
+  const number = Number(value);
+  return number > 0 ? "history-badge success" : number < 0 ? "history-badge error" : "";
+}
+function formatLatency(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number} ms` : "—";
+}
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return "—";
+    return new Intl.DateTimeFormat(state.language === "fa" ? "fa-IR" : "en-GB", {
+      dateStyle: "short", timeStyle: "short",
+    }).format(new Date(timestamp));
+  }
+  return new Intl.DateTimeFormat(state.language === "fa" ? "fa-IR" : "en-GB", {
+    dateStyle: "short", timeStyle: "short",
+  }).format(date);
+}
+function formatDuration(totalSeconds) {
+  const total = Math.max(0, Number(totalSeconds) || 0);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}
 function normalizeTheme(value) {
   return THEME_ORDER.includes(value) ? value : "system";
+}
+function readPreference(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+}
+function writePreference(key, value) {
+  try { localStorage.setItem(key, value); } catch {}
 }

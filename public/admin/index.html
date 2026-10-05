@@ -14,102 +14,36 @@
 
   <section id="auth-screen" class="auth-screen" aria-label="Authentication">
     <header class="auth-toolbar">
-      <a class="brand brand-compact" href="./" aria-label="DRD Rate Manager">
-        <span class="brand-mark" aria-hidden="true">D</span>
-        <span class="brand-copy">
-          <strong>DRD Rate Manager</strong>
-          <span data-i18n="adminPanel">پنل مدیریت</span>
-        </span>
-      </a>
+      <a class="brand brand-compact" href="./"><span class="brand-mark">D</span><span class="brand-copy"><strong>DRD Rate Manager</strong><span data-i18n="adminPanel">پنل مدیریت</span></span></a>
       <div class="toolbar-actions">
-        <button class="icon-button" type="button" data-action="lang-toggle" aria-label="Change language">EN</button>
-        <button class="icon-button" type="button" data-action="theme-cycle" aria-label="Change theme">
-          <span data-theme-icon aria-hidden="true">◐</span>
-        </button>
+        <button class="icon-button text-button" type="button" data-action="lang-toggle">EN</button>
+        <button class="icon-button" type="button" data-action="theme-cycle"><span data-theme-icon>◐</span></button>
       </div>
     </header>
-
     <main class="auth-main">
-      <div class="auth-intro" aria-hidden="true">
+      <div class="auth-intro">
         <span class="eyebrow">DRD Network</span>
         <h1 data-i18n="authHeadline">کنترل بازار، بدون شلوغی.</h1>
         <p data-i18n="authIntro">یک پنل سبک و مستقیم برای مدیریت نرخ‌ها، منابع، انتشار و تنظیمات سیستم.</p>
         <div class="auth-intro-line"></div>
         <p class="auth-footnote" data-i18n="securityFootnote">ورود امن، نشست HttpOnly و محافظت CSRF فعال است.</p>
       </div>
-
       <div class="auth-card-wrap">
         <form id="login-form" class="panel-card auth-card" novalidate>
-          <div class="card-heading">
-            <span class="status-dot" aria-hidden="true"></span>
-            <div>
-              <h2 data-i18n="signIn">ورود</h2>
-              <p data-i18n="signInHelp">برای ادامه وارد پنل مدیریت شوید.</p>
-            </div>
-          </div>
-
-          <label class="field">
-            <span data-i18n="username">نام کاربری</span>
-            <input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" required>
-          </label>
-
-          <label class="field">
-            <span data-i18n="password">رمز عبور</span>
-            <span class="password-field">
-              <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
-              <button type="button" class="field-action" data-toggle-password="login-password" data-i18n-aria="togglePassword">نمایش</button>
-            </span>
-          </label>
-
+          <div class="card-heading"><span class="status-dot"></span><div><h2 data-i18n="signIn">ورود</h2><p data-i18n="signInHelp">برای ادامه وارد پنل مدیریت شوید.</p></div></div>
+          <label class="field"><span data-i18n="username">نام کاربری</span><input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" required></label>
+          <label class="field"><span data-i18n="password">رمز عبور</span><span class="password-field"><input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" required><button type="button" class="field-action" data-toggle-password="login-password" data-i18n-aria="togglePassword">نمایش</button></span></label>
           <p id="login-error" class="form-error" role="alert" hidden></p>
-          <button class="primary-button" type="submit" data-submit-label="signIn">
-            <span data-i18n="signIn">ورود</span>
-          </button>
+          <button class="primary-button" type="submit"><span data-i18n="signIn">ورود</span></button>
         </form>
-
         <form id="bootstrap-form" class="panel-card auth-card" novalidate hidden>
-          <div class="security-warning" role="alert">
-            <span class="warning-mark" aria-hidden="true">!</span>
-            <div>
-              <strong data-i18n="bootstrapRequired">تکمیل راه‌اندازی الزامی است</strong>
-              <p data-i18n="bootstrapWarning">اطلاعات پیش‌فرض را تغییر دهید. بعد از ذخیره، همه نشست‌ها بسته می‌شوند.</p>
-            </div>
-          </div>
-
-          <div class="card-heading compact-heading">
-            <div>
-              <h2 data-i18n="secureAdmin">ایمن‌سازی پنل</h2>
-              <p data-i18n="secureAdminHelp">هر سه مقدار زیر باید جدید باشند.</p>
-            </div>
-          </div>
-
-          <label class="field">
-            <span data-i18n="newUsername">نام کاربری جدید</span>
-            <input id="bootstrap-username" name="username" type="text" autocomplete="username" minlength="3" maxlength="64" required>
-          </label>
-
-          <label class="field">
-            <span data-i18n="newPassword">رمز عبور جدید</span>
-            <span class="password-field">
-              <input id="bootstrap-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
-              <button type="button" class="field-action" data-toggle-password="bootstrap-password" data-i18n-aria="togglePassword">نمایش</button>
-            </span>
-            <small data-i18n="passwordRule">حداقل ۱۲ کاراکتر</small>
-          </label>
-
-          <label class="field">
-            <span data-i18n="adminPath">مسیر پنل مدیریت</span>
-            <span class="path-field" dir="ltr">
-              <span>/</span>
-              <input id="bootstrap-path" name="admin_path" type="text" autocomplete="off" minlength="4" maxlength="64" placeholder="management-x8k2" required>
-            </span>
-            <small data-i18n="adminPathHelp">این مسیر جایگزین /admin می‌شود.</small>
-          </label>
-
+          <div class="security-warning"><span class="warning-mark">!</span><div><strong data-i18n="bootstrapRequired">تکمیل راه‌اندازی الزامی است</strong><p data-i18n="bootstrapWarning">اطلاعات پیش‌فرض را تغییر دهید.</p></div></div>
+          <div class="card-heading"><div><h2 data-i18n="secureAdmin">ایمن‌سازی پنل</h2><p data-i18n="secureAdminHelp">هر سه مقدار زیر باید جدید باشند.</p></div></div>
+          <label class="field"><span data-i18n="newUsername">نام کاربری جدید</span><input id="bootstrap-username" name="username" type="text" minlength="3" maxlength="64" required></label>
+          <label class="field"><span data-i18n="newPassword">رمز عبور جدید</span><span class="password-field"><input id="bootstrap-password" name="password" type="password" minlength="12" maxlength="128" required><button type="button" class="field-action" data-toggle-password="bootstrap-password" data-i18n-aria="togglePassword">نمایش</button></span><small data-i18n="passwordRule">حداقل ۱۲ کاراکتر</small></label>
+          <label class="field"><span data-i18n="adminPath">مسیر پنل مدیریت</span><span class="path-field" dir="ltr"><span>/</span><input id="bootstrap-path" name="admin_path" type="text" minlength="4" maxlength="64" placeholder="management-x8k2" required></span><small data-i18n="adminPathHelp">این مسیر جایگزین /admin می‌شود.</small></label>
           <p id="bootstrap-error" class="form-error" role="alert" hidden></p>
-          <button class="primary-button" type="submit" data-submit-label="saveAndSecure">
-            <span data-i18n="saveAndSecure">ذخیره و ایمن‌سازی</span>
-          </button>
+          <button class="primary-button" type="submit"><span data-i18n="saveAndSecure">ذخیره و ایمن‌سازی</span></button>
         </form>
       </div>
     </main>
@@ -117,18 +51,8 @@
 
   <div id="app-shell" class="app-shell" hidden>
     <div id="sidebar-overlay" class="sidebar-overlay" hidden></div>
-    <aside id="sidebar" class="sidebar" aria-label="Main navigation">
-      <div class="sidebar-header">
-        <a class="brand" href="./" aria-label="DRD Rate Manager">
-          <span class="brand-mark" aria-hidden="true">D</span>
-          <span class="brand-copy">
-            <strong>DRD Rate Manager</strong>
-            <span data-i18n="adminPanel">پنل مدیریت</span>
-          </span>
-        </a>
-        <button id="sidebar-close" class="icon-button mobile-only" type="button" aria-label="Close menu">×</button>
-      </div>
-
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header"><a class="brand" href="./"><span class="brand-mark">D</span><span class="brand-copy"><strong>DRD Rate Manager</strong><span data-i18n="adminPanel">پنل مدیریت</span></span></a><button id="sidebar-close" class="icon-button mobile-only" type="button">×</button></div>
       <nav class="nav-list">
         <button class="nav-item is-active" type="button" data-view="dashboard"><span class="nav-glyph">01</span><span data-i18n="dashboard">داشبورد</span></button>
         <button class="nav-item" type="button" data-view="market"><span class="nav-glyph">02</span><span data-i18n="market">بازار</span></button>
@@ -139,229 +63,117 @@
         <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">07</span><span data-i18n="system">سیستم</span></button>
         <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">08</span><span data-i18n="settings">تنظیمات</span></button>
       </nav>
-
-      <div class="sidebar-footer">
-        <div class="mini-status">
-          <span class="status-dot"></span>
-          <div>
-            <strong data-i18n="webAdminOnline">Web Admin فعال</strong>
-            <span>v0.13.0</span>
-          </div>
-        </div>
-      </div>
+      <div class="sidebar-footer"><div class="mini-status"><span class="status-dot"></span><div><strong data-i18n="webAdminOnline">Web Admin فعال</strong><span>v0.13.0</span></div></div></div>
     </aside>
 
     <section class="workspace">
       <header class="topbar">
-        <div class="topbar-start">
-          <button id="sidebar-open" class="icon-button mobile-only" type="button" aria-label="Open menu">☰</button>
-          <div>
-            <span id="page-eyebrow" class="eyebrow" data-i18n="overview">Overview</span>
-            <h1 id="page-title" data-i18n="dashboard">داشبورد</h1>
-          </div>
-        </div>
-        <div class="toolbar-actions">
-          <button class="icon-button text-button" type="button" data-action="lang-toggle">EN</button>
-          <button class="icon-button" type="button" data-action="theme-cycle" aria-label="Change theme"><span data-theme-icon>◐</span></button>
-          <div class="user-chip">
-            <span class="user-avatar" id="user-avatar">A</span>
-            <div class="user-copy">
-              <strong id="user-name">admin</strong>
-              <span data-i18n="administrator">Administrator</span>
-            </div>
-          </div>
-          <button id="logout-button" class="secondary-button" type="button" data-i18n="logout">خروج</button>
-        </div>
+        <div class="topbar-start"><button id="sidebar-open" class="icon-button mobile-only" type="button">☰</button><div><span id="page-eyebrow" class="eyebrow" data-i18n="overview">Overview</span><h1 id="page-title" data-i18n="dashboard">داشبورد</h1></div></div>
+        <div class="toolbar-actions"><button class="icon-button text-button" type="button" data-action="lang-toggle">EN</button><button class="icon-button" type="button" data-action="theme-cycle"><span data-theme-icon>◐</span></button><div class="user-chip"><span class="user-avatar" id="user-avatar">A</span><div class="user-copy"><strong id="user-name">admin</strong><span data-i18n="administrator">Administrator</span></div></div><button id="logout-button" class="secondary-button" type="button" data-i18n="logout">خروج</button></div>
       </header>
 
       <main class="content">
         <section id="dashboard-view" class="view-section">
-          <div class="hero-panel">
-            <div>
-              <span class="eyebrow" data-i18n="controlCenter">Control Center</span>
-              <h2 data-i18n="dashboardHeadline">مرکز کنترل DRD Rate Manager</h2>
-              <p data-i18n="dashboardIntro">نمای زنده از وضعیت بازار، انتشار خودکار و سلامت منابع.</p>
-            </div>
-            <span class="phase-badge">Phase 8</span>
-          </div>
-
+          <div class="hero-panel"><div><span class="eyebrow" data-i18n="controlCenter">Control Center</span><h2 data-i18n="dashboardHeadline">مرکز کنترل DRD Rate Manager</h2><p data-i18n="dashboardIntro">نمای زنده از وضعیت بازار، انتشار خودکار و سلامت منابع.</p></div><span class="phase-badge">Phase 9.2</span></div>
           <div class="metric-grid">
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="botStatus">وضعیت ربات</span>
-              <strong id="dashboard-bot-status">—</strong>
-              <span id="dashboard-market-health" class="metric-detail">—</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span>
-              <strong id="dashboard-usdt" dir="ltr">—</strong>
-              <span id="dashboard-usdt-source" class="metric-detail">—</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="sourceHealth">سلامت منابع</span>
-              <strong id="dashboard-sources" dir="ltr">—</strong>
-              <span class="metric-detail">Wallex · Tabdeal · Exir · CoinGecko · WallGold</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="activeAssets">دارایی‌های فعال</span>
-              <strong id="dashboard-assets" dir="ltr">—</strong>
-              <span class="metric-detail">CoinGecko</span>
-            </article>
+            <article class="metric-card"><span class="metric-label" data-i18n="botStatus">وضعیت ربات</span><strong id="dashboard-bot-status">—</strong><span id="dashboard-market-health" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span><strong id="dashboard-usdt" dir="ltr">—</strong><span id="dashboard-usdt-source" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="sourceHealth">سلامت منابع</span><strong id="dashboard-sources" dir="ltr">—</strong><span class="metric-detail">Wallex · Tabdeal · Exir · CoinGecko · WallGold</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="activeAssets">دارایی‌های فعال</span><strong id="dashboard-assets" dir="ltr">—</strong><span class="metric-detail">CoinGecko</span></article>
           </div>
-
           <div class="metric-grid compact-metrics">
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="cacheState">وضعیت کش</span>
-              <strong id="dashboard-cache">—</strong>
-              <span id="dashboard-cache-detail" class="metric-detail">—</span>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="lastPublish">آخرین انتشار</span>
-              <strong id="dashboard-last-publish" dir="ltr">—</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="nextPublish">انتشار بعدی</span>
-              <strong id="dashboard-next-publish" dir="ltr">—</strong>
-            </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="adminRoute">مسیر مدیریت</span>
-              <strong id="admin-route-value" dir="ltr">/admin</strong>
-            </article>
+            <article class="metric-card"><span class="metric-label" data-i18n="cacheState">وضعیت کش</span><strong id="dashboard-cache">—</strong><span id="dashboard-cache-detail" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="lastPublish">آخرین انتشار</span><strong id="dashboard-last-publish" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="nextPublish">انتشار بعدی</span><strong id="dashboard-next-publish" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="adminRoute">مسیر مدیریت</span><strong id="admin-route-value" dir="ltr">/admin</strong></article>
           </div>
         </section>
 
         <section id="market-view" class="view-section" hidden>
-          <div class="section-heading-row">
-            <div>
-              <span class="eyebrow">DRD / 02</span>
-              <h2 data-i18n="market">بازار</h2>
-            </div>
-            <div class="action-row">
-              <button id="market-refresh" class="secondary-button" type="button" data-i18n="refreshMarket">بروزرسانی بازار</button>
-              <button id="market-preview" class="secondary-button" type="button" data-i18n="previewPost">پیش‌نمایش پست</button>
-              <button id="market-publish" class="primary-button compact-button" type="button" data-i18n="publishNow">انتشار اکنون</button>
-            </div>
-          </div>
-
-          <div class="metric-grid">
-            <article class="metric-card"><span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span><strong id="market-usdt" dir="ltr">—</strong><span id="market-usdt-source" class="metric-detail">—</span></article>
-            <article class="metric-card"><span class="metric-label" data-i18n="gram18">طلای ۱۸ عیار</span><strong id="market-gram18" dir="ltr">—</strong></article>
-            <article class="metric-card"><span class="metric-label" data-i18n="mazaneh">مظنه</span><strong id="market-mazaneh" dir="ltr">—</strong></article>
-            <article class="metric-card"><span class="metric-label" data-i18n="cacheState">وضعیت کش</span><strong id="market-cache">—</strong><span id="market-cache-time" class="metric-detail">—</span></article>
-          </div>
-
-          <div class="section-grid market-grid">
-            <article class="panel-card data-card">
-              <div class="card-heading"><div><h3 data-i18n="cryptoAssets">رمزارزها</h3><p id="crypto-count">—</p></div></div>
-              <div id="crypto-list" class="data-list"></div>
-            </article>
-            <article class="panel-card data-card">
-              <div class="card-heading"><div><h3 data-i18n="metals">طلا و فلزات</h3></div></div>
-              <dl class="detail-list">
-                <div><dt data-i18n="goldOunce">انس طلا</dt><dd id="market-gold" dir="ltr">—</dd></div>
-                <div><dt data-i18n="silver">نقره</dt><dd id="market-silver" dir="ltr">—</dd></div>
-              </dl>
-            </article>
-          </div>
-
-          <article id="preview-panel" class="panel-card preview-panel" hidden>
-            <div class="section-heading-row">
-              <h3 data-i18n="previewTitle">پیش‌نمایش پیام تلگرام</h3>
-              <button id="preview-close" class="secondary-button" type="button" data-i18n="closePreview">بستن پیش‌نمایش</button>
-            </div>
-            <pre id="preview-content" class="preview-content" dir="auto"></pre>
-          </article>
+          <div class="section-heading-row"><div><span class="eyebrow">DRD / 02</span><h2 data-i18n="market">بازار</h2></div><div class="action-row"><button id="market-refresh" class="secondary-button" type="button" data-i18n="refreshMarket">بروزرسانی بازار</button><button id="market-preview" class="secondary-button" type="button" data-i18n="previewPost">پیش‌نمایش پست</button><button id="market-publish" class="primary-button compact-button" type="button" data-i18n="publishNow">انتشار اکنون</button></div></div>
+          <div class="metric-grid"><article class="metric-card"><span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span><strong id="market-usdt">—</strong><span id="market-usdt-source" class="metric-detail">—</span></article><article class="metric-card"><span class="metric-label" data-i18n="gram18">طلای ۱۸ عیار</span><strong id="market-gram18">—</strong></article><article class="metric-card"><span class="metric-label" data-i18n="mazaneh">مظنه</span><strong id="market-mazaneh">—</strong></article><article class="metric-card"><span class="metric-label" data-i18n="cacheState">وضعیت کش</span><strong id="market-cache">—</strong><span id="market-cache-time" class="metric-detail">—</span></article></div>
+          <div class="section-grid market-grid"><article class="panel-card data-card"><div class="card-heading"><div><h3 data-i18n="cryptoAssets">رمزارزها</h3><p id="crypto-count">—</p></div></div><div id="crypto-list" class="data-list"></div></article><article class="panel-card data-card"><div class="card-heading"><div><h3>Metals</h3></div></div><div class="data-list"><div class="data-row"><strong>Gold</strong><span id="market-gold">—</span></div><div class="data-row"><strong>Silver</strong><span id="market-silver">—</span></div></div></article></div>
         </section>
 
         <section id="sources-view" class="view-section" hidden>
-          <div class="section-heading-row">
-            <div>
-              <span class="eyebrow">DRD / 03</span>
-              <h2 data-i18n="sources">منابع</h2>
-              <p data-i18n="sourcesIntro">فعال‌سازی، تست سلامت و ترتیب fallback منابع بازار.</p>
-            </div>
-            <button id="sources-reload" class="secondary-button" type="button" data-i18n="reloadStatus">بروزرسانی وضعیت</button>
-          </div>
-
-          <article class="panel-card source-priority-card">
-            <div class="card-heading">
-              <div>
-                <h3 data-i18n="usdtPriority">اولویت منابع تتر</h3>
-                <p data-i18n="usdtPriorityHelp">منابع غیرفعال در runtime رد می‌شوند، ولی ترتیب fallback حفظ می‌شود.</p>
-              </div>
-            </div>
-            <div id="usdt-priority-list" class="priority-list"></div>
-          </article>
-
-          <div id="sources-list" class="source-grid"></div>
+          <div class="section-heading-row"><div><span class="eyebrow">DRD / 03</span><h2 data-i18n="sourceManagement">مدیریت منابع</h2></div><button id="sources-reload" class="secondary-button" type="button" data-i18n="reload">بارگذاری مجدد</button></div>
+          <div class="section-grid source-layout"><article class="panel-card"><div class="card-heading"><div><h3 data-i18n="sourceStatus">وضعیت منبع</h3></div></div><div id="sources-list" class="stack-list"></div></article><article class="panel-card"><div class="card-heading"><div><h3 data-i18n="usdtPriority">اولویت منابع تتر</h3></div></div><div id="usdt-priority-list" class="stack-list"></div></article></div>
         </section>
 
         <section id="assets-view" class="view-section" hidden>
+          <div class="section-heading-row"><div><span class="eyebrow">DRD / 04</span><h2 data-i18n="assetManagement">مدیریت دارایی‌ها</h2></div><button id="assets-refresh" class="secondary-button" type="button" data-i18n="refreshAssets">بروزرسانی لیست</button></div>
+          <article class="panel-card"><div class="filter-bar"><input id="asset-search" type="search" data-i18n-placeholder="searchAssets" placeholder="جستجوی دارایی…"><span id="asset-count" class="muted">—</span></div><div id="assets-list" class="asset-list"></div></article>
+        </section>
+
+        <section id="automation-view" class="view-section" hidden>
           <div class="section-heading-row">
-            <div>
-              <span class="eyebrow">DRD / 04</span>
-              <h2 data-i18n="assets">دارایی‌ها</h2>
-              <p data-i18n="assetsIntro">دارایی‌های CoinGecko را جستجو، فعال یا غیرفعال و لیست را بروزرسانی کنید.</p>
-            </div>
-            <button id="assets-refresh" class="secondary-button" type="button" data-i18n="refreshAssets">بروزرسانی CoinGecko</button>
+            <div><span class="eyebrow">DRD / 05</span><h2 data-i18n="automationControl">کنترل انتشار خودکار</h2><p class="section-description" data-i18n="automationIntro">زمان‌بندی، ساعات سکوت، اجرای دستی و تاریخچه‌ی اتوماسیون را از یک جا مدیریت کنید.</p></div>
+            <button id="automation-reload" class="secondary-button" type="button" data-i18n="reload">بارگذاری مجدد</button>
           </div>
 
-          <article class="panel-card assets-toolbar">
-            <label class="field asset-search-field">
-              <span data-i18n="searchAssets">جستجوی دارایی</span>
-              <input id="asset-search" type="search" autocomplete="off" placeholder="BTC, Bitcoin, Ethereum...">
-            </label>
-            <div class="asset-stats" dir="ltr">
-              <span><strong id="assets-enabled-count">—</strong> <span data-i18n="enabledShort">enabled</span></span>
-              <span><strong id="assets-total-count">—</strong> <span data-i18n="totalShort">total</span></span>
-            </div>
-          </article>
+          <div class="metric-grid automation-metrics">
+            <article class="metric-card"><span class="metric-label" data-i18n="automationStatus">وضعیت اتوماسیون</span><strong id="automation-status">—</strong><span id="automation-can-publish" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="schedulerReason">وضعیت Scheduler</span><strong id="automation-reason">—</strong><span id="automation-countdown" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="currentSlot">اسلات فعلی</span><strong id="automation-current-slot" dir="ltr">—</strong><span id="automation-next-slot" class="metric-detail" dir="ltr">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="nextPublish">انتشار بعدی</span><strong id="automation-next-publish" dir="ltr">—</strong><span id="automation-retry-slot" class="metric-detail" dir="ltr">—</span></article>
+          </div>
 
-          <div id="assets-list" class="asset-list"></div>
+          <div class="section-grid automation-grid">
+            <form id="automation-form" class="panel-card" novalidate>
+              <div class="card-heading"><div><h3 data-i18n="automationControl">کنترل انتشار خودکار</h3></div><label class="switch-row compact-switch"><input id="automation-enabled" type="checkbox"><span data-i18n="enabled">فعال</span></label></div>
+              <label class="field"><span data-i18n="interval">فاصله انتشار</span><select id="automation-interval"></select></label>
+              <div class="quiet-box">
+                <label class="switch-row"><input id="automation-quiet-enabled" type="checkbox"><span data-i18n="quietHours">ساعات سکوت</span></label>
+                <div class="field-grid two-cols">
+                  <label class="field"><span data-i18n="quietStart">شروع</span><input id="automation-quiet-start" type="time" step="60" required></label>
+                  <label class="field"><span data-i18n="quietEnd">پایان</span><input id="automation-quiet-end" type="time" step="60" required></label>
+                </div>
+              </div>
+              <button class="primary-button" type="submit" data-i18n="saveAutomation">ذخیره تنظیمات اتوماسیون</button>
+            </form>
+
+            <article class="panel-card">
+              <div class="card-heading"><div><h3 data-i18n="manualActions">اجرای دستی</h3></div></div>
+              <label class="switch-row"><input id="automation-refresh-market" type="checkbox"><span data-i18n="refreshBeforeRun">قبل از اجرا بازار تازه‌سازی شود</span></label>
+              <div class="action-stack">
+                <div class="action-block"><button id="automation-dry-run" class="secondary-button wide-button" type="button" data-i18n="dryRun">Dry Run</button><p data-i18n="dryRunHelp">پیش‌نمایش را می‌سازد اما چیزی منتشر نمی‌کند.</p></div>
+                <div class="action-block danger-action"><button id="automation-force-run" class="danger-button wide-button" type="button" data-i18n="forceRun">Force Run</button><p data-i18n="forceRunHelp">بدون توجه به زمان‌بندی فوراً منتشر می‌کند.</p></div>
+              </div>
+            </article>
+          </div>
+
+          <div class="metric-grid compact-metrics automation-detail-metrics">
+            <article class="metric-card"><span class="metric-label" data-i18n="lastAttempt">آخرین تلاش</span><strong id="automation-last-attempt" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="lastSuccess">آخرین موفقیت</span><strong id="automation-last-success" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="retrySlot">اسلات Retry</span><strong id="automation-retry-detail" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="lastError">آخرین خطا</span><strong id="automation-last-error">—</strong></article>
+          </div>
+
+          <article class="panel-card history-card">
+            <div class="card-heading"><div><h3 data-i18n="executionHistory">تاریخچه اجرا</h3></div><button id="automation-history-refresh" class="secondary-button compact-button" type="button" data-i18n="refreshHistory">بروزرسانی تاریخچه</button></div>
+            <div id="automation-history" class="history-list"></div>
+          </article>
         </section>
 
         <section id="settings-view" class="view-section" hidden>
-          <div class="hero-panel compact-hero">
-            <div>
-              <span class="eyebrow">DRD / 08</span>
-              <h2 data-i18n="appearance">ظاهر و زبان</h2>
-              <p data-i18n="viewSettings">تنظیمات عمومی، Telegram، Providerها، امنیت و ظاهر در این بخش قرار می‌گیرد.</p>
+          <div class="section-heading-row"><div><span class="eyebrow">DRD / 08</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
+          <form id="preferences-form" class="panel-card form-card">
+            <div class="field-grid">
+              <label class="field"><span data-i18n="adminLanguage">زبان پنل</span><select id="admin-language-select"><option value="fa">فارسی</option><option value="en">English</option></select></label>
+              <label class="field"><span data-i18n="adminTheme">تم پنل</span><select id="admin-theme-select"><option value="system" data-i18n="systemTheme">سیستم</option><option value="dark" data-i18n="darkTheme">تیره</option><option value="light" data-i18n="lightTheme">روشن</option></select></label>
+              <label class="field"><span data-i18n="telegramLanguage">زبان تلگرام</span><select id="telegram-language-select"><option value="fa">فارسی</option><option value="en">English</option></select></label>
             </div>
-          </div>
-          <form id="preferences-form" class="panel-card preferences-card">
-            <div class="settings-grid">
-              <label class="field">
-                <span data-i18n="adminLanguage">زبان پنل</span>
-                <select id="admin-language-select">
-                  <option value="fa">فارسی</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-              <label class="field">
-                <span data-i18n="adminTheme">تم پنل</span>
-                <select id="admin-theme-select">
-                  <option value="system" data-i18n="themeSystem">سیستم</option>
-                  <option value="dark" data-i18n="themeDark">تیره</option>
-                  <option value="light" data-i18n="themeLight">روشن</option>
-                </select>
-              </label>
-              <label class="field">
-                <span data-i18n="telegramLanguage">زبان تلگرام</span>
-                <select id="telegram-language-select">
-                  <option value="fa">فارسی</option>
-                  <option value="en">English</option>
-                </select>
-              </label>
-            </div>
-            <button class="primary-button compact-button" type="submit" data-i18n="savePreferences">ذخیره تنظیمات</button>
+            <button class="primary-button" type="submit" data-i18n="savePreferences">ذخیره ترجیحات</button>
           </form>
         </section>
 
         <section id="placeholder-view" class="view-section" hidden>
-          <div class="empty-state">
-            <span id="placeholder-index" class="empty-index">—</span>
-            <h2 id="placeholder-title"></h2>
-            <p id="placeholder-description"></p>
-          </div>
+          <div class="placeholder-card"><span id="placeholder-index" class="placeholder-number">06</span><h2 id="placeholder-title">—</h2><p id="placeholder-description">—</p></div>
+        </section>
+
+        <section id="preview-panel" class="panel-card preview-panel" hidden>
+          <div class="card-heading"><div><h3 data-i18n="preview">پیش‌نمایش</h3></div><button id="preview-close" class="secondary-button compact-button" type="button" data-i18n="close">بستن</button></div>
+          <pre id="preview-content" class="preview-content"></pre>
         </section>
       </main>
     </section>
