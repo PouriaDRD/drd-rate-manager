@@ -192,7 +192,7 @@ test("automation service preserves current interval-not-due behavior", async () 
 		quiet_hours_enabled: "0",
 		quiet_hours_start: "01:00",
 		quiet_hours_end: "10:30",
-		auto_publish_last_run_at: String(now - 60_000),
+		auto_publish_last_run_at: String(now),
 		auto_publish_last_tick_at: String(now),
 	};
 	const settings = {
