@@ -1,9 +1,10 @@
 /**
  * ============================================================
  * DRD RATE MANAGER
- * Version: 0.11.3
+ * Version: 0.13.0
  * Runtime: Cloudflare Workers
  * Database: Cloudflare D1
+ * Architecture: Repository + Service + Controller
  *
  * Recommended Cloudflare Cron:
  *
@@ -12,99 +13,29 @@
  * ============================================================
  */
 
-const APP = {
+/**
+ * Application metadata and stable defaults.
+ * Keep deployment-specific values in environment variables.
+ */
+const APP = Object.freeze({
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.11.3",
-	schemaVersion: 6,
+	version: "0.13.0",
+	schemaVersion: 8,
 	apiVersion: "v1",
-};
+	defaultCacheTtlSeconds: 30,
+	defaultPublishIntervalMinutes: 10,
+	cacheTtlOptions: [5, 10, 15, 30, 60, 120, 300, 600],
+	publishIntervals: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+	quietMinuteOptions: [0, 15, 30, 45],
+	defaultQuietHours: { enabled: false, start: "01:00", end: "10:30" },
+	adminInputTtlMs: 10 * 60 * 1000,
+	marketCacheKey: "market_snapshot",
+	marketRefreshLockKey: "market_refresh",
+	marketRefreshLockMs: 15_000,
+});
 
-/* ============================================================
- * RUNTIME CACHES
- *
- * Cloudflare isolates may serve multiple invocations. Keeping
- * immutable Intl formatters and the database bootstrap promise
- * at module scope avoids repeating relatively expensive setup
- * work on warm invocations.
- * ============================================================
- */
-
-let databaseBootstrapPromise = null;
-
-const dateTimeFormatterCache = new Map();
-
-const faIntegerFormatter = new Intl.NumberFormat(
-	"en-US",
-	{
-		maximumFractionDigits: 0,
-	},
-);
-
-const faPriceLargeFormatter = new Intl.NumberFormat(
-	"en-US",
-	{
-		maximumFractionDigits: 2,
-		minimumFractionDigits: 0,
-	},
-);
-
-const faPriceSmallFormatter = new Intl.NumberFormat(
-	"en-US",
-	{
-		maximumFractionDigits: 4,
-		minimumFractionDigits: 0,
-	},
-);
-
-const USDT_SOURCE_PRIORITY = [
-	"wallex",
-	"tabdeal",
-	"exir",
-];
-
-const DEFAULT_COINGECKO_TOP_LIMIT = 20;
-
-const DEFAULT_COINGECKO_ASSETS = [
-	"ethereum",
-	"solana",
-	"ripple",
-];
-
-const DEFAULT_PUBLISH_INTERVAL_MINUTES = 10;
-
-const ALLOWED_PUBLISH_INTERVALS = [
-	5,
-	10,
-	15,
-	20,
-	25,
-	30,
-	35,
-	40,
-	45,
-	50,
-	55,
-	60,
-];
-
-const QUIET_MINUTE_OPTIONS = [
-	0,
-	15,
-	30,
-	45,
-];
-
-const DEFAULT_QUIET_HOURS = {
-	enabled: false,
-	start: "01:00",
-	end: "10:30",
-};
-
-const ADMIN_INPUT_TTL_MS =
-	10 * 60 * 1000;
-
-const COIN_NAMES_FA = {
+const COIN_NAMES_FA = Object.freeze({
 	bitcoin: "بیت‌کوین",
 	ethereum: "اتریوم",
 	tether: "تتر",
@@ -115,7 +46,6 @@ const COIN_NAMES_FA = {
 	dogecoin: "دوج‌کوین",
 	cardano: "کاردانو",
 	tron: "ترون",
-	"staked-ether": "اتریوم استیک‌شده",
 	chainlink: "چین‌لینک",
 	avalanche: "آوالانچ",
 	stellar: "استلار",
@@ -127,7 +57,6 @@ const COIN_NAMES_FA = {
 	"bitcoin-cash": "بیت‌کوین کش",
 	hedera: "هدرا",
 	hyperliquid: "هایپرلیکویید",
-	"leo-token": "لئو",
 	monero: "مونرو",
 	pepe: "پپه",
 	uniswap: "یونی‌سواپ",
@@ -139,10 +68,7 @@ const COIN_NAMES_FA = {
 	vechain: "وی‌چین",
 	"matic-network": "پالیگان",
 	"wrapped-bitcoin": "بیت‌کوین رپد",
-	"wrapped-steth": "اتریوم رپد استیک‌شده",
 	dai: "دای",
-	"ethena-usde": "یو‌اس‌دی‌ای اتنا",
-	whitebit: "وایت‌بیت",
 	okb: "اوکی‌بی",
 	mantle: "منتل",
 	bittensor: "بیت‌تنسور",
@@ -152,9917 +78,1923 @@ const COIN_NAMES_FA = {
 	arbitrum: "آربیتروم",
 	optimism: "آپتیمیزم",
 	"injective-protocol": "اینجکتیو",
-};
+});
 
-/* ============================================================
- * WORKER
- * ============================================================
- */
+const USDT_SOURCE_PRIORITY = Object.freeze(["wallex", "tabdeal", "exir"]);
 
-export default {
-	async fetch(request, env, ctx) {
-		try {
-			await ensureDatabaseReady(env);
+let bootstrapPromise = null;
+let telegramSyncPromise = null;
+const dateTimeFormatterCache = new Map();
 
-			const url =
-				new URL(request.url);
+const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const priceLargeFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 2,
+	minimumFractionDigits: 0,
+});
+const priceSmallFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 4,
+	minimumFractionDigits: 0,
+});
 
-			if (
-				request.method ===
-				"OPTIONS"
-			) {
-				return corsResponse();
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname === "/"
-			) {
-				return handleRootApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/market"
-			) {
-				return handleMarketApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/assets"
-			) {
-				return handleAssetsApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/sources"
-			) {
-				return handleSourcesApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/sources/usdt"
-			) {
-				return handleUsdtApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/automation"
-			) {
-				return handleAutomationApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/system"
-			) {
-				return handleSystemApi(env);
-			}
-
-			if (
-				request.method === "GET" &&
-				url.pathname ===
-					"/api/v1/system/database"
-			) {
-				return handleDatabaseApi(env);
-			}
-
-			if (
-				request.method === "POST" &&
-				url.pathname ===
-					"/telegram/webhook"
-			) {
-				return handleTelegramWebhook(
-					request,
-					env,
-					ctx,
-				);
-			}
-
-			return jsonResponse(
-				{
-					success: false,
-					message: "Not found",
-				},
-				404,
-			);
-		} catch (error) {
-			console.error(
-				"http.unhandled_error",
-				{
-					message:
-						errorMessage(error),
-
-					stack:
-						error?.stack ??
-						null,
-				},
-			);
-
-			return jsonResponse(
-				{
-					success: false,
-
-					message:
-						"Internal server error",
-
-					error:
-						errorMessage(error),
-				},
-				500,
-			);
-		}
-	},
-
-	async scheduled(
-		controller,
-		env,
-		ctx,
-	) {
-		// Keep the scheduled path deliberately lean.
-		// Database migrations/bootstrap are handled by HTTP
-		// invocations and must never run every minute.
-		await handleScheduledTick(
-			controller,
-			env,
-			ctx,
-		);
-	},
-};
-
-/* ============================================================
- * DATABASE
- * ============================================================
- */
-
-async function ensureDatabaseReady(env) {
-	if (!databaseBootstrapPromise) {
-		databaseBootstrapPromise =
-			ensureDatabase(env).catch(
-				(error) => {
-					databaseBootstrapPromise = null;
-					throw error;
-				},
-			);
+/** Environment configuration facade. */
+class Config {
+	constructor(env) {
+		this.env = env;
 	}
 
-	return databaseBootstrapPromise;
-}
-
-async function ensureDatabase(env) {
-	if (!env.DB) {
-		throw new Error(
-			'D1 binding "DB" is not configured.',
-		);
+	get version() {
+		return String(this.env.APP_VERSION || APP.version);
 	}
 
-	await env.DB.batch([
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS app_meta (
-				key TEXT PRIMARY KEY,
-				value TEXT NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS settings (
-				key TEXT PRIMARY KEY,
-				value TEXT NOT NULL,
-				created_at INTEGER NOT NULL DEFAULT 0,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS admins (
-				user_id TEXT PRIMARY KEY,
-				username TEXT,
-				first_name TEXT,
-				last_name TEXT,
-				is_active INTEGER NOT NULL DEFAULT 1,
-				added_by TEXT NOT NULL,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL DEFAULT 0
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS source_status (
-				source TEXT PRIMARY KEY,
-				success INTEGER NOT NULL DEFAULT 0,
-				status_code INTEGER,
-				latency_ms INTEGER,
-				message TEXT,
-				last_price REAL,
-				last_checked_at INTEGER NOT NULL
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS admin_input_state (
-				telegram_user_id TEXT PRIMARY KEY,
-				action TEXT NOT NULL,
-				payload TEXT,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS audit_logs (
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				telegram_user_id TEXT,
-				action TEXT NOT NULL,
-				data TEXT,
-				created_at INTEGER NOT NULL
-			)
-		`),
-
-		env.DB.prepare(`
-			CREATE TABLE IF NOT EXISTS coingecko_assets (
-				coin_id TEXT PRIMARY KEY,
-				symbol TEXT NOT NULL,
-				name TEXT NOT NULL,
-				is_enabled INTEGER NOT NULL DEFAULT 0,
-				market_cap_rank INTEGER,
-				created_at INTEGER NOT NULL,
-				updated_at INTEGER NOT NULL
-			)
-		`),
-	]);
-
-	await repairLegacySchema(env);
-	await migrateLegacySettings(env);
-	await ensureDefaultSettings(env);
-	await initializeDefaultCoinGeckoAssets(env);
-
-	await setAppMeta(
-		env,
-		"schema_version",
-		String(
-			APP.schemaVersion,
-		),
-	);
-}
-
-async function repairLegacySchema(
-	env,
-) {
-	await ensureColumn(
-		env,
-		"settings",
-		"created_at",
-		"INTEGER NOT NULL DEFAULT 0",
-	);
-
-	await ensureColumn(
-		env,
-		"admins",
-		"username",
-		"TEXT",
-	);
-
-	await ensureColumn(
-		env,
-		"admins",
-		"first_name",
-		"TEXT",
-	);
-
-	await ensureColumn(
-		env,
-		"admins",
-		"last_name",
-		"TEXT",
-	);
-
-	await ensureColumn(
-		env,
-		"admins",
-		"is_active",
-		"INTEGER NOT NULL DEFAULT 1",
-	);
-
-	await ensureColumn(
-		env,
-		"admins",
-		"updated_at",
-		"INTEGER NOT NULL DEFAULT 0",
-	);
-
-	await env.DB
-		.prepare(`
-			UPDATE settings
-			SET created_at =
-				CASE
-					WHEN created_at IS NULL
-						OR created_at = 0
-					THEN updated_at
-					ELSE created_at
-				END
-		`)
-		.run();
-
-	await env.DB
-		.prepare(`
-			UPDATE admins
-			SET updated_at =
-				CASE
-					WHEN updated_at IS NULL
-						OR updated_at = 0
-					THEN created_at
-					ELSE updated_at
-				END
-		`)
-		.run();
-
-	await env.DB
-		.prepare(`
-			UPDATE admins
-			SET is_active = 1
-			WHERE is_active IS NULL
-		`)
-		.run();
-}
-
-async function ensureColumn(
-	env,
-	table,
-	column,
-	definition,
-) {
-	const allowedTables = [
-		"settings",
-		"admins",
-	];
-
-	if (
-		!allowedTables.includes(table)
-	) {
-		throw new Error(
-			`Invalid migration table: ${table}`,
-		);
+	get timezone() {
+		return String(this.env.TIMEZONE || "Asia/Tehran");
 	}
 
-	const schema =
-		await env.DB
-			.prepare(
-				`PRAGMA table_info("${table}")`,
-			)
-			.all();
-
-	const exists =
-		(
-			schema.results ??
-			[]
-		).some(
-			(item) =>
-				String(item.name) ===
-				column,
-		);
-
-	if (exists) {
-		return;
+	get displayName() {
+		return String(this.env.BOT_DISPLAY_NAME || APP.displayName);
 	}
 
-	await env.DB
-		.prepare(
-			`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`,
-		)
-		.run();
-}
-
-async function migrateLegacySettings(
-	env,
-) {
-	const current =
-		await getSetting(
-			env,
-			"bot_enabled",
-			null,
-		);
-
-	if (current !== null) {
-		return;
+	get channelId() {
+		return this.env.TELEGRAM_CHANNEL_ID || null;
 	}
 
-	const legacy =
-		await getSetting(
-			env,
-			"global_enabled",
-			null,
-		);
-
-	if (legacy === null) {
-		return;
+	get channelHandle() {
+		const value = String(this.env.TELEGRAM_CHANNEL_HANDLE || "").trim();
+		if (!value) return "";
+		return value.startsWith("@") ? value : `@${value}`;
 	}
 
-	await setSetting(
-		env,
-		"bot_enabled",
-		parseBoolean(legacy)
-			? "true"
-			: "false",
-	);
-}
+	get ownerId() {
+		return String(this.env.TELEGRAM_OWNER_ID || "").trim();
+	}
 
-async function ensureDefaultSettings(
-	env,
-) {
-	const defaults = {
-		bot_enabled:
-			"true",
+	get coinGeckoPlan() {
+		return String(this.env.COINGECKO_API_PLAN || "demo").toLowerCase() === "pro"
+			? "pro"
+			: "demo";
+	}
 
-		auto_publish_enabled:
-			"false",
+	get coinGeckoBaseUrl() {
+		return this.coinGeckoPlan === "pro"
+			? "https://pro-api.coingecko.com/api/v3"
+			: "https://api.coingecko.com/api/v3";
+	}
 
-		publish_interval_minutes:
-			String(
-				DEFAULT_PUBLISH_INTERVAL_MINUTES,
+	coinGeckoHeaders() {
+		const headers = {
+			Accept: "application/json",
+			"User-Agent": String(
+				this.env.COINGECKO_USER_AGENT ||
+					`DRD-Rate-Manager/${this.version} (+https://t.me/${this.channelHandle.replace(/^@/, "") || "DRDrate"})`,
 			),
-
-		quiet_hours_enabled:
-			DEFAULT_QUIET_HOURS.enabled
-				? "true"
-				: "false",
-
-		quiet_hours_start:
-			DEFAULT_QUIET_HOURS.start,
-
-		quiet_hours_end:
-			DEFAULT_QUIET_HOURS.end,
-
-		auto_publish_last_run_at:
-			"0",
-
-		auto_publish_last_success_at:
-			"0",
-
-		auto_publish_last_tick_at:
-			"0",
-
-		auto_publish_last_attempt_at:
-			"0",
-
-		auto_publish_last_error_at:
-			"0",
-
-		auto_publish_last_skip_reason:
-			"",
-
-		auto_publish_last_error:
-			"",
-	};
-
-	for (
-		const [key, value]
-		of Object.entries(defaults)
-	) {
-		await ensureDefaultSetting(
-			env,
-			key,
-			value,
-		);
-	}
-}
-
-async function setAppMeta(
-	env,
-	key,
-	value,
-) {
-	await env.DB
-		.prepare(`
-			INSERT INTO app_meta (
-				key,
-				value,
-				updated_at
-			)
-
-			VALUES (?, ?, ?)
-
-			ON CONFLICT(key)
-			DO UPDATE SET
-				value = excluded.value,
-				updated_at = excluded.updated_at
-		`)
-		.bind(
-			key,
-			String(value),
-			Date.now(),
-		)
-		.run();
-}
-
-async function ensureDefaultSetting(
-	env,
-	key,
-	value,
-) {
-	const existing =
-		await env.DB
-			.prepare(`
-				SELECT key
-				FROM settings
-				WHERE key = ?
-				LIMIT 1
-			`)
-			.bind(key)
-			.first();
-
-	if (existing) {
-		return;
-	}
-
-	const now =
-		Date.now();
-
-	await env.DB
-		.prepare(`
-			INSERT INTO settings (
-				key,
-				value,
-				created_at,
-				updated_at
-			)
-
-			VALUES (?, ?, ?, ?)
-		`)
-		.bind(
-			key,
-			String(value),
-			now,
-			now,
-		)
-		.run();
-}
-
-async function getSetting(
-	env,
-	key,
-	fallback = null,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT value
-				FROM settings
-				WHERE key = ?
-				LIMIT 1
-			`)
-			.bind(key)
-			.first();
-
-	return (
-		result?.value ??
-		fallback
-	);
-}
-
-async function getSettingsMap(
-	env,
-	keys,
-) {
-	const uniqueKeys = [
-		...new Set(
-			keys.map(String),
-		),
-	];
-
-	if (!uniqueKeys.length) {
-		return new Map();
-	}
-
-	const placeholders =
-		uniqueKeys
-			.map(() => "?")
-			.join(", ");
-
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT key, value
-				FROM settings
-				WHERE key IN (${placeholders})
-			`)
-			.bind(...uniqueKeys)
-			.all();
-
-	return new Map(
-		(result.results ?? []).map(
-			(row) => [
-				String(row.key),
-				row.value,
-			],
-		),
-	);
-}
-
-async function setSetting(
-	env,
-	key,
-	value,
-) {
-	const now =
-		Date.now();
-
-	await env.DB
-		.prepare(`
-			INSERT INTO settings (
-				key,
-				value,
-				created_at,
-				updated_at
-			)
-
-			VALUES (?, ?, ?, ?)
-
-			ON CONFLICT(key)
-			DO UPDATE SET
-				value = excluded.value,
-				updated_at = excluded.updated_at
-		`)
-		.bind(
-			key,
-			String(value),
-			now,
-			now,
-		)
-		.run();
-}
-
-async function setSettings(
-	env,
-	values,
-) {
-	const now =
-		Date.now();
-
-	const statements =
-		Object.entries(values).map(
-			([key, value]) =>
-				env.DB
-					.prepare(`
-						INSERT INTO settings (
-							key,
-							value,
-							created_at,
-							updated_at
-						)
-
-						VALUES (?, ?, ?, ?)
-
-						ON CONFLICT(key)
-						DO UPDATE SET
-							value = excluded.value,
-							updated_at = excluded.updated_at
-					`)
-					.bind(
-						key,
-						String(value),
-						now,
-						now,
-					),
-		);
-
-	if (statements.length) {
-		await env.DB.batch(
-			statements,
-		);
-	}
-}
-
-/* ============================================================
- * GLOBAL STATE
- * ============================================================
- */
-
-async function getGlobalEnabled(
-	env,
-) {
-	return parseBoolean(
-		await getSetting(
-			env,
-			"bot_enabled",
-			"true",
-		),
-	);
-}
-
-async function setGlobalEnabled(
-	env,
-	enabled,
-) {
-	await setSetting(
-		env,
-		"bot_enabled",
-		enabled
-			? "true"
-			: "false",
-	);
-}
-
-/* ============================================================
- * TELEGRAM COMMANDS / MENU BUTTON
- * ============================================================
- */
-
-async function syncTelegramInterface(
-	env,
-	chatId = null,
-) {
-	try {
-		await telegramApi(
-			env,
-			"setMyCommands",
-			{
-				commands: [
-					{
-						command:
-							"start",
-
-						description:
-							"شروع و ورود به پنل",
-					},
-
-					{
-						command:
-							"menu",
-
-						description:
-							"نمایش پنل مدیریت",
-					},
-
-					{
-						command:
-							"help",
-
-						description:
-							"راهنمای کامل ربات",
-					},
-
-					{
-						command:
-							"id",
-
-						description:
-							"نمایش شناسه تلگرام",
-					},
-				],
-			},
-		);
-
-		await telegramApi(
-			env,
-			"setChatMenuButton",
-			{
-				...(chatId
-					? {
-						chat_id:
-							chatId,
-					}
-					: {}),
-
-				menu_button: {
-					type:
-						"commands",
-				},
-			},
-		);
-	} catch (error) {
-		console.error(
-			"telegram.ui_sync.error",
-			errorMessage(error),
-		);
-	}
-}
-
-/* ============================================================
- * WEBHOOK
- * ============================================================
- */
-
-async function handleTelegramWebhook(
-	request,
-	env,
-	ctx,
-) {
-	if (
-		!verifyTelegramWebhook(
-			request,
-			env,
-		)
-	) {
-		return jsonResponse(
-			{
-				success: false,
-				message:
-					"Unauthorized webhook",
-			},
-			401,
-		);
-	}
-
-	let update;
-
-	try {
-		update =
-			await request.json();
-	} catch {
-		return jsonResponse(
-			{
-				success: false,
-				message:
-					"Invalid JSON",
-			},
-			400,
-		);
-	}
-
-	ctx.waitUntil(
-		processTelegramUpdate(
-			update,
-			env,
-		),
-	);
-
-	return jsonResponse({
-		success: true,
-	});
-}
-
-function verifyTelegramWebhook(
-	request,
-	env,
-) {
-	const expected =
-		String(
-			env.TELEGRAM_WEBHOOK_SECRET ??
-				"",
-		);
-
-	const received =
-		request.headers.get(
-			"X-Telegram-Bot-Api-Secret-Token",
-		);
-
-	return (
-		Boolean(expected) &&
-		received === expected
-	);
-}
-
-async function processTelegramUpdate(
-	update,
-	env,
-) {
-	try {
-		if (update.message) {
-			await handleTelegramMessage(
-				update.message,
-				env,
-			);
-
-			return;
-		}
-
-		if (
-			update.callback_query
-		) {
-			await handleCallbackQuery(
-				update.callback_query,
-				env,
-			);
-		}
-	} catch (error) {
-		console.error(
-			"telegram.update.error",
-			{
-				message:
-					errorMessage(error),
-
-				stack:
-					error?.stack ??
-						null,
-			},
-		);
-	}
-}
-
-/* ============================================================
- * MESSAGE HANDLER
- * ============================================================
- */
-
-async function handleTelegramMessage(
-	message,
-	env,
-) {
-	const user =
-		message.from;
-
-	const chatId =
-		message.chat?.id;
-
-	const text =
-		message.text?.trim();
-
-	if (
-		!user ||
-		!chatId
-	) {
-		return;
-	}
-
-	if (
-		text &&
-		text.startsWith("/")
-	) {
-		const command =
-			normalizeCommand(text);
-
-		if (
-			![
-				"/start",
-				"/menu",
-				"/help",
-				"/id",
-			].includes(command)
-		) {
-			return;
-		}
-	}
-
-	const admin =
-		await resolveAdmin(
-			env,
-			user,
-		);
-
-	if (!admin) {
-		await sendAccessDenied(
-			env,
-			chatId,
-		);
-
-		return;
-	}
-
-	if (
-		admin.role === "admin"
-	) {
-		await updateAdminProfile(
-			env,
-			user,
-		);
-	}
-
-	if (
-		text &&
-		!text.startsWith("/")
-	) {
-		const state =
-			await getAdminInputState(
-				env,
-				user.id,
-			);
-
-		if (
-			state?.action ===
-			"add_admin"
-		) {
-			await handleAddAdminInput(
-				env,
-				message,
-				admin,
-				state,
-			);
-		}
-
-		return;
-	}
-
-	if (!text) {
-		return;
-	}
-
-	const command =
-		normalizeCommand(text);
-
-	if (
-		[
-			"/start",
-			"/menu",
-			"/help",
-		].includes(command)
-	) {
-		await syncTelegramInterface(
-			env,
-			chatId,
-		);
-	}
-
-	const enabled =
-		await getGlobalEnabled(
-			env,
-		);
-
-	if (!enabled) {
-		await sendDisabledScreen(
-			env,
-			chatId,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		command === "/start"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await sendStartScreen(
-			env,
-			chatId,
-			user,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		command === "/menu"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await sendMainMenu(
-			env,
-			chatId,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		command === "/help"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await sendHelpMessage(
-			env,
-			chatId,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		command === "/id"
-	) {
-		await sendIdMessage(
-			env,
-			chatId,
-			user,
-			admin,
-		);
-	}
-}
-
-/* ============================================================
- * CALLBACKS
- * ============================================================
- */
-
-async function handleCallbackQuery(
-	query,
-	env,
-) {
-	const user =
-		query.from;
-
-	const message =
-		query.message;
-
-	if (
-		!user ||
-		!message
-	) {
-		return;
-	}
-
-	const admin =
-		await resolveAdmin(
-			env,
-			user,
-		);
-
-	if (!admin) {
-		await safeAnswerCallbackQuery(
-			env,
-			query.id,
-			"دسترسی شما غیرفعال است.",
-			true,
-		);
-
-		return;
-	}
-
-	const data =
-		String(
-			query.data ??
-				"",
-		);
-
-	const enabled =
-		await getGlobalEnabled(
-			env,
-		);
-
-	if (!enabled) {
-		if (
-			data !==
-			"global:enable"
-		) {
-			await safeAnswerCallbackQuery(
-				env,
-				query.id,
-				"ربات غیرفعال است.",
-			);
-
-			await showDisabledScreen(
-				env,
-				message,
-				admin,
-			);
-
-			return;
-		}
-
-		if (
-			admin.role !==
-			"owner"
-		) {
-			await safeAnswerCallbackQuery(
-				env,
-				query.id,
-				"فقط مالک اجازه فعال کردن ربات را دارد.",
-				true,
-			);
-
-			return;
-		}
-
-		await setGlobalEnabled(
-			env,
-			true,
-		);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"global.enabled",
-		);
-
-		await safeAnswerCallbackQuery(
-			env,
-			query.id,
-			"ربات فعال شد.",
-		);
-
-		await showSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		isOwnerOnlyCallback(data) &&
-		admin.role !== "owner"
-	) {
-		await safeAnswerCallbackQuery(
-			env,
-			query.id,
-			"این عملیات فقط برای مالک در دسترس است.",
-			true,
-		);
-
-		return;
-	}
-
-	await safeAnswerCallbackQuery(
-		env,
-		query.id,
-	);
-
-	if (
-		data === "menu:home"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await showMainMenu(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "help:home"
-	) {
-		await showHelpMessage(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "market:home" ||
-		data === "market:refresh"
-	) {
-		await showMarketManager(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "market:preview"
-	) {
-		await showMarketPreview(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "market:publish"
-	) {
-		await publishMarketNow(
-			env,
-			message,
-			user,
-		);
-
-		return;
-	}
-
-	if (
-		data === "sources:home" ||
-		data === "sources:refresh"
-	) {
-		await showSourceManager(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "sources:usdt"
-	) {
-		await showUsdtRoute(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "coingecko:home" ||
-		data === "coingecko:refresh"
-	) {
-		await showCoinGeckoManager(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"coingecko:toggle:",
-		)
-	) {
-		const coinId =
-			data.substring(
-				"coingecko:toggle:"
-					.length,
-			);
-
-		await toggleCoinGeckoAsset(
-			env,
-			coinId,
-		);
-
-		await showCoinGeckoManager(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "settings:home"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await showSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "global:disable"
-	) {
-		await setGlobalEnabled(
-			env,
-			false,
-		);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"global.disabled",
-		);
-
-		await showDisabledScreen(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "automation:home" ||
-		data === "automation:refresh"
-	) {
-		await showAutomationSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "automation:toggle"
-	) {
-		const automation =
-			await getAutomationSettings(
-				env,
-			);
-
-		const next =
-			!automation.enabled;
-
-		await setAutoPublishEnabled(
-			env,
-			next,
-		);
-
-		if (next) {
-			await setSetting(
-				env,
-				"auto_publish_last_run_at",
-				"0",
-			);
-		}
-
-		await addAuditLog(
-			env,
-			user.id,
-			next
-				? "automation.enabled"
-				: "automation.disabled",
-		);
-
-		await showAutomationSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "automation:interval"
-	) {
-		await showIntervalSettings(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"automation:interval:set:",
-		)
-	) {
-		const minutes =
-			Number(
-				data.substring(
-					"automation:interval:set:"
-						.length,
-				),
-			);
-
-		const normalized =
-			await setPublishInterval(
-				env,
-				minutes,
-			);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"automation.interval_changed",
-			{
-				minutes:
-					normalized,
-			},
-		);
-
-		await showIntervalSettings(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "automation:quiet"
-	) {
-		await showQuietHoursSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data ===
-		"automation:quiet:toggle"
-	) {
-		const automation =
-			await getAutomationSettings(
-				env,
-			);
-
-		const next =
-			!automation
-				.quietHours
-				.enabled;
-
-		await setQuietHoursEnabled(
-			env,
-			next,
-		);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"automation.quiet_hours_toggled",
-			{
-				enabled:
-					next,
-			},
-		);
-
-		await showQuietHoursSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data ===
-		"automation:quiet:edit"
-	) {
-		await showQuietStartHourSelector(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"quiet:start_hour:",
-		)
-	) {
-		const hour =
-			Number(
-				data.substring(
-					"quiet:start_hour:"
-						.length,
-				),
-			);
-
-		await showQuietStartMinuteSelector(
-			env,
-			message,
-			hour,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"quiet:start_minute:",
-		)
-	) {
-		const parts =
-			data.split(":");
-
-		const hour =
-			Number(parts[2]);
-
-		const minute =
-			Number(parts[3]);
-
-		await showQuietEndHourSelector(
-			env,
-			message,
-			hour,
-			minute,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"quiet:end_hour:",
-		)
-	) {
-		const parts =
-			data.split(":");
-
-		const startHour =
-			Number(parts[2]);
-
-		const startMinute =
-			Number(parts[3]);
-
-		const endHour =
-			Number(parts[4]);
-
-		await showQuietEndMinuteSelector(
-			env,
-			message,
-			startHour,
-			startMinute,
-			endHour,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"quiet:end_minute:",
-		)
-	) {
-		const parts =
-			data.split(":");
-
-		const startHour =
-			Number(parts[2]);
-
-		const startMinute =
-			Number(parts[3]);
-
-		const endHour =
-			Number(parts[4]);
-
-		const endMinute =
-			Number(parts[5]);
-
-		const start =
-			buildTimeString(
-				startHour,
-				startMinute,
-			);
-
-		const end =
-			buildTimeString(
-				endHour,
-				endMinute,
-			);
-
-		if (start === end) {
-			await showQuietEndMinuteSelector(
-				env,
-				message,
-				startHour,
-				startMinute,
-				endHour,
-				"زمان شروع و پایان نمی‌توانند یکسان باشند.",
-			);
-
-			return;
-		}
-
-		await setQuietHoursRange(
-			env,
-			start,
-			end,
-		);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"automation.quiet_hours_changed",
-			{
-				start,
-				end,
-			},
-		);
-
-		await showQuietHoursSettings(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "system:home" ||
-		data === "system:refresh"
-	) {
-		await showSystemStatus(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "database:home" ||
-		data === "database:refresh"
-	) {
-		await showDatabaseMonitor(
-			env,
-			message,
-		);
-
-		return;
-	}
-
-	if (
-		data === "admins:home" ||
-		data === "admins:refresh"
-	) {
-		await clearAdminInputState(
-			env,
-			user.id,
-		);
-
-		await showAdmins(
-			env,
-			message,
-			admin,
-		);
-
-		return;
-	}
-
-	if (
-		data === "admins:add"
-	) {
-		await beginAddAdmin(
-			env,
-			message,
-			user.id,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"admin:view:",
-		)
-	) {
-		await showAdminDetails(
-			env,
-			message,
-			admin,
-			data.substring(
-				"admin:view:"
-					.length,
-			),
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"admin:toggle:",
-		)
-	) {
-		const targetId =
-			data.substring(
-				"admin:toggle:"
-					.length,
-			);
-
-		await toggleAdminActive(
-			env,
-			targetId,
-			user.id,
-		);
-
-		await showAdminDetails(
-			env,
-			message,
-			admin,
-			targetId,
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"admin:delete_confirm:",
-		)
-	) {
-		await showDeleteAdminConfirmation(
-			env,
-			message,
-			data.substring(
-				"admin:delete_confirm:"
-					.length,
-			),
-		);
-
-		return;
-	}
-
-	if (
-		data.startsWith(
-			"admin:delete:",
-		)
-	) {
-		const targetId =
-			data.substring(
-				"admin:delete:"
-					.length,
-			);
-
-		await deleteAdmin(
-			env,
-			targetId,
-		);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"admin.deleted",
-			{
-				targetId,
-			},
-		);
-
-		await showAdmins(
-			env,
-			message,
-			admin,
-		);
-	}
-}
-
-function isOwnerOnlyCallback(
-	data,
-) {
-	return (
-		data ===
-			"global:disable" ||
-
-		data ===
-			"automation:toggle" ||
-
-		data.startsWith(
-			"automation:interval:set:",
-		) ||
-
-		data ===
-			"automation:quiet:toggle" ||
-
-		data ===
-			"automation:quiet:edit" ||
-
-		data.startsWith(
-			"quiet:",
-		) ||
-
-		data ===
-			"admins:add" ||
-
-		data.startsWith(
-			"admin:toggle:",
-		) ||
-
-		data.startsWith(
-			"admin:delete_confirm:",
-		) ||
-
-		data.startsWith(
-			"admin:delete:",
-		)
-	);
-}
-
-/* ============================================================
- * AUTH
- * ============================================================
- */
-
-function getOwnerId(env) {
-	return String(
-		env.TELEGRAM_OWNER_ID ??
-			"",
-	).trim();
-}
-
-function isOwner(
-	env,
-	userId,
-) {
-	return (
-		Boolean(
-			getOwnerId(env),
-		) &&
-		String(userId) ===
-			getOwnerId(env)
-	);
-}
-
-async function resolveAdmin(
-	env,
-	user,
-) {
-	if (
-		isOwner(
-			env,
-			user.id,
-		)
-	) {
-		return {
-			user_id:
-				String(user.id),
-
-			role:
-				"owner",
-
-			is_active:
-				1,
-
-			username:
-				user.username ??
-					null,
-
-			first_name:
-				user.first_name ??
-					null,
-
-			last_name:
-				user.last_name ??
-					null,
 		};
-	}
-
-	const admin =
-		await env.DB
-			.prepare(`
-				SELECT *
-				FROM admins
-				WHERE user_id = ?
-				LIMIT 1
-			`)
-			.bind(
-				String(user.id),
-			)
-			.first();
-
-	if (
-		!admin ||
-		Number(
-			admin.is_active,
-		) !== 1
-	) {
-		return null;
-	}
-
-	return {
-		...admin,
-		role:
-			"admin",
-	};
-}
-
-async function updateAdminProfile(
-	env,
-	user,
-) {
-	await env.DB
-		.prepare(`
-			UPDATE admins
-			SET
-				username = ?,
-				first_name = ?,
-				last_name = ?,
-				updated_at = ?
-			WHERE user_id = ?
-		`)
-		.bind(
-			user.username ??
-				null,
-
-			user.first_name ??
-				null,
-
-			user.last_name ??
-				null,
-
-			Date.now(),
-
-			String(user.id),
-		)
-		.run();
-}
-
-function getRoleLabel(
-	admin,
-) {
-	return (
-		admin.role ===
-			"owner"
-			? "مالک"
-			: "ادمین"
-	);
-}
-
-/* ============================================================
- * START / MENU / HELP / ID
- * ============================================================
- */
-
-function getBotDisplayName(
-	env,
-) {
-	return String(
-		env.BOT_DISPLAY_NAME ??
-			APP.displayName,
-	).trim();
-}
-
-async function sendStartScreen(
-	env,
-	chatId,
-	user,
-	admin,
-) {
-	const firstName =
-		user.first_name ||
-		admin.first_name ||
-		"کاربر";
-
-	await sendTelegramMessage(
-		env,
-		chatId,
-		[
-			`<b>🚀 ${escapeHtml(
-				getBotDisplayName(env),
-			)}</b>`,
-
-			`سلام <b>${escapeHtml(
-				firstName,
-			)}</b> 👋`,
-
-			"",
-
-			"<blockquote>" +
-				`🔐 دسترسی: ${escapeHtml(
-					getRoleLabel(admin),
-				)}` +
-				"\n" +
-				"🟢 سیستم آماده است" +
-				"</blockquote>",
-
-			"",
-
-			buildNote(
-				"از دکمه ورود به پنل یا Menu کنار کادر پیام برای مدیریت ربات استفاده کن.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"⚡️ ورود به پنل",
-
-						callback_data:
-							"menu:home",
-					},
-				],
-
-				[
-					{
-						text:
-							"❓ راهنما",
-
-						callback_data:
-							"help:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-function buildMainMenuText(
-	env,
-	admin,
-) {
-	const now =
-		Date.now();
-
-	return [
-		"<b>⚡️ پنل مدیریت</b>",
-		"",
-		"<blockquote>" +
-			`🔐 دسترسی: ${escapeHtml(
-				getRoleLabel(admin),
-			)}` +
-			"\n" +
-			"🟢 ربات فعال" +
-			"</blockquote>",
-		"",
-		`📅 تاریخ: <b>${escapeHtml(
-			formatIranDate(
-				env,
-				now,
-			),
-		)}</b>`,
-		`🕒 ساعت: <b>${escapeHtml(
-			formatIranTime(
-				env,
-				now,
-			),
-		)}</b>`,
-		`🌐 منطقه زمانی: <code>${escapeHtml(
-			getTimezone(env),
-		)}</code>`,
-		"",
-		buildNote(
-			"از این صفحه به مدیریت بازار، منابع، ادمین‌ها و تنظیمات سیستم دسترسی داری.",
-		),
-		"",
-		`<code>v${escapeHtml(
-			getVersion(env),
-		)}</code>`,
-	].join("\n");
-}
-
-function mainMenuKeyboard() {
-	return {
-		inline_keyboard: [
-			[
-				{
-					text:
-						"📈 مدیریت بازار",
-
-					callback_data:
-						"market:home",
-				},
-			],
-
-			[
-				{
-					text:
-						"📡 مدیریت منابع",
-
-					callback_data:
-						"sources:home",
-				},
-
-				{
-					text:
-						"👥 مدیریت ادمین‌ها",
-
-					callback_data:
-						"admins:home",
-				},
-			],
-
-			[
-				{
-					text:
-						"⚙️ تنظیمات",
-
-					callback_data:
-						"settings:home",
-				},
-
-				{
-					text:
-						"❓ راهنما",
-
-					callback_data:
-						"help:home",
-				},
-			],
-		],
-	};
-}
-
-async function sendMainMenu(
-	env,
-	chatId,
-	admin,
-) {
-	await sendTelegramMessage(
-		env,
-		chatId,
-		buildMainMenuText(
-			env,
-			admin,
-		),
-		mainMenuKeyboard(),
-	);
-}
-
-async function showMainMenu(
-	env,
-	message,
-	admin,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		buildMainMenuText(
-			env,
-			admin,
-		),
-		mainMenuKeyboard(),
-	);
-}
-
-function buildHelpText(
-	env,
-	admin,
-) {
-	return [
-		"<b>❓ راهنمای DRD Rate Manager</b>",
-		"",
-		"<blockquote>این ربات برای دریافت، بررسی و انتشار نرخ‌های بازار در DRD Rate ساخته شده است.</blockquote>",
-		"",
-		"<b>⌨️ دستورات</b>",
-		"",
-		"<code>/start</code> — شروع ربات",
-		"<code>/menu</code> — پنل مدیریت",
-		"<code>/help</code> — نمایش این راهنما",
-		"<code>/id</code> — شناسه تلگرام شما",
-		"",
-		"<b>📈 مدیریت بازار</b>",
-		"نمایش قیمت تتر، رمزارزها، طلای 18 عیار، مظنه، انس طلا و نقره.",
-		"",
-		"<b>📡 مدیریت منابع</b>",
-		"بررسی سلامت منابع قیمت و مسیر دریافت تتر.",
-		"",
-		"<b>🪙 CoinGecko</b>",
-		"فعال یا غیرفعال کردن رمزارزهای موردنظر برای انتشار.",
-		"",
-		"<b>🤖 انتشار خودکار</b>",
-		"بازه انتشار بین 5 تا 60 دقیقه با گام 5 دقیقه‌ای قابل انتخاب است.",
-		"",
-		"<b>🌙 ساعت استراحت</b>",
-		"در بازه انتخاب‌شده انتشار خودکار متوقف می‌شود.",
-		"",
-		"<b>🗄 دیتابیس</b>",
-		"سلامت D1، تعداد رکوردها و میزان فضای مصرف‌شده را نمایش می‌دهد.",
-		"",
-		"<b>👥 ادمین‌ها</b>",
-		"مالک می‌تواند ادمین اضافه، فعال، غیرفعال یا حذف کند.",
-		"",
-		"<b>📊 API عمومی</b>",
-		"<code>GET /api/v1/market</code>",
-		"<code>GET /api/v1/assets</code>",
-		"<code>GET /api/v1/sources</code>",
-		"<code>GET /api/v1/sources/usdt</code>",
-		"<code>GET /api/v1/automation</code>",
-		"<code>GET /api/v1/system</code>",
-		"<code>GET /api/v1/system/database</code>",
-		"",
-		buildNote(
-			"Menu کنار کادر پیام، لیست دستورات ربات را باز می‌کند.",
-		),
-		"",
-		`🔐 دسترسی: <b>${escapeHtml(
-			getRoleLabel(admin),
-		)}</b>`,
-		`🌐 Timezone: <code>${escapeHtml(
-			getTimezone(env),
-		)}</code>`,
-		`⚙️ Version: <code>${escapeHtml(
-			getVersion(env),
-		)}</code>`,
-	].join("\n");
-}
-
-async function sendHelpMessage(
-	env,
-	chatId,
-	admin,
-) {
-	await sendTelegramMessage(
-		env,
-		chatId,
-		buildHelpText(
-			env,
-			admin,
-		),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"⚡️ پنل مدیریت",
-
-						callback_data:
-							"menu:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-async function showHelpMessage(
-	env,
-	message,
-	admin,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		buildHelpText(
-			env,
-			admin,
-		),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"⬅️ پنل مدیریت",
-
-						callback_data:
-							"menu:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-async function sendIdMessage(
-	env,
-	chatId,
-	user,
-	admin,
-) {
-	await sendTelegramMessage(
-		env,
-		chatId,
-		[
-			"<b>🆔 اطلاعات حساب</b>",
-			"",
-			`شناسه تلگرام: <code>${escapeHtml(
-				user.id,
-			)}</code>`,
-			"",
-			`🔐 دسترسی: <b>${escapeHtml(
-				getRoleLabel(admin),
-			)}</b>`,
-			"",
-			buildNote(
-				"برای افزودن ادمین جدید، مالک باید Telegram User ID او را وارد کند.",
-			),
-		].join("\n"),
-	);
-}
-
-/* ============================================================
- * AUTOMATION
- * ============================================================
- */
-
-async function getAutomationSettings(
-	env,
-) {
-	const keys = [
-		"auto_publish_enabled",
-		"publish_interval_minutes",
-		"quiet_hours_enabled",
-		"quiet_hours_start",
-		"quiet_hours_end",
-		"auto_publish_last_run_at",
-		"auto_publish_last_success_at",
-		"auto_publish_last_tick_at",
-		"auto_publish_last_attempt_at",
-		"auto_publish_last_error_at",
-		"auto_publish_last_skip_reason",
-		"auto_publish_last_error",
-	];
-
-	const settings =
-		await getSettingsMap(
-			env,
-			keys,
-		);
-
-	const get = (
-		key,
-		fallback,
-	) =>
-		settings.has(key)
-			? settings.get(key)
-			: fallback;
-
-	const quietStart =
-		String(
-			get(
-				"quiet_hours_start",
-				DEFAULT_QUIET_HOURS.start,
-			),
-		);
-
-	const quietEnd =
-		String(
-			get(
-				"quiet_hours_end",
-				DEFAULT_QUIET_HOURS.end,
-			),
-		);
-
-	return {
-		enabled:
-			parseBoolean(
-				get(
-					"auto_publish_enabled",
-					"false",
-				),
-			),
-
-		intervalMinutes:
-			normalizePublishInterval(
-				get(
-					"publish_interval_minutes",
-					String(
-						DEFAULT_PUBLISH_INTERVAL_MINUTES,
-					),
-				),
-			),
-
-		quietHours: {
-			enabled:
-				parseBoolean(
-					get(
-						"quiet_hours_enabled",
-						"false",
-					),
-				),
-
-			start:
-				isValidTimeString(
-					quietStart,
-				)
-					? quietStart
-					: DEFAULT_QUIET_HOURS.start,
-
-			end:
-				isValidTimeString(
-					quietEnd,
-				)
-					? quietEnd
-					: DEFAULT_QUIET_HOURS.end,
-		},
-
-		lastRunAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_run_at",
-					"0",
-				),
-			),
-
-		lastSuccessAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_success_at",
-					"0",
-				),
-			),
-
-		lastTickAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_tick_at",
-					"0",
-				),
-			),
-
-		lastAttemptAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_attempt_at",
-					"0",
-				),
-			),
-
-		lastErrorAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_error_at",
-					"0",
-				),
-			),
-
-		lastSkipReason:
-			String(
-				get(
-					"auto_publish_last_skip_reason",
-					"",
-				) ?? "",
-			),
-
-		lastError:
-			String(
-				get(
-					"auto_publish_last_error",
-					"",
-				) ?? "",
-			),
-	};
-}
-
-async function setAutoPublishEnabled(
-	env,
-	enabled,
-) {
-	await setSetting(
-		env,
-		"auto_publish_enabled",
-		enabled
-			? "true"
-			: "false",
-	);
-}
-
-async function setPublishInterval(
-	env,
-	minutes,
-) {
-	const normalized =
-		normalizePublishInterval(
-			minutes,
-		);
-
-	await setSetting(
-		env,
-		"publish_interval_minutes",
-		String(
-			normalized,
-		),
-	);
-
-	return normalized;
-}
-
-function normalizePublishInterval(
-	value,
-) {
-	const numeric =
-		Number(value);
-
-	if (
-		ALLOWED_PUBLISH_INTERVALS.includes(
-			numeric,
-		)
-	) {
-		return numeric;
-	}
-
-	return DEFAULT_PUBLISH_INTERVAL_MINUTES;
-}
-
-async function setQuietHoursEnabled(
-	env,
-	enabled,
-) {
-	await setSetting(
-		env,
-		"quiet_hours_enabled",
-		enabled
-			? "true"
-			: "false",
-	);
-}
-
-async function setQuietHoursRange(
-	env,
-	start,
-	end,
-) {
-	if (
-		!isValidTimeString(start) ||
-		!isValidTimeString(end)
-	) {
-		throw new Error(
-			"Invalid quiet hours range",
-		);
-	}
-
-	if (start === end) {
-		throw new Error(
-			"Quiet hours start and end cannot be equal.",
-		);
-	}
-
-	await setSettings(
-		env,
-		{
-			quiet_hours_start:
-				start,
-
-			quiet_hours_end:
-				end,
-
-			quiet_hours_enabled:
-				"true",
-		},
-	);
-}
-
-async function showAutomationSettings(
-	env,
-	message,
-	admin,
-) {
-	const automation =
-		await getAutomationSettings(
-			env,
-		);
-
-	const next =
-		calculateNextPublishAt(
-			env,
-			automation,
-		);
-
-	const lines = [
-		"<b>🕒 زمان‌بندی انتشار</b>",
-		"",
-		automation.enabled
-			? "<blockquote>🟢 انتشار خودکار فعال است</blockquote>"
-			: "<blockquote>⚪ انتشار خودکار غیرفعال است</blockquote>",
-		"",
-		`⏱ بازه انتشار: <b>${automation.intervalMinutes} دقیقه</b>`,
-		"",
-		automation.quietHours.enabled
-			? `🌙 ساعت استراحت: <b>${automation.quietHours.start} تا ${automation.quietHours.end}</b>`
-			: "🌙 ساعت استراحت: <b>غیرفعال</b>",
-		"",
-		`📤 آخرین انتشار: <b>${formatOptionalSystemDateTime(
-			env,
-			automation.lastSuccessAt,
-		)}</b>`,
-		`🫀 آخرین Cron Tick: <b>${formatOptionalSystemDateTime(
-			env,
-			automation.lastTickAt,
-		)}</b>`,
-		`🎯 آخرین تلاش: <b>${formatOptionalSystemDateTime(
-			env,
-			automation.lastAttemptAt,
-		)}</b>`,
-		automation.lastError
-			? `⚠️ آخرین خطا: <code>${escapeHtml(
-				automation.lastError.slice(0, 180),
-			)}</code>`
-			: "✅ خطای ثبت‌شده‌ای وجود ندارد",
-		automation.lastSkipReason
-			? `ℹ️ وضعیت آخر: <code>${escapeHtml(
-				automation.lastSkipReason,
-			)}</code>`
-			: "",
-		"",
-		`⏭ انتشار بعدی: <b>${
-			automation.enabled
-				? (
-					next
-						? formatSystemDateTime(
-							env,
-							next,
-						)
-						: "نامشخص"
-				)
-				: "غیرفعال"
-		}</b>`,
-		"",
-		buildNote(
-			"Worker هر دقیقه بررسی می‌شود و فقط وقتی بازه انتشار رسیده باشد و داخل ساعت استراحت نباشیم، پست ارسال می‌شود.",
-		),
-	];
-
-	if (
-		admin.role === "admin"
-	) {
-		lines.push(
-			"",
-			"<blockquote>🔒 تنظیمات این بخش فقط توسط مالک قابل تغییر است.</blockquote>",
-		);
-	}
-
-	const keyboard = [];
-
-	if (
-		admin.role === "owner"
-	) {
-		keyboard.push([
-			{
-				text:
-					automation.enabled
-						? "⏸ توقف انتشار خودکار"
-						: "▶️ فعال کردن انتشار خودکار",
-
-				callback_data:
-					"automation:toggle",
-			},
-		]);
-
-		keyboard.push([
-			{
-				text:
-					"⏱ بازه انتشار",
-
-				callback_data:
-					"automation:interval",
-			},
-
-			{
-				text:
-					"🌙 ساعت استراحت",
-
-				callback_data:
-					"automation:quiet",
-			},
-		]);
-	}
-
-	keyboard.push([
-		{
-			text:
-				"🔄 بروزرسانی",
-
-			callback_data:
-				"automation:refresh",
-		},
-	]);
-
-	keyboard.push([
-		{
-			text:
-				"⬅️ تنظیمات",
-
-			callback_data:
-				"settings:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
-}
-
-async function showIntervalSettings(
-	env,
-	message,
-) {
-	const automation =
-		await getAutomationSettings(
-			env,
-		);
-
-	const keyboard = [];
-
-	for (
-		let index = 0;
-		index <
-		ALLOWED_PUBLISH_INTERVALS.length;
-		index += 3
-	) {
-		const row = [];
-
-		for (
-			let offset = 0;
-			offset < 3;
-			offset++
-		) {
-			const minutes =
-				ALLOWED_PUBLISH_INTERVALS[
-					index +
-						offset
-				];
-
-			if (!minutes) {
-				continue;
-			}
-
-			row.push({
-				text:
-					`${automation.intervalMinutes === minutes ? "✅" : "▫️"} ${minutes} دقیقه`,
-
-				callback_data:
-					`automation:interval:set:${minutes}`,
-			});
+		if (this.env.COINGECKO_API_KEY) {
+			headers[this.coinGeckoPlan === "pro" ? "x-cg-pro-api-key" : "x-cg-demo-api-key"] =
+				this.env.COINGECKO_API_KEY;
 		}
-
-		keyboard.push(row);
+		return headers;
 	}
 
-	keyboard.push([
-		{
-			text:
-				"⬅️ زمان‌بندی انتشار",
-
-			callback_data:
-				"automation:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>⏱ بازه انتشار</b>",
-			"",
-			`بازه فعلی: <b>${automation.intervalMinutes} دقیقه</b>`,
-			"",
-			buildNote(
-				"بازه انتشار از 5 تا 60 دقیقه با گام‌های 5 دقیقه‌ای قابل انتخاب است. مقدار پیش‌فرض 10 دقیقه است.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
-}
-
-/* ============================================================
- * QUIET HOURS UI
- * ============================================================
- */
-
-async function showQuietHoursSettings(
-	env,
-	message,
-	admin,
-) {
-	const automation =
-		await getAutomationSettings(
-			env,
-		);
-
-	const quiet =
-		automation.quietHours;
-
-	const lines = [
-		"<b>🌙 ساعت استراحت</b>",
-		"",
-		quiet.enabled
-			? "<blockquote>🟢 ساعت استراحت فعال است</blockquote>"
-			: "<blockquote>⚪ ساعت استراحت غیرفعال است</blockquote>",
-		"",
-		`شروع: <b>${quiet.start}</b>`,
-		`پایان: <b>${quiet.end}</b>`,
-		"",
-		buildNote(
-			"در این بازه انتشار خودکار انجام نمی‌شود. بازه می‌تواند از نیمه‌شب عبور کند؛ مثل 23:00 تا 08:00.",
-		),
-	];
-
-	const keyboard = [];
-
-	if (
-		admin.role === "owner"
-	) {
-		keyboard.push([
-			{
-				text:
-					quiet.enabled
-						? "⏸ غیرفعال کردن"
-						: "▶️ فعال کردن",
-
-				callback_data:
-					"automation:quiet:toggle",
-			},
-		]);
-
-		keyboard.push([
-			{
-				text:
-					"🕒 انتخاب بازه جدید",
-
-				callback_data:
-					"automation:quiet:edit",
-			},
-		]);
+	get coinGeckoTopLimit() {
+		const raw = Number(this.env.COINGECKO_TOP_LIMIT || 20);
+		return Number.isFinite(raw) ? Math.min(50, Math.max(10, Math.floor(raw))) : 20;
 	}
 
-	keyboard.push([
-		{
-			text:
-				"⬅️ زمان‌بندی انتشار",
-
-			callback_data:
-				"automation:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
-}
-
-async function showQuietStartHourSelector(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🌙 ساعت استراحت</b>",
-			"",
-			"<blockquote>مرحله 1 از 4</blockquote>",
-			"",
-			"<b>ساعت شروع را انتخاب کن</b>",
-			"",
-			buildNote(
-				"ابتدا ساعت شروع، بعد دقیقه شروع و سپس زمان پایان انتخاب می‌شود.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard: [
-				...buildHourKeyboard(
-					"quiet:start_hour",
-				),
-
-				[
-					{
-						text:
-							"⬅️ ساعت استراحت",
-
-						callback_data:
-							"automation:quiet",
-					},
-				],
-			],
-		},
-	);
-}
-
-async function showQuietStartMinuteSelector(
-	env,
-	message,
-	hour,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🌙 ساعت استراحت</b>",
-			"",
-			"<blockquote>مرحله 2 از 4</blockquote>",
-			"",
-			`شروع: <b>${pad2(
-				hour,
-			)}:--</b>`,
-			"",
-			"<b>دقیقه شروع را انتخاب کن</b>",
-			"",
-			buildNote(
-				"دقیقه‌ها با گام 15 دقیقه‌ای انتخاب می‌شوند.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard: [
-				buildMinuteRow(
-					"quiet:start_minute",
-					[
-						hour,
-					],
-				),
-
-				[
-					{
-						text:
-							"⬅️ ساعت شروع",
-
-						callback_data:
-							"automation:quiet:edit",
-					},
-				],
-			],
-		},
-	);
-}
-
-async function showQuietEndHourSelector(
-	env,
-	message,
-	startHour,
-	startMinute,
-) {
-	const start =
-		buildTimeString(
-			startHour,
-			startMinute,
-		);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🌙 ساعت استراحت</b>",
-			"",
-			"<blockquote>مرحله 3 از 4</blockquote>",
-			"",
-			`شروع: <b>${start}</b>`,
-			"",
-			"<b>ساعت پایان را انتخاب کن</b>",
-			"",
-			buildNote(
-				"پایان می‌تواند مربوط به روز بعد باشد؛ مثل 23:00 تا 08:00.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard: [
-				...buildHourKeyboard(
-					"quiet:end_hour",
-					[
-						startHour,
-						startMinute,
-					],
-				),
-
-				[
-					{
-						text:
-							"⬅️ دقیقه شروع",
-
-						callback_data:
-							`quiet:start_hour:${startHour}`,
-					},
-				],
-			],
-		},
-	);
-}
-
-async function showQuietEndMinuteSelector(
-	env,
-	message,
-	startHour,
-	startMinute,
-	endHour,
-	errorText = null,
-) {
-	const start =
-		buildTimeString(
-			startHour,
-			startMinute,
-		);
-
-	const lines = [
-		"<b>🌙 ساعت استراحت</b>",
-		"",
-		"<blockquote>مرحله 4 از 4</blockquote>",
-		"",
-		`شروع: <b>${start}</b>`,
-		`پایان: <b>${pad2(
-			endHour,
-		)}:--</b>`,
-		"",
-		"<b>دقیقه پایان را انتخاب کن</b>",
-	];
-
-	if (errorText) {
-		lines.push(
-			"",
-			`⚠️ ${escapeHtml(
-				errorText,
-			)}`,
-		);
-	}
-
-	lines.push(
-		"",
-		buildNote(
-			"با انتخاب دقیقه پایان، بازه ذخیره و ساعت استراحت فعال می‌شود.",
-		),
-	);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard: [
-				buildMinuteRow(
-					"quiet:end_minute",
-					[
-						startHour,
-						startMinute,
-						endHour,
-					],
-				),
-
-				[
-					{
-						text:
-							"⬅️ ساعت پایان",
-
-						callback_data:
-							`quiet:start_minute:${startHour}:${startMinute}`,
-					},
-				],
-			],
-		},
-	);
-}
-
-function buildHourKeyboard(
-	prefix,
-	extraParts = [],
-) {
-	const keyboard = [];
-
-	for (
-		let hour = 0;
-		hour < 24;
-		hour += 4
-	) {
-		const row = [];
-
-		for (
-			let offset = 0;
-			offset < 4;
-			offset++
-		) {
-			const value =
-				hour +
-				offset;
-
-			row.push({
-				text:
-					pad2(value),
-
-				callback_data: [
-					prefix,
-					...extraParts,
-					value,
-				].join(":"),
-			});
-		}
-
-		keyboard.push(row);
-	}
-
-	return keyboard;
-}
-
-function buildMinuteRow(
-	prefix,
-	extraParts = [],
-) {
-	return QUIET_MINUTE_OPTIONS.map(
-		(minute) => ({
-			text:
-				pad2(minute),
-
-			callback_data: [
-				prefix,
-				...extraParts,
-				minute,
-			].join(":"),
-		}),
-	);
-}
-
-/* ============================================================
- * MARKET MANAGER
- * ============================================================
- */
-
-async function showMarketManager(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>📈 مدیریت بازار</b>",
-			"",
-			"⏳ در حال دریافت آخرین اطلاعات بازار...",
-		].join("\n"),
-		backKeyboard(
-			"پنل مدیریت",
-			"menu:home",
-		),
-	);
-
-	const [
-		snapshot,
-		automation,
-	] = await Promise.all([
-		getMarketSnapshot(env),
-
-		getAutomationSettings(
-			env,
-		),
-	]);
-
-	const nextPublish =
-		calculateNextPublishAt(
-			env,
-			automation,
-		);
-
-	const lines = [
-		"<b>📈 مدیریت بازار</b>",
-		"",
-		snapshot.partial
-			? "<blockquote>🟡 بخشی از اطلاعات بازار در دسترس نیست\n" +
-				`🕒 آخرین بروزرسانی: ${escapeHtml(
-					formatIranTime(
-						env,
-						snapshot.createdAt,
-					),
-				)}</blockquote>`
-			: "<blockquote>🟢 همه‌چیز آماده انتشار است\n" +
-				`🕒 آخرین بروزرسانی: ${escapeHtml(
-					formatIranTime(
-						env,
-						snapshot.createdAt,
-					),
-				)}</blockquote>`,
-
-		"",
-
-		"💵 <b>تتر</b>",
-		"",
-		formatOptionalToman(
-			snapshot.usdt.price,
-		),
-
-		"",
-		"",
-
-		`🪙 <b>رمزارزها</b>  ·  <b>${snapshot.crypto.length} فعال</b>`,
-		"",
-	];
-
-	for (
-		const coin
-		of snapshot.crypto
-	) {
-		lines.push(
-			buildMarketManagerCryptoItem(
-				coin,
-			),
-			"",
-		);
-	}
-
-	lines.push(
-		"",
-		"🥇 <b>طلا و فلزات</b>",
-		"",
-		`طلای ۱۸ عیار  ·  ${formatOptionalToman(
-			snapshot.metals.gram18,
-		)}`,
-		"",
-		`مظنه طلا  ·  ${formatOptionalToman(
-			snapshot.metals.mazaneh !==
-				null
-				? roundToNearest(
-					snapshot.metals.mazaneh,
-					1000,
-				)
-				: null,
-		)}`,
-		"",
-		`انس طلا  ·  ${formatOptionalUsd(
-			snapshot.metals.gold,
-		)}`,
-		"",
-		`نقره  ·  ${formatOptionalUsd(
-			snapshot.metals.silver,
-		)}`,
-		"",
-		"━━━━━━━━━━━━",
-		"",
-		"🤖 <b>انتشار خودکار</b>",
-		"",
-		automation.enabled
-			? "🟢 <b>فعال</b>"
-			: "⚪ <b>غیرفعال</b>",
-		"",
-		`⏱ بازه انتشار: <b>${automation.intervalMinutes} دقیقه</b>`,
-		"",
-		automation.quietHours.enabled
-			? `🌙 ساعت استراحت: <b>${automation.quietHours.start} تا ${automation.quietHours.end}</b>`
-			: "🌙 ساعت استراحت: <b>غیرفعال</b>",
-	);
-
-	if (
-		automation.enabled
-	) {
-		lines.push(
-			"",
-			`⏭ انتشار بعدی: <b>${
-				nextPublish
-					? escapeHtml(
-						formatSystemDateTime(
-							env,
-							nextPublish,
-						),
-					)
-					: "نامشخص"
-			}</b>`,
-		);
-	}
-
-	lines.push(
-		"",
-		buildNote(
-			"قیمت‌ها قبل از پیش‌نمایش یا انتشار دوباره دریافت می‌شوند؛ درصد رمزارزها تغییر 24 ساعته CoinGecko است.",
-		),
-	);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🚀 انتشار اکنون",
-
-						callback_data:
-							"market:publish",
-					},
-
-					{
-						text:
-							"📄 پیش‌نمایش",
-
-						callback_data:
-							"market:preview",
-					},
-				],
-
-				[
-					{
-						text:
-							"🤖 زمان‌بندی انتشار",
-
-						callback_data:
-							"automation:home",
-					},
-				],
-
-				[
-					{
-						text:
-							"🔄 بروزرسانی",
-
-						callback_data:
-							"market:refresh",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ پنل مدیریت",
-
-						callback_data:
-							"menu:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-function buildMarketManagerCryptoItem(
-	coin,
-) {
-	const name =
-		escapeHtml(
-			getPersianCoinName(
-				coin.id,
-				coin.name,
-			),
-		);
-
-	if (
-		coin.price === null ||
-		coin.price === undefined
-	) {
-		return [
-			`<b>${name}</b>`,
-			"<b>نامشخص</b>",
-			"⚪ 24 ساعته  <b>نامشخص</b>",
-		].join("\n");
-	}
-
-	const change =
-		coin.change24h !== null &&
-		coin.change24h !== undefined
-			? `${formatChangeIcon(coin.change24h)} 24 ساعته  ${formatFaChangeValue(
-				coin.change24h,
-			)}`
-			: "⚪ 24 ساعته  <b>نامشخص</b>";
-
-	return [
-		`${name}  ·  ${formatOptionalUsd(
-			coin.price,
-		)}`,
-
-		change,
-	].join("\n");
-}
-
-/* ============================================================
- * PREVIEW
- * ============================================================
- */
-
-async function showMarketPreview(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>📄 پیش‌نمایش</b>",
-			"",
-			"⏳ در حال دریافت قیمت‌های جدید...",
-		].join("\n"),
-		backKeyboard(
-			"مدیریت بازار",
-			"market:home",
-		),
-	);
-
-	const snapshot =
-		await getMarketSnapshot(
-			env,
-		);
-
-	await editTelegramRichMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		buildChannelMarketRichMessage(
-			env,
-			snapshot,
-		),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🚀 انتشار اکنون",
-
-						callback_data:
-							"market:publish",
-					},
-				],
-
-				[
-					{
-						text:
-							"🔄 پیش‌نمایش جدید",
-
-						callback_data:
-							"market:preview",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ مدیریت بازار",
-
-						callback_data:
-							"market:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-/* ============================================================
- * MANUAL PUBLISH
- * ============================================================
- */
-
-async function publishMarketNow(
-	env,
-	message,
-	user,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🚀 انتشار بازار</b>",
-			"",
-			"⏳ در حال دریافت آخرین قیمت‌ها...",
-		].join("\n"),
-		backKeyboard(
-			"مدیریت بازار",
-			"market:home",
-		),
-	);
-
-	if (
-		!env.TELEGRAM_CHANNEL_ID
-	) {
-		await editTelegramMessage(
-			env,
-			message.chat.id,
-			message.message_id,
-			[
-				"<b>🚀 انتشار بازار</b>",
-				"",
-				"🔴 کانال مقصد تنظیم نشده است.",
-			].join("\n"),
-			backKeyboard(
-				"مدیریت بازار",
-				"market:home",
-			),
-		);
-
-		return;
-	}
-
-	const snapshot =
-		await getMarketSnapshot(
-			env,
-		);
-
-	try {
-		const result =
-			await sendTelegramRichMessage(
-				env,
-				env.TELEGRAM_CHANNEL_ID,
-				buildChannelMarketRichMessage(
-					env,
-					snapshot,
-				),
-			);
-
-		await addAuditLog(
-			env,
-			user.id,
-			"market.manual_published",
-			{
-				messageId:
-					result?.message_id ??
-						null,
-
-				partial:
-					snapshot.partial,
-
-				errors:
-					snapshot.errors,
-			},
-		);
-
-		await editTelegramMessage(
-			env,
-			message.chat.id,
-			message.message_id,
-			[
-				"<b>🚀 انتشار بازار</b>",
-				"",
-				"<blockquote>✅ پست با موفقیت منتشر شد</blockquote>",
-				"",
-				snapshot.partial
-					? "🟡 بعضی داده‌ها با «نامشخص» منتشر شدند."
-					: "🟢 تمام اطلاعات بازار دریافت شده بود.",
-				"",
-				buildNote(
-					"انتشار دستی روی زمان‌بندی انتشار خودکار اثر نمی‌گذارد.",
-				),
-			].join("\n"),
-			{
-				inline_keyboard: [
-					[
-						{
-							text:
-								"📄 پیش‌نمایش جدید",
-
-							callback_data:
-								"market:preview",
-						},
-					],
-
-					[
-						{
-							text:
-								"⬅️ مدیریت بازار",
-
-							callback_data:
-								"market:home",
-						},
-					],
-				],
-			},
-		);
-	} catch (error) {
-		await editTelegramMessage(
-			env,
-			message.chat.id,
-			message.message_id,
-			[
-				"<b>🚀 انتشار بازار</b>",
-				"",
-				"🔴 ارسال پیام به کانال ناموفق بود.",
-				"",
-				`<code>${escapeHtml(
-					errorMessage(error),
-				)}</code>`,
-			].join("\n"),
-			backKeyboard(
-				"مدیریت بازار",
-				"market:home",
-			),
-		);
-	}
-}
-
-/* ============================================================
- * SNAPSHOT
- * ============================================================
- */
-
-async function getMarketSnapshot(
-	env,
-	timestamp = Date.now(),
-) {
-	const enabledCoins =
-		await getEnabledCoinGeckoAssets(
-			env,
-		);
-
-	const [
-		usdt,
-		cryptoResult,
-		globalMetals,
-		wallgold,
-	] = await Promise.all([
-		resolveUsdtToman(
-			env,
-			true,
-		),
-
-		fetchSelectedCoinGeckoAssets(
-			env,
-			enabledCoins,
-		),
-
-		fetchCoinGeckoMetals(
-			env,
-		),
-
-		checkWallGold(
-			env,
-		),
-	]);
-
-	const errors = [];
-
-	const usdtData = {
-		price: null,
-		source: null,
-		fallbackLevel: null,
-	};
-
-	if (usdt.success) {
-		usdtData.price =
-			usdt.price;
-
-		usdtData.source =
-			usdt.sourceLabel;
-
-		usdtData.fallbackLevel =
-			usdt.fallbackLevel;
-	} else {
-		errors.push({
-			source:
-				"usdt",
-
-			message:
-				usdt.message ??
-					"USDT unavailable",
-		});
-	}
-
-	let crypto = [];
-
-	if (enabledCoins.length) {
-		if (cryptoResult.success) {
-			const liveMap =
-				new Map(
-					cryptoResult.assets.map(
-						(item) => [
-							item.id,
-							item,
-						],
-					),
-				);
-
-			crypto =
-				enabledCoins.map(
-					(stored) => {
-						const live =
-							liveMap.get(
-								stored.coin_id,
-							);
-
-						if (!live) {
-							return {
-								id:
-									stored.coin_id,
-
-								symbol:
-									stored.symbol,
-
-								name:
-									stored.name,
-
-								price:
-									null,
-
-								change24h:
-									null,
-
-								marketCapRank:
-									stored.market_cap_rank ??
-										null,
-							};
-						}
-
-						return live;
-					},
-				);
-		} else {
-			errors.push({
-				source:
-					"coingecko_crypto",
-
-				message:
-					cryptoResult.message ??
-						"CoinGecko unavailable",
-			});
-
-			crypto =
-				enabledCoins.map(
-					(item) => ({
-						id:
-							item.coin_id,
-
-						symbol:
-							item.symbol,
-
-						name:
-							item.name,
-
-						price:
-							null,
-
-						change24h:
-							null,
-
-						marketCapRank:
-							item.market_cap_rank ??
-								null,
-					}),
-				);
-		}
-	}
-
-	let gold =
-		null;
-
-	let silver =
-		null;
-
-	let gram18 =
-		null;
-
-	let mazaneh =
-		null;
-
-	if (
-		globalMetals.success
-	) {
-		gold =
-			globalMetals.gold;
-
-		silver =
-			globalMetals.silver;
-	} else {
-		errors.push({
-			source:
-				"coingecko_metals",
-
-			message:
-				globalMetals.message ??
-					"Global metals unavailable",
-		});
-	}
-
-	if (
-		wallgold.success
-	) {
-		gram18 =
-			wallgold.price;
-
-		mazaneh =
-			calculateMazanehFromGram18(
-				gram18,
-			);
-	} else {
-		errors.push({
-			source:
-				"wallgold",
-
-			message:
-				wallgold.message ??
-					"WallGold unavailable",
-		});
-	}
-
-	return {
-		success: true,
-
-		partial:
-			errors.length > 0,
-
-		errors,
-
-		createdAt:
-			timestamp,
-
-		usdt:
-			usdtData,
-
-		crypto,
-
-		metals: {
-			gram18,
-			mazaneh,
-			gold,
-			silver,
-		},
-	};
-}
-
-function calculateMazanehFromGram18(
-	gram18Price,
-) {
-	const gram18 =
-		Number(
-			gram18Price,
-		);
-
-	if (
-		!Number.isFinite(
-			gram18,
-		) ||
-		gram18 <= 0
-	) {
-		return null;
-	}
-
-	return Math.round(
-		gram18 *
-			4.6083 *
-			(705 / 750),
-	);
-}
-
-/* ============================================================
- * CHANNEL POST
- * ============================================================
- */
-
-function buildChannelMarketPost(
-	env,
-	snapshot,
-) {
-	const lines = [
-		"⚡️ <b>نبض بازار</b>",
-		"",
-		"💵 <b>تتر</b>",
-		formatOptionalToman(
-			snapshot.usdt.price,
-		),
-		"",
-		"",
-		"🪙 <b>رمزارزها</b>",
-		"",
-	];
-
-	for (
-		const coin
-		of snapshot.crypto
-	) {
-		const name = escapeHtml(
-			getPersianCoinName(
-				coin.id,
-				coin.name,
-			),
-		);
-
-		lines.push(
-			`<b>${name}</b>`,
-		);
-
-		if (
-			coin.price === null ||
-			coin.price === undefined
-		) {
-			lines.push(
-				"<b>نامشخص</b>",
-				"⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
-				"",
-			);
-			continue;
-		}
-
-		lines.push(
-			formatOptionalUsd(
-				coin.price,
-			),
-			coin.change24h !== null &&
-			coin.change24h !== undefined
-				? `${formatChangeIcon(
-					coin.change24h,
-				)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
-					coin.change24h,
-				)}`
-				: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>",
-			"",
-		);
-	}
-
-	lines.push(
-		"",
-		"🥇 <b>طلا و فلزات</b>",
-		"",
-		"<b>طلای ۱۸ عیار</b>",
-		formatOptionalToman(
-			snapshot.metals.gram18,
-		),
-		"",
-		"<b>مظنه طلا</b>",
-		formatOptionalToman(
-			snapshot.metals.mazaneh !== null
-				? roundToNearest(
-					snapshot.metals.mazaneh,
-					1000,
-				)
-				: null,
-		),
-		"",
-		"<b>انس طلا</b>",
-		formatOptionalUsd(
-			snapshot.metals.gold,
-		),
-		"",
-		"<b>نقره</b>",
-		formatOptionalUsd(
-			snapshot.metals.silver,
-		),
-		"",
-		"",
-		"━━━━━━━━━━━━",
-		"",
-		`🕒 <b>${escapeHtml(
-			formatIranTime(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>  ·  📅 <b>${escapeHtml(
-			formatIranDate(
-				env,
-				snapshot.createdAt,
-			),
-		)}</b>`,
-	);
-
-	const handle =
-		getChannelHandle(
-			env,
-		);
-
-	if (handle) {
-		lines.push(
-			"",
-			`🚀 ${escapeHtml(handle)}`,
-		);
-	}
-
-	return lines.join("\n");
-}
-
-function buildChannelMarketRichMessage(
-	env,
-	snapshot,
-) {
-	const LRI = "\u2066";
-	const PDI = "\u2069";
-
-	const isolateLtr = (value) =>
-		`${LRI}${value}${PDI}`;
-
-	const buildCryptoItemHtml = (coin) => {
-		const name = escapeHtml(
-			getPersianCoinName(
-				coin.id,
-				coin.name,
-			),
-		);
-
-		const price =
-			coin.price === null ||
-			coin.price === undefined
-				? "<b>نامشخص</b>"
-				: formatOptionalUsd(
-					coin.price,
-				);
-
-		const change =
-			coin.change24h !== null &&
-			coin.change24h !== undefined
-				? `${formatChangeIcon(
-					coin.change24h,
-				)} تغییر ۲۴ ساعته: ${formatFaChangeValue(
-					coin.change24h,
-				)}`
-				: "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>";
-
-		return [
-			"<p>",
-			`<b>${name}</b><br>`,
-			`${price}<br>`,
-			change,
-			"</p>",
-		].join("");
-	};
-
-	const [firstCoin, ...remainingCoins] =
-		snapshot.crypto;
-
-	const firstCryptoHtml = firstCoin
-		? buildCryptoItemHtml(firstCoin)
-		: "<p><b>نامشخص</b></p>";
-
-	const remainingCryptoHtml =
-		remainingCoins
-			.map(buildCryptoItemHtml)
-			.join("");
-
-	const mazaneh =
-		snapshot.metals.mazaneh !== null
-			? roundToNearest(
-				snapshot.metals.mazaneh,
-				1000,
-			)
-			: null;
-
-	const remainingMetalsHtml = [
-		"<p><b>مظنه طلا</b><br>",
-		formatOptionalToman(
-			mazaneh,
-		),
-		"</p>",
-		"<p><b>انس طلا</b><br>",
-		formatOptionalUsd(
-			snapshot.metals.gold,
-		),
-		"</p>",
-		"<p><b>نقره</b><br>",
-		formatOptionalUsd(
-			snapshot.metals.silver,
-		),
-		"</p>",
-	].join("");
-
-	const handle =
-		getChannelHandle(
-			env,
-		);
-
-	const footerTime = isolateLtr(
-		`🕒 ${formatIranTime(
-			env,
-			snapshot.createdAt,
-		)} · 📅 ${formatIranDate(
-			env,
-			snapshot.createdAt,
-		)}`,
-	);
-
-	const footerChannel = handle
-		? isolateLtr(
-			`🚀 ${escapeHtml(handle)}`,
-		)
-		: "";
-
-	const html = [
-		"<p><b>⚡️ نبض بازار</b></p>",
-		"<p>",
-		"💵 <b>تتر</b><br>",
-		formatOptionalToman(
-			snapshot.usdt.price,
-		),
-		"</p>",
-		"<p><br></p>",
-
-		"<p><b>🪙 رمزارزها</b></p>",
-		firstCryptoHtml,
-		remainingCoins.length
-			? [
-				"<details>",
-				"<summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>",
-				remainingCryptoHtml,
-				"</details>",
-			].join("")
-			: "",
-		"<p><br></p>",
-
-		"<p><b>🥇 طلا و فلزات</b></p>",
-		"<p><b>طلای ۱۸ عیار</b><br>",
-		formatOptionalToman(
-			snapshot.metals.gram18,
-		),
-		"</p>",
-		"<details>",
-		"<summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>",
-		remainingMetalsHtml,
-		"</details>",
-		"<p><br></p>",
-
-		"<hr/>",
-		`<p>${footerTime}</p>`,
-		handle
-			? `<blockquote>${footerChannel}</blockquote>`
-			: "",
-	].join("");
-
-	return {
-		html,
-		is_rtl: true,
-		skip_entity_detection: false,
-	};
-}
-
-/* ============================================================
- * SETTINGS
- * ============================================================
- */
-
-async function showSettings(
-	env,
-	message,
-	admin,
-) {
-	const keyboard = [
-		[
-			{
-				text:
-					"🕒 زمان‌بندی انتشار",
-
-				callback_data:
-					"automation:home",
-			},
-		],
-
-		[
-			{
-				text:
-					"📊 وضعیت سیستم",
-
-				callback_data:
-					"system:home",
-			},
-		],
-	];
-
-	if (
-		admin.role ===
-			"owner"
-	) {
-		keyboard.push([
-			{
-				text:
-					"⏸ غیرفعال کردن ربات",
-
-				callback_data:
-					"global:disable",
-			},
-		]);
-	}
-
-	keyboard.push([
-		{
-			text:
-				"⬅️ پنل مدیریت",
-
-			callback_data:
-				"menu:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>⚙️ تنظیمات</b>",
-			"",
-			"<blockquote>🟢 سیستم فعال است</blockquote>",
-			"",
-			buildNote(
-				"زمان‌بندی انتشار و تنظیمات سطح سیستم از این بخش مدیریت می‌شوند.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
-}
-
-/* ============================================================
- * SYSTEM STATUS
- * ============================================================
- */
-
-async function showSystemStatus(
-	env,
-	message,
-	admin,
-) {
-	const now =
-		Date.now();
-
-	const [
-		database,
-		adminStats,
-		automation,
-	] = await Promise.all([
-		getDatabaseStatus(env),
-		getAdminStats(env),
-		getAutomationSettings(env),
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>📊 وضعیت سیستم</b>",
-			"",
-			"<blockquote>🟢 سرویس در حال اجراست</blockquote>",
-			"",
-			`📅 تاریخ: <b>${formatIranDate(
-				env,
-				now,
-			)}</b>`,
-			`🕒 ساعت: <b>${formatIranTime(
-				env,
-				now,
-			)}</b>`,
-			`🌐 Timezone: <code>${escapeHtml(
-				getTimezone(env),
-			)}</code>`,
-			"",
-			"<b>⚙️ سرویس</b>",
-			"",
-			"🤖 ربات: 🟢 فعال",
-			`📤 انتشار خودکار: ${
-				automation.enabled
-					? "🟢 فعال"
-					: "⚪ غیرفعال"
-			}`,
-			`⏱ Interval: <b>${automation.intervalMinutes} min</b>`,
-			"",
-			"<b>🗄 دیتابیس</b>",
-			"",
-			`وضعیت: ${
-				database.connected
-					? "🟢 متصل"
-					: "🔴 خطا"
-			}`,
-			`Latency: <code>${database.latencyMs}ms</code>`,
-			"",
-			"<b>👥 دسترسی</b>",
-			"",
-			`نقش شما: <b>${escapeHtml(
-				getRoleLabel(admin),
-			)}</b>`,
-			`ادمین فعال: <b>${adminStats.active}</b>`,
-			`ادمین غیرفعال: <b>${adminStats.inactive}</b>`,
-			"",
-			buildNote(
-				"این صفحه وضعیت لحظه‌ای Worker، D1 و سیستم انتشار خودکار را نشان می‌دهد.",
-			),
-			"",
-			`Version: <code>${escapeHtml(
-				getVersion(env),
-			)}</code>`,
-		].join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🗄 وضعیت دیتابیس",
-
-						callback_data:
-							"database:home",
-					},
-				],
-
-				[
-					{
-						text:
-							"🔄 بروزرسانی",
-
-						callback_data:
-							"system:refresh",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ تنظیمات",
-
-						callback_data:
-							"settings:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-/* ============================================================
- * DATABASE MONITOR
- * ============================================================
- */
-
-async function getDatabaseStatus(
-	env,
-) {
-	const startedAt =
-		Date.now();
-
-	try {
-		const result =
-			await env.DB
-				.prepare(
-					"SELECT 1 AS health",
-				)
-				.first();
-
-		return {
-			connected:
-				Number(
-					result?.health,
-				) === 1,
-
-			provider:
-				"Cloudflare D1",
-
-			latencyMs:
-				Date.now() -
-				startedAt,
-		};
-	} catch (error) {
-		return {
-			connected:
-				false,
-
-			provider:
-				"Cloudflare D1",
-
-			latencyMs:
-				Date.now() -
-				startedAt,
-
-			message:
-				errorMessage(error),
-		};
-	}
-}
-
-async function showDatabaseMonitor(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🗄 وضعیت دیتابیس</b>",
-			"",
-			"⏳ در حال بررسی D1...",
-		].join("\n"),
-		backKeyboard(
-			"وضعیت سیستم",
-			"system:home",
-		),
-	);
-
-	const [
-		database,
-		storage,
-		stats,
-	] = await Promise.all([
-		getDatabaseStatus(env),
-		getD1StorageUsage(env),
-		getDatabaseStats(env),
-	]);
-
-	const lines = [
-		"<b>🗄 وضعیت دیتابیس</b>",
-		"",
-		database.connected
-			? "<blockquote>🟢 Cloudflare D1 متصل است</blockquote>"
-			: "<blockquote>🔴 اتصال Cloudflare D1 ناموفق است</blockquote>",
-		"",
-		`Provider: <code>${database.provider}</code>`,
-		`Latency: <code>${database.latencyMs}ms</code>`,
-		"",
-		"<b>💾 فضای دیتابیس</b>",
-		"",
-	];
-
-	if (
-		storage.available
-	) {
-		const percent =
-			roundNumber(
-				storage.usagePercent,
-				2,
-			);
-
-		lines.push(
-			`<code>${buildStorageUsageBar(
-				percent,
-			)}</code>`,
-			"",
-			`استفاده: <b>${percent}%</b>`,
-			`مصرف‌شده: <b>${formatBytes(
-				storage.usedBytes,
-			)}</b>`,
-			`فضای کل: <b>${formatBytes(
-				storage.limitBytes,
-			)}</b>`,
-			`باقی‌مانده: <b>${formatBytes(
-				storage.freeBytes,
-			)}</b>`,
-		);
-	} else {
-		lines.push(
-			"⚪ اطلاعات فضای D1 در دسترس نیست.",
-		);
-	}
-
-	lines.push(
-		"",
-		"<b>📊 رکوردها</b>",
-		"",
-		`Admins: <b>${stats.admins}</b>`,
-		`Settings: <b>${stats.settings}</b>`,
-		`Sources: <b>${stats.sources}</b>`,
-		`Coins: <b>${stats.coins}</b>`,
-		`Audit Logs: <b>${stats.audit_logs}</b>`,
-		"",
-		buildNote(
-			"نوار بالا نسبت حجم فعلی فایل D1 به سقف تعیین‌شده در D1_DATABASE_LIMIT_MB را نمایش می‌دهد.",
-		),
-		"",
-		`Schema: <code>v${APP.schemaVersion}</code>`,
-	);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🔄 بروزرسانی",
-
-						callback_data:
-							"database:refresh",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ وضعیت سیستم",
-
-						callback_data:
-							"system:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-function buildStorageUsageBar(
-	percent,
-) {
-	const safe =
-		Math.min(
-			100,
-			Math.max(
-				0,
-				Number(percent) ||
-					0,
-			),
-		);
-
-	const totalBlocks =
-		12;
-
-	const filled =
-		Math.round(
-			(
-				safe /
-					100
-			) *
-				totalBlocks,
-		);
-
-	const empty =
-		totalBlocks -
-		filled;
-
-	return (
-		"█".repeat(
-			filled,
-		) +
-		"░".repeat(
-			empty,
-		) +
-		`  ${safe.toFixed(2)}%`
-	);
-}
-
-async function getD1StorageUsage(
-	env,
-) {
-	const accountId =
-		String(
-			env.CLOUDFLARE_ACCOUNT_ID ??
-				"",
-		).trim();
-
-	const databaseId =
-		String(
-			env.CLOUDFLARE_D1_DATABASE_ID ??
-				"",
-		).trim();
-
-	const apiToken =
-		String(
-			env.CLOUDFLARE_API_TOKEN ??
-				"",
-		).trim();
-
-	const limitMb =
-		Number(
-			env.D1_DATABASE_LIMIT_MB ??
-				0,
-		);
-
-	if (
-		!accountId ||
-		!databaseId ||
-		!apiToken ||
-		!limitMb
-	) {
-		return {
-			available:
-				false,
-		};
-	}
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(
-					accountId,
-				)}/d1/database/${encodeURIComponent(
-					databaseId,
-				)}`,
-				{
-					headers: {
-						Authorization:
-							`Bearer ${apiToken}`,
-
-						Accept:
-							"application/json",
-					},
-				},
-				8000,
-			);
-
-		const payload =
-			await response.json();
-
-		if (
-			!response.ok ||
-			!payload.success
-		) {
-			return {
-				available:
-					false,
-			};
-		}
-
-		const usedBytes =
-			Number(
-				payload.result
-					?.file_size ??
-					0,
-			);
-
-		const limitBytes =
-			limitMb *
-			1024 *
-			1024;
-
-		return {
-			available:
-				true,
-
-			usedBytes,
-
-			limitBytes,
-
-			freeBytes:
-				Math.max(
-					0,
-					limitBytes -
-						usedBytes,
-				),
-
-			usagePercent:
-				limitBytes
-					? (
-						usedBytes /
-							limitBytes
-					) * 100
-					: 0,
-		};
-	} catch {
-		return {
-			available:
-				false,
-		};
-	}
-}
-
-async function getDatabaseStats(
-	env,
-) {
-	const [
-		admins,
-		settings,
-		sources,
-		coins,
-		auditLogs,
-	] = await Promise.all([
-		countTable(
-			env,
-			"admins",
-		),
-
-		countTable(
-			env,
-			"settings",
-		),
-
-		countTable(
-			env,
-			"source_status",
-		),
-
-		countTable(
-			env,
-			"coingecko_assets",
-		),
-
-		countTable(
-			env,
-			"audit_logs",
-		),
-	]);
-
-	return {
-		admins,
-		settings,
-		sources,
-		coins,
-
-		audit_logs:
-			auditLogs,
-	};
-}
-
-async function countTable(
-	env,
-	table,
-) {
-	const allowed = [
-		"admins",
-		"settings",
-		"source_status",
-		"coingecko_assets",
-		"audit_logs",
-	];
-
-	if (
-		!allowed.includes(table)
-	) {
-		return 0;
-	}
-
-	try {
-		const result =
-			await env.DB
-				.prepare(
-					`SELECT COUNT(*) AS count FROM "${table}"`,
-				)
-				.first();
-
-		return Number(
-			result?.count ??
-				0,
-		);
-	} catch {
-		return 0;
-	}
-}
-
-/* ============================================================
- * SOURCE MANAGER
- * ============================================================
- */
-
-async function showSourceManager(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>📡 مدیریت منابع</b>",
-			"",
-			"⏳ در حال بررسی منابع...",
-		].join("\n"),
-		backKeyboard(
-			"پنل مدیریت",
-			"menu:home",
-		),
-	);
-
-	const result =
-		await checkAllSources(
-			env,
-			true,
-		);
-
-	const lines = [
-		"<b>📡 مدیریت منابع</b>",
-		"",
-		"<b>💵 تتر / تومان</b>",
-		"",
-		sourceStatusText(
-			"Wallex",
-			result.wallex,
-			"Primary",
-		),
-		"",
-		sourceStatusText(
-			"Tabdeal",
-			result.tabdeal,
-			"Fallback #1",
-		),
-		"",
-		sourceStatusText(
-			"Exir",
-			result.exir,
-			"Fallback #2",
-		),
-		"",
-		"<b>🪙 رمزارزها و فلزات جهانی</b>",
-		"",
-		sourceStatusText(
-			"CoinGecko",
-			result.coingecko,
-		),
-		"",
-		"<b>🥇 طلای ایران</b>",
-		"",
-		sourceStatusText(
-			"WallGold",
-			result.wallgold,
-		),
-		"",
-		buildNote(
-			"برای تتر ابتدا Wallex بررسی می‌شود و در صورت خطا Tabdeal و سپس Exir استفاده می‌شوند.",
-		),
-	];
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🪙 مدیریت CoinGecko",
-
-						callback_data:
-							"coingecko:home",
-					},
-				],
-
-				[
-					{
-						text:
-							"💵 مسیر دریافت تتر",
-
-						callback_data:
-							"sources:usdt",
-					},
-				],
-
-				[
-					{
-						text:
-							"🔄 بررسی مجدد",
-
-						callback_data:
-							"sources:refresh",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ پنل مدیریت",
-
-						callback_data:
-							"menu:home",
-					},
-				],
-			],
-		},
-	);
-}
-
-/* ============================================================
- * COINGECKO MANAGER
- * ============================================================
- */
-
-async function showCoinGeckoManager(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🪙 مدیریت CoinGecko</b>",
-			"",
-			"⏳ در حال دریافت رمزارزهای برتر...",
-		].join("\n"),
-		backKeyboard(
-			"مدیریت منابع",
-			"sources:home",
-		),
-	);
-
-	const result =
-		await fetchCoinGeckoTopAssets(
-			env,
-		);
-
-	if (!result.success) {
-		const stored =
-			await getStoredCoinGeckoAssets(
-				env,
-			);
-
-		await editTelegramMessage(
-			env,
-			message.chat.id,
-			message.message_id,
-			[
-				"<b>🪙 مدیریت CoinGecko</b>",
-				"",
-				"<blockquote>🟡 دریافت لیست زنده ناموفق بود</blockquote>",
-				"",
-				`رمزارز فعال: <b>${
-					stored.filter(
-						(item) =>
-							item.enabled,
-					).length
-				}</b>`,
-				"",
-				buildNote(
-					"تنظیمات قبلی داخل D1 حفظ شده‌اند و با خرابی موقت CoinGecko حذف نمی‌شوند.",
-				),
-			].join("\n"),
-			backKeyboard(
-				"مدیریت منابع",
-				"sources:home",
-			),
-		);
-
-		return;
-	}
-
-	await syncCoinGeckoAssets(
-		env,
-		result.assets,
-	);
-
-	const stored =
-		await getCoinGeckoAssetMap(
-			env,
-		);
-
-	const enabledCount =
-		result.assets.filter(
-			(asset) =>
-				Number(
-					stored[
-						asset.id
-					]?.is_enabled ??
-						0,
-				) === 1,
-		).length;
-
-	const keyboard = [];
-
-	for (
-		let index = 0;
-		index <
-		result.assets.length;
-		index += 2
-	) {
-		const row = [];
-
-		for (
-			let offset = 0;
-			offset < 2;
-			offset++
-		) {
-			const coin =
-				result.assets[
-					index +
-						offset
-				];
-
-			if (!coin) {
-				continue;
-			}
-
-			const active =
-				Number(
-					stored[
-						coin.id
-					]?.is_enabled ??
-						0,
-				) === 1;
-
-			row.push({
-				text:
-					`${active ? "✅" : "⬜"} ${getPersianCoinName(
-						coin.id,
-						coin.name,
-					)}`,
-
-				callback_data:
-					`coingecko:toggle:${coin.id}`,
-			});
-		}
-
-		keyboard.push(row);
-	}
-
-	keyboard.push([
-		{
-			text:
-				"🔄 بروزرسانی لیست",
-
-			callback_data:
-				"coingecko:refresh",
-		},
-	]);
-
-	keyboard.push([
-		{
-			text:
-				"⬅️ مدیریت منابع",
-
-			callback_data:
-				"sources:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🪙 مدیریت CoinGecko</b>",
-			"",
-			`فعال: <b>${enabledCount}</b>`,
-			`لیست فعلی: <b>${result.assets.length}</b> رمزارز`,
-			"",
-			buildNote(
-				"فقط رمزارزهای تیک‌خورده در Snapshot و پست کانال نمایش داده می‌شوند.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
-}
-
-/* ============================================================
- * COINGECKO
- * ============================================================
- */
-
-function getDefaultCoinGeckoAssets(
-	env,
-) {
-	const configured =
-		String(
-			env.COINGECKO_DEFAULT_ASSETS ??
-				"",
-		)
+	get defaultCoinGeckoAssets() {
+		const configured = String(this.env.COINGECKO_DEFAULT_ASSETS || "")
 			.split(",")
-			.map(
-				(item) =>
-					item.trim(),
-			)
+			.map((item) => item.trim())
 			.filter(Boolean);
-
-	return configured.length
-		? configured
-		: DEFAULT_COINGECKO_ASSETS;
-}
-
-function getCoinGeckoTopLimit(
-	env,
-) {
-	const raw =
-		Number(
-			env.COINGECKO_TOP_LIMIT ??
-				DEFAULT_COINGECKO_TOP_LIMIT,
-		);
-
-	if (
-		!Number.isFinite(raw)
-	) {
-		return DEFAULT_COINGECKO_TOP_LIMIT;
-	}
-
-	return Math.min(
-		50,
-		Math.max(
-			10,
-			Math.floor(raw),
-		),
-	);
-}
-
-async function initializeDefaultCoinGeckoAssets(
-	env,
-) {
-	const row =
-		await env.DB
-			.prepare(`
-				SELECT COUNT(*) AS count
-				FROM coingecko_assets
-			`)
-			.first();
-
-	if (
-		Number(
-			row?.count ??
-				0,
-		) > 0
-	) {
-		return;
-	}
-
-	const defaults =
-		getDefaultCoinGeckoAssets(
-			env,
-		);
-
-	const now =
-		Date.now();
-
-	for (
-		const coinId
-		of defaults
-	) {
-		await env.DB
-			.prepare(`
-				INSERT OR IGNORE INTO coingecko_assets (
-					coin_id,
-					symbol,
-					name,
-					is_enabled,
-					market_cap_rank,
-					created_at,
-					updated_at
-				)
-
-				VALUES (?, ?, ?, 1, NULL, ?, ?)
-			`)
-			.bind(
-				coinId,
-				coinId.toUpperCase(),
-				coinId,
-				now,
-				now,
-			)
-			.run();
+		return configured.length ? configured : ["bitcoin", "ethereum", "binancecoin", "ripple", "solana", "tron"];
 	}
 }
 
-async function fetchCoinGeckoTopAssets(
-	env,
-) {
-	if (
-		!env.COINGECKO_API_KEY
-	) {
-		return {
-			success: false,
-
-			message:
-				"COINGECKO_API_KEY missing",
-		};
+/** D1 bootstrap and schema migration service. */
+class Database {
+	constructor(env) {
+		this.env = env;
+		if (!env.DB) throw new Error('D1 binding "DB" is not configured.');
 	}
 
-	const limit =
-		getCoinGeckoTopLimit(
-			env,
-		);
-
-	const endpoint =
-		"https://api.coingecko.com/api/v3/coins/markets" +
-		"?vs_currency=usd" +
-		"&order=market_cap_desc" +
-		`&per_page=${limit}` +
-		"&page=1" +
-		"&sparkline=false" +
-		"&price_change_percentage=24h";
-
-	const startedAt =
-		Date.now();
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				endpoint,
-				{
-					headers:
-						getCoinGeckoHeaders(
-							env,
-						),
-				},
-				8000,
-			);
-
-		const latency =
-			Date.now() -
-			startedAt;
-
-		if (!response.ok) {
-			return {
-				success: false,
-
-				status:
-					response.status,
-
-				latency,
-
-				message:
-					await createSourceHttpError(
-						response,
-					),
-			};
+	async ensureReady() {
+		if (!bootstrapPromise) {
+			bootstrapPromise = this.#bootstrap().catch((error) => {
+				bootstrapPromise = null;
+				throw error;
+			});
 		}
+		return bootstrapPromise;
+	}
 
-		const data =
-			await response.json();
+	async #bootstrap() {
+		const now = Date.now();
+		await this.env.DB.batch([
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS app_meta (
+				key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (
+				key TEXT PRIMARY KEY, value TEXT NOT NULL,
+				created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS admins (
+				user_id TEXT PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT,
+				is_active INTEGER NOT NULL DEFAULT 1, added_by TEXT NOT NULL,
+				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL DEFAULT 0
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS source_status (
+				source TEXT PRIMARY KEY, success INTEGER NOT NULL DEFAULT 0,
+				status_code INTEGER, latency_ms INTEGER, message TEXT, last_price REAL,
+				last_checked_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS admin_input_state (
+				telegram_user_id TEXT PRIMARY KEY, action TEXT NOT NULL, payload TEXT,
+				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS audit_logs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT, telegram_user_id TEXT,
+				action TEXT NOT NULL, data TEXT, created_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS coingecko_assets (
+				coin_id TEXT PRIMARY KEY, symbol TEXT NOT NULL, name TEXT NOT NULL,
+				is_enabled INTEGER NOT NULL DEFAULT 0, market_cap_rank INTEGER,
+				created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS market_cache (
+				cache_key TEXT PRIMARY KEY, payload TEXT NOT NULL, fetched_at INTEGER NOT NULL,
+				expires_at INTEGER NOT NULL, last_error TEXT, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS runtime_locks (
+				lock_key TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`),
+		]);
 
-		if (!Array.isArray(data)) {
-			return {
-				success: false,
+		await this.#ensureColumn("settings", "created_at", "INTEGER NOT NULL DEFAULT 0");
+		await this.#ensureColumn("admins", "username", "TEXT");
+		await this.#ensureColumn("admins", "first_name", "TEXT");
+		await this.#ensureColumn("admins", "last_name", "TEXT");
+		await this.#ensureColumn("admins", "is_active", "INTEGER NOT NULL DEFAULT 1");
+		await this.#ensureColumn("admins", "updated_at", "INTEGER NOT NULL DEFAULT 0");
 
-				latency,
-
-				message:
-					"Invalid CoinGecko response",
-			};
-		}
-
-		return {
-			success: true,
-
-			status:
-				response.status,
-
-			latency,
-
-			assets:
-				data.map(
-					(item) => ({
-						id:
-							String(
-								item.id,
-							),
-
-						symbol:
-							String(
-								item.symbol,
-							).toUpperCase(),
-
-						name:
-							String(
-								item.name,
-							),
-
-						market_cap_rank:
-							toNullableNumber(
-								item.market_cap_rank,
-							),
-
-						price:
-							toNullableNumber(
-								item.current_price,
-							),
-
-						change24h:
-							toNullableNumber(
-								item.price_change_percentage_24h,
-							),
-					}),
-				),
+		const defaults = {
+			bot_enabled: "1",
+			auto_publish_enabled: "0",
+			publish_interval_minutes: String(APP.defaultPublishIntervalMinutes),
+			quiet_hours_enabled: "0",
+			quiet_hours_start: APP.defaultQuietHours.start,
+			quiet_hours_end: APP.defaultQuietHours.end,
+			auto_publish_last_run_at: "0",
+			auto_publish_last_success_at: "0",
+			auto_publish_last_error: "",
+			auto_publish_last_tick_at: "0",
+			auto_publish_last_attempt_at: "0",
+			auto_publish_last_error_at: "0",
+			auto_publish_last_skip_reason: "",
+			market_cache_ttl_seconds: String(APP.defaultCacheTtlSeconds),
 		};
-	} catch (error) {
-		return {
-			success: false,
-
-			latency:
-				Date.now() -
-					startedAt,
-
-			message:
-				errorMessage(error),
-		};
-	}
-}
-
-async function syncCoinGeckoAssets(
-	env,
-	assets,
-) {
-	const existing =
-		await getCoinGeckoAssetMap(
-			env,
-		);
-
-	const defaults =
-		getDefaultCoinGeckoAssets(
-			env,
-		);
-
-	const now =
-		Date.now();
-
-	const statements = [];
-
-	for (
-		const coin
-		of assets
-	) {
-		const current =
-			existing[
-				coin.id
-			];
-
-		const enabled =
-			current
-				? Number(
-					current.is_enabled,
-				)
-				: defaults.includes(
-					coin.id,
-				)
-					? 1
-					: 0;
-
-		statements.push(
-			env.DB
-				.prepare(`
-					INSERT INTO coingecko_assets (
-						coin_id,
-						symbol,
-						name,
-						is_enabled,
-						market_cap_rank,
-						created_at,
-						updated_at
-					)
-
-					VALUES (?, ?, ?, ?, ?, ?, ?)
-
-					ON CONFLICT(coin_id)
-					DO UPDATE SET
-						symbol = excluded.symbol,
-						name = excluded.name,
-						market_cap_rank = excluded.market_cap_rank,
-						updated_at = excluded.updated_at
-				`)
-				.bind(
-					coin.id,
-					coin.symbol,
-					coin.name,
-					enabled,
-					coin.market_cap_rank,
-					now,
-					now,
-				),
-		);
-	}
-
-	if (
-		statements.length
-	) {
-		await env.DB.batch(
-			statements,
-		);
-	}
-}
-
-async function toggleCoinGeckoAsset(
-	env,
-	coinId,
-) {
-	const row =
-		await env.DB
-			.prepare(`
-				SELECT *
-				FROM coingecko_assets
-				WHERE coin_id = ?
-				LIMIT 1
-			`)
-			.bind(
-				coinId,
-			)
-			.first();
-
-	if (!row) {
-		return;
-	}
-
-	const next =
-		Number(
-			row.is_enabled,
-		) === 1
-			? 0
-			: 1;
-
-	await env.DB
-		.prepare(`
-			UPDATE coingecko_assets
-			SET
-				is_enabled = ?,
-				updated_at = ?
-			WHERE coin_id = ?
-		`)
-		.bind(
-			next,
-			Date.now(),
-			coinId,
-		)
-		.run();
-}
-
-async function getCoinGeckoAssetMap(
-	env,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT *
-				FROM coingecko_assets
-			`)
-			.all();
-
-	const map = {};
-
-	for (
-		const item
-		of result.results ??
-			[]
-	) {
-		map[
-			item.coin_id
-		] = item;
-	}
-
-	return map;
-}
-
-async function getEnabledCoinGeckoAssets(
-	env,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT
-					coin_id,
-					symbol,
-					name,
-					market_cap_rank
-
-				FROM coingecko_assets
-
-				WHERE is_enabled = 1
-
-				ORDER BY
-					CASE
-						WHEN market_cap_rank IS NULL
-						THEN 999999
-						ELSE market_cap_rank
-					END ASC
-			`)
-			.all();
-
-	return (
-		result.results ??
-			[]
-	);
-}
-
-async function getStoredCoinGeckoAssets(
-	env,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT
-					coin_id,
-					symbol,
-					name,
-					market_cap_rank,
-					is_enabled
-
-				FROM coingecko_assets
-
-				ORDER BY
-					CASE
-						WHEN market_cap_rank IS NULL
-						THEN 999999
-						ELSE market_cap_rank
-					END ASC
-			`)
-			.all();
-
-	return (
-		result.results ??
-			[]
-	).map(
-		(item) => ({
-			id:
-				item.coin_id,
-
-			name:
-				item.name,
-
-			name_fa:
-				getPersianCoinName(
-					item.coin_id,
-					item.name,
-				),
-
-			symbol:
-				item.symbol,
-
-			market_cap_rank:
-				item.market_cap_rank ??
-					null,
-
-			price_usd:
-				null,
-
-			change_24h_percent:
-				null,
-
-			enabled:
-				Number(
-					item.is_enabled,
-				) === 1,
-		}),
-	);
-}
-
-async function fetchSelectedCoinGeckoAssets(
-	env,
-	enabledAssets,
-) {
-	if (!enabledAssets.length) {
-		return {
-			success: true,
-			assets: [],
-		};
-	}
-
-	if (
-		!env.COINGECKO_API_KEY
-	) {
-		return {
-			success: false,
-
-			message:
-				"COINGECKO_API_KEY missing",
-		};
-	}
-
-	const ids =
-		enabledAssets
-			.map(
-				(item) =>
-					item.coin_id,
-			)
-			.join(",");
-
-	const endpoint =
-		"https://api.coingecko.com/api/v3/coins/markets" +
-		"?vs_currency=usd" +
-		`&ids=${encodeURIComponent(
-			ids,
-		)}` +
-		"&order=market_cap_desc" +
-		"&sparkline=false" +
-		"&price_change_percentage=24h";
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				endpoint,
-				{
-					headers:
-						getCoinGeckoHeaders(
-							env,
-						),
-				},
-				8000,
-			);
-
-		if (!response.ok) {
-			return {
-				success: false,
-
-				message:
-					await createSourceHttpError(
-						response,
-					),
-			};
-		}
-
-		const data =
-			await response.json();
-
-		if (!Array.isArray(data)) {
-			return {
-				success: false,
-
-				message:
-					"Invalid CoinGecko response",
-			};
-		}
-
-		return {
-			success: true,
-
-			assets:
-				data.map(
-					(item) => ({
-						id:
-							String(
-								item.id,
-							),
-
-						symbol:
-							String(
-								item.symbol,
-							).toUpperCase(),
-
-						name:
-							String(
-								item.name,
-							),
-
-						price:
-							toNullableNumber(
-								item.current_price,
-							),
-
-						change24h:
-							toNullableNumber(
-								item.price_change_percentage_24h,
-							),
-
-						marketCapRank:
-							toNullableNumber(
-								item.market_cap_rank,
-							),
-					}),
-				),
-		};
-	} catch (error) {
-		return {
-			success: false,
-
-			message:
-				errorMessage(error),
-		};
-	}
-}
-
-async function fetchCoinGeckoMetals(
-	env,
-) {
-	if (
-		!env.COINGECKO_API_KEY
-	) {
-		return {
-			success: false,
-
-			message:
-				"COINGECKO_API_KEY missing",
-		};
-	}
-
-	const endpoint =
-		"https://api.coingecko.com/api/v3/simple/price" +
-		"?ids=tether-gold,kinesis-silver" +
-		"&vs_currencies=usd";
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				endpoint,
-				{
-					headers:
-						getCoinGeckoHeaders(
-							env,
-						),
-				},
-				8000,
-			);
-
-		if (!response.ok) {
-			return {
-				success: false,
-
-				message:
-					await createSourceHttpError(
-						response,
-					),
-			};
-		}
-
-		const data =
-			await response.json();
-
-		const gold =
-			toNullableNumber(
-				data?.[
-					"tether-gold"
-				]?.usd,
-			);
-
-		const silver =
-			toNullableNumber(
-				data?.[
-					"kinesis-silver"
-				]?.usd,
-			);
-
-		if (
-			gold === null &&
-			silver === null
-		) {
-			return {
-				success: false,
-
-				message:
-					"Invalid metals response",
-			};
-		}
-
-		return {
-			success: true,
-			gold,
-			silver,
-		};
-	} catch (error) {
-		return {
-			success: false,
-
-			message:
-				errorMessage(error),
-		};
-	}
-}
-
-async function checkCoinGeckoHealth(
-	env,
-) {
-	const result =
-		await fetchCoinGeckoTopAssets(
-			env,
-		);
-
-	return {
-		success:
-			result.success,
-
-		status:
-			result.status ??
-				null,
-
-		latency:
-			result.latency ??
-				0,
-
-		message:
-			result.success
-				? null
-				: result.message,
-
-		sample:
-			result.success
-				? {
-					top_assets:
-						result.assets.length,
-				}
-				: null,
-	};
-}
-
-function getCoinGeckoHeaders(
-	env,
-) {
-	return {
-		Accept:
-			"application/json",
-
-		"x-cg-demo-api-key":
-			env.COINGECKO_API_KEY,
-	};
-}
-
-/* ============================================================
- * USDT VIEW + SOURCE CHECKS
- * ============================================================
- */
-
-async function showUsdtRoute(
-	env,
-	message,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>💵 مسیر دریافت تتر</b>",
-			"",
-			"⏳ در حال انتخاب بهترین منبع...",
-		].join("\n"),
-		backKeyboard(
-			"مدیریت منابع",
-			"sources:home",
-		),
-	);
-
-	const result =
-		await resolveUsdtToman(
-			env,
-			true,
-		);
-
-	const lines = [
-		"<b>💵 مسیر دریافت تتر</b>",
-		"",
-	];
-
-	if (!result.success) {
-		lines.push(
-			"<blockquote>🟡 قیمت تتر در حال حاضر نامشخص است</blockquote>",
-			"",
-			"Wallex → Tabdeal → Exir",
-			"",
-			buildNote(
-				"اگر منبع اصلی پاسخ ندهد، سیستم به‌صورت خودکار منابع بعدی را امتحان می‌کند.",
+		await this.env.DB.batch(
+			Object.entries(defaults).map(([key, value]) =>
+				this.env.DB.prepare(`INSERT OR IGNORE INTO settings (key, value, created_at, updated_at) VALUES (?, ?, ?, ?)`)
+					.bind(key, value, now, now),
 			),
 		);
-	} else {
-		const state =
-			result.fallbackLevel ===
-				0
-				? "🟢 منبع اصلی"
-				: result.fallbackLevel ===
-					1
-					? "🟡 جایگزین اول"
-					: "🟠 جایگزین دوم";
 
-		lines.push(
-			"<blockquote>✅ قیمت معتبر دریافت شد</blockquote>",
-			"",
-			`💰 <b>${formatFaInteger(
-				result.price,
-			)} تومان</b>`,
-			"",
-			`📡 <b>${escapeHtml(
-				result.sourceLabel,
-			)}</b>`,
-			state,
-			"",
-			`⏱ <code>${result.latency}ms</code>`,
-			"",
-			"Wallex → Tabdeal → Exir",
-			"",
-			buildNote(
-				"اولویت همیشه Wallex است؛ Tabdeal و Exir فقط هنگام خطای منابع قبلی استفاده می‌شوند.",
-			),
-		);
+		await this.env.DB.prepare(`INSERT INTO app_meta (key, value, updated_at)
+			VALUES ('schema_version', ?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+			.bind(String(APP.schemaVersion), now).run();
+
+		await new AssetRepository(this.env, new Config(this.env)).initializeDefaults();
 	}
 
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🔄 بروزرسانی",
-
-						callback_data:
-							"sources:usdt",
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ مدیریت منابع",
-
-						callback_data:
-							"sources:home",
-					},
-				],
-			],
-		},
-	);
+	async #ensureColumn(table, column, definition) {
+		const allowed = new Set(["settings", "admins"]);
+		if (!allowed.has(table)) throw new Error(`Invalid migration table: ${table}`);
+		const info = await this.env.DB.prepare(`PRAGMA table_info("${table}")`).all();
+		if ((info.results || []).some((row) => String(row.name) === column)) return;
+		await this.env.DB.prepare(`ALTER TABLE "${table}" ADD COLUMN "${column}" ${definition}`).run();
+	}
 }
 
-async function checkAllSources(
-	env,
-	persist = false,
-) {
-	const [
-		wallex,
-		tabdeal,
-		exir,
-		coingecko,
-		wallgold,
-	] = await Promise.all([
-		checkWallex(env),
-		checkTabdeal(env),
-		checkExir(env),
-		checkCoinGeckoHealth(env),
-		checkWallGold(env),
-	]);
+/** Generic settings repository. */
+class SettingsRepository {
+	constructor(env) { this.env = env; }
 
-	const result = {
-		wallex,
-		tabdeal,
-		exir,
-		coingecko,
-		wallgold,
-	};
-
-	if (persist) {
-		await persistAllSourceStatuses(
-			env,
-			result,
-		);
+	async get(key, fallback = null) {
+		const row = await this.env.DB.prepare("SELECT value FROM settings WHERE key = ? LIMIT 1").bind(key).first();
+		return row?.value ?? fallback;
 	}
 
-	return result;
+	async getMany(keys) {
+		if (!keys.length) return {};
+		const placeholders = keys.map(() => "?").join(",");
+		const result = await this.env.DB.prepare(`SELECT key, value FROM settings WHERE key IN (${placeholders})`).bind(...keys).all();
+		return Object.fromEntries((result.results || []).map((row) => [row.key, row.value]));
+	}
+
+	async set(key, value) {
+		const now = Date.now();
+		await this.env.DB.prepare(`INSERT INTO settings (key, value, created_at, updated_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+			.bind(key, String(value), now, now).run();
+	}
+
+	async setMany(values) {
+		const now = Date.now();
+		const statements = Object.entries(values).map(([key, value]) =>
+			this.env.DB.prepare(`INSERT INTO settings (key, value, created_at, updated_at)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+				.bind(key, String(value ?? ""), now, now),
+		);
+		if (statements.length) await this.env.DB.batch(statements);
+	}
 }
 
-async function resolveUsdtToman(
-	env,
-	persist = false,
-) {
-	const checks = [
-		[
-			"wallex",
-			checkWallex,
-		],
+/** Persistent market snapshot cache. */
+class MarketCacheRepository {
+	constructor(env) { this.env = env; }
 
-		[
-			"tabdeal",
-			checkTabdeal,
-		],
+	async #ensureTable() {
+		await this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS market_cache (
+			cache_key TEXT PRIMARY KEY, payload TEXT NOT NULL, fetched_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL, last_error TEXT, updated_at INTEGER NOT NULL
+		)`).run();
+	}
 
-		[
-			"exir",
-			checkExir,
-		],
-	];
-
-	const failures = [];
-
-	for (
-		let index = 0;
-		index < checks.length;
-		index++
-	) {
-		const [
-			source,
-			checker,
-		] = checks[index];
-
-		const result =
-			await checker(env);
-
-		if (persist) {
-			await persistSourceStatus(
-				env,
-				source,
-				result,
-			);
+	async read(key = APP.marketCacheKey) {
+		let row;
+		try {
+			row = await this.env.DB.prepare(`SELECT payload, fetched_at, expires_at, last_error
+				FROM market_cache WHERE cache_key = ? LIMIT 1`).bind(key).first();
+		} catch (error) {
+			if (!errorMessage(error).toLowerCase().includes("no such table")) throw error;
+			await this.#ensureTable();
+			return null;
 		}
-
-		if (
-			result.success &&
-			Number.isFinite(
-				Number(
-					result.price,
-				),
-			) &&
-			Number(
-				result.price,
-			) > 0
-		) {
+		if (!row?.payload) return null;
+		try {
 			return {
-				success:
-					true,
-
-				source,
-
-				sourceLabel:
-					sourceLabel(
-						source,
-					),
-
-				price:
-					Number(
-						result.price,
-					),
-
-				latency:
-					result.latency,
-
-				fallbackLevel:
-					index,
+				payload: JSON.parse(row.payload),
+				fetchedAt: Number(row.fetched_at || 0),
+				expiresAt: Number(row.expires_at || 0),
+				lastError: row.last_error || null,
 			};
+		} catch {
+			return null;
 		}
-
-		failures.push(
-			`${sourceLabel(
-				source,
-			)}: ${
-				result.message ??
-					"Unavailable"
-			}`,
-		);
 	}
 
-	return {
-		success:
-			false,
-
-		message:
-			failures.join(
-				" | ",
-			),
-	};
+	async write(payload, ttlSeconds, lastError = null, key = APP.marketCacheKey) {
+		const fetchedAt = Date.now();
+		const expiresAt = fetchedAt + ttlSeconds * 1000;
+		const write = () => this.env.DB.prepare(`INSERT INTO market_cache
+			(cache_key, payload, fetched_at, expires_at, last_error, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(cache_key) DO UPDATE SET
+				payload = excluded.payload,
+				fetched_at = excluded.fetched_at,
+				expires_at = excluded.expires_at,
+				last_error = excluded.last_error,
+				updated_at = excluded.updated_at`)
+			.bind(key, JSON.stringify(payload), fetchedAt, expiresAt, lastError, fetchedAt).run();
+		try {
+			await write();
+		} catch (error) {
+			if (!errorMessage(error).toLowerCase().includes("no such table")) throw error;
+			await this.#ensureTable();
+			await write();
+		}
+		return { fetchedAt, expiresAt };
+	}
 }
 
-function resolveUsdtFromChecks(
-	sources,
-) {
-	for (
-		let index = 0;
-		index <
-		USDT_SOURCE_PRIORITY.length;
-		index++
-	) {
-		const key =
-			USDT_SOURCE_PRIORITY[
-				index
-			];
+/** D1-backed distributed lock used to avoid duplicate source refreshes across isolates. */
+class LockRepository {
+	constructor(env) { this.env = env; }
 
-		const result =
-			sources[key];
-
-		if (
-			result?.success &&
-			Number.isFinite(
-				Number(
-					result.price,
-				),
-			)
-		) {
-			return {
-				success:
-					true,
-
-				source:
-					key,
-
-				sourceLabel:
-					sourceLabel(
-						key,
-					),
-
-				price:
-					Number(
-						result.price,
-					),
-
-				latency:
-					result.latency,
-
-				fallbackLevel:
-					index,
-			};
-		}
-	}
-
-	return {
-		success:
-			false,
-	};
-}
-
-/* ============================================================
- * WALLEX
- * ============================================================
- */
-
-async function checkWallex(
-	env,
-) {
-	if (
-		!env.WALLEX_API_URL
-	) {
-		return sourceError(
-			"WALLEX_API_URL missing",
-		);
-	}
-
-	const startedAt =
-		Date.now();
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				env.WALLEX_API_URL,
-				{
-					headers: {
-						Accept:
-							"application/json",
-					},
-				},
-				8000,
-			);
-
-		const latency =
-			Date.now() -
-			startedAt;
-
-		if (!response.ok) {
-			return sourceHttpError(
-				response,
-				latency,
-			);
-		}
-
-		const data =
-			await response.json();
-
-		const markets =
-			data?.result
-				?.markets;
-
-		const market =
-			Array.isArray(
-				markets,
-			)
-				? markets.find(
-					(item) =>
-						String(
-							item?.symbol ??
-								"",
-						).toUpperCase() ===
-						"USDTTMN",
-				)
-				: null;
-
-		const price =
-			Number(
-				market?.price,
-			);
-
-		if (
-			!Number.isFinite(
-				price,
-			) ||
-			price <= 0
-		) {
-			return {
-				success:
-					false,
-
-				status:
-					response.status,
-
-				latency,
-
-				message:
-					"Invalid Wallex USDT price",
-			};
-		}
-
-		return {
-			success:
-				true,
-
-			status:
-				response.status,
-
-			latency,
-
-			price,
+	async acquire(key, ttlMs) {
+		const attempt = async () => {
+			const now = Date.now();
+			const token = crypto.randomUUID();
+			const result = await this.env.DB.prepare(`INSERT INTO runtime_locks (lock_key, token, expires_at, updated_at)
+				VALUES (?, ?, ?, ?)
+				ON CONFLICT(lock_key) DO UPDATE SET
+					token = excluded.token,
+					expires_at = excluded.expires_at,
+					updated_at = excluded.updated_at
+				WHERE runtime_locks.expires_at <= ?`)
+				.bind(key, token, now + ttlMs, now, now).run();
+			return Number(result?.meta?.changes || 0) > 0 ? token : null;
 		};
-	} catch (error) {
-		return sourceCatchError(
-			error,
-			startedAt,
-		);
-	}
-}
-
-/* ============================================================
- * TABDEAL
- * ============================================================
- */
-
-async function checkTabdeal(
-	env,
-) {
-	if (
-		!env.TABDEAL_API_URL
-	) {
-		return sourceError(
-			"TABDEAL_API_URL missing",
-		);
-	}
-
-	const startedAt =
-		Date.now();
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				env.TABDEAL_API_URL,
-				{
-					headers: {
-						Accept:
-							"application/json",
-					},
-				},
-				8000,
-			);
-
-		const latency =
-			Date.now() -
-			startedAt;
-
-		if (!response.ok) {
-			return sourceHttpError(
-				response,
-				latency,
-			);
+		try {
+			return await attempt();
+		} catch (error) {
+			if (!errorMessage(error).toLowerCase().includes("no such table")) throw error;
+			await this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS runtime_locks (
+				lock_key TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+			)`).run();
+			return attempt();
 		}
+	}
 
-		const data =
-			await response.json();
-
-		const price =
-			Number(
-				data?.asks?.[0]?.[0],
-			);
-
-		if (
-			!Number.isFinite(
-				price,
-			) ||
-			price <= 0
-		) {
-			return {
-				success:
-					false,
-
-				status:
-					response.status,
-
-				latency,
-
-				message:
-					"Invalid Tabdeal USDT price",
-			};
+	async release(key, token) {
+		try {
+			await this.env.DB.prepare("DELETE FROM runtime_locks WHERE lock_key = ? AND token = ?").bind(key, token).run();
+		} catch (error) {
+			console.warn("lock.release_failed", errorMessage(error));
 		}
-
-		return {
-			success:
-				true,
-
-			status:
-				response.status,
-
-			latency,
-
-			price,
-		};
-	} catch (error) {
-		return sourceCatchError(
-			error,
-			startedAt,
-		);
 	}
 }
 
-/* ============================================================
- * EXIR
- * ============================================================
- */
+/** Latest source-health persistence. */
+class SourceStatusRepository {
+	constructor(env) { this.env = env; }
 
-async function checkExir(
-	env,
-) {
-	if (
-		!env.EXIR_API_URL
-	) {
-		return sourceError(
-			"EXIR_API_URL missing",
-		);
-	}
-
-	const startedAt =
-		Date.now();
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				env.EXIR_API_URL,
-				{
-					headers: {
-						Accept:
-							"application/json",
-					},
-				},
-				8000,
-			);
-
-		const latency =
-			Date.now() -
-			startedAt;
-
-		if (!response.ok) {
-			return sourceHttpError(
-				response,
-				latency,
-			);
-		}
-
-		const data =
-			await response.json();
-
-		const orderbook =
-			data?.["usdt-irt"] ??
-				data;
-
-		const price =
-			Number(
-				orderbook
-					?.asks?.[0]?.[0],
-			);
-
-		if (
-			!Number.isFinite(
-				price,
-			) ||
-			price <= 0
-		) {
-			return {
-				success:
-					false,
-
-				status:
-					response.status,
-
-				latency,
-
-				message:
-					"Invalid Exir USDT price",
-			};
-		}
-
-		return {
-			success:
-				true,
-
-			status:
-				response.status,
-
-			latency,
-
-			price,
-		};
-	} catch (error) {
-		return sourceCatchError(
-			error,
-			startedAt,
-		);
-	}
-}
-
-/* ============================================================
- * WALLGOLD
- * ============================================================
- */
-
-async function checkWallGold(
-	env,
-) {
-	if (
-		!env.WALLGOLD_API_URL
-	) {
-		return sourceError(
-			"WALLGOLD_API_URL missing",
-		);
-	}
-
-	const startedAt =
-		Date.now();
-
-	try {
-		const response =
-			await fetchWithTimeout(
-				env.WALLGOLD_API_URL,
-				{
-					headers: {
-						Accept:
-							"application/json",
-					},
-				},
-				8000,
-			);
-
-		const latency =
-			Date.now() -
-			startedAt;
-
-		if (!response.ok) {
-			return sourceHttpError(
-				response,
-				latency,
-			);
-		}
-
-		const data =
-			await response.json();
-
-		const price =
-			Number(
-				data?.result
-					?.price,
-			);
-
-		if (
-			!Number.isFinite(
-				price,
-			) ||
-			price <= 0
-		) {
-			return {
-				success:
-					false,
-
-				status:
-					response.status,
-
-				latency,
-
-				message:
-					"Invalid WallGold price",
-			};
-		}
-
-		return {
-			success:
-				true,
-
-			status:
-				response.status,
-
-			latency,
-
-			price,
-		};
-	} catch (error) {
-		return sourceCatchError(
-			error,
-			startedAt,
-		);
-	}
-}
-
-/* ============================================================
- * SOURCE STORAGE
- * ============================================================
- */
-
-function sourceStatusText(
-	name,
-	source,
-	role = null,
-) {
-	const lines = [
-		`${source.success ? "🟢" : "🔴"} <b>${escapeHtml(
-			name,
-		)}</b>${
-			role
-				? ` · <i>${escapeHtml(
-					role,
-				)}</i>`
-				: ""
-		}`,
-
-		`Latency: <code>${source.latency ?? 0}ms</code>`,
-	];
-
-	if (
-		source.status !==
-			null &&
-		source.status !==
-			undefined
-	) {
-		lines.push(
-			`HTTP: <code>${escapeHtml(
-				source.status,
-			)}</code>`,
-		);
-	}
-
-	if (
-		!source.success &&
-		source.message
-	) {
-		lines.push(
-			`Error: <code>${escapeHtml(
-				source.message,
-			)}</code>`,
-		);
-	}
-
-	return lines.join("\n");
-}
-
-async function persistAllSourceStatuses(
-	env,
-	results,
-) {
-	await env.DB.batch(
-		Object.entries(
-			results,
-		).map(
-			([
-				source,
-				result,
-			]) =>
-				buildSourceStatusStatement(
-					env,
-					source,
-					result,
-				),
-		),
-	);
-}
-
-async function persistSourceStatus(
-	env,
-	source,
-	result,
-) {
-	await buildSourceStatusStatement(
-		env,
-		source,
-		result,
-	).run();
-}
-
-function buildSourceStatusStatement(
-	env,
-	source,
-	result,
-) {
-	return env.DB
-		.prepare(`
-			INSERT INTO source_status (
-				source,
-				success,
-				status_code,
-				latency_ms,
-				message,
-				last_price,
-				last_checked_at
-			)
-
+	async save(source, status) {
+		await this.env.DB.prepare(`INSERT INTO source_status
+			(source, success, status_code, latency_ms, message, last_price, last_checked_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
-
-			ON CONFLICT(source)
-			DO UPDATE SET
+			ON CONFLICT(source) DO UPDATE SET
 				success = excluded.success,
 				status_code = excluded.status_code,
 				latency_ms = excluded.latency_ms,
 				message = excluded.message,
 				last_price = excluded.last_price,
-				last_checked_at = excluded.last_checked_at
-		`)
-		.bind(
-			source,
-
-			result.success
-				? 1
-				: 0,
-
-			result.status ??
-				null,
-
-			result.latency ??
-				null,
-
-			result.message ??
-				null,
-
-			Number.isFinite(
-				Number(
-					result.price,
-				),
-			)
-				? Number(
-					result.price,
-				)
-				: null,
-
-			Date.now(),
-		);
-}
-
-function serializeSourceStatus(
-	source,
-) {
-	return {
-		healthy:
-			Boolean(
-				source.success,
-			),
-
-		http_status:
-			source.status ??
-				null,
-
-		latency_ms:
-			source.latency ??
-				null,
-
-		message:
-			source.message ??
-				null,
-
-		price:
-			source.price ??
-				null,
-
-		sample:
-			source.sample ??
-				null,
-	};
-}
-
-/* ============================================================
- * CRON
- * ============================================================
- */
-
-async function getCronAutomationState(
-	env,
-) {
-	const keys = [
-		"bot_enabled",
-		"auto_publish_enabled",
-		"publish_interval_minutes",
-		"quiet_hours_enabled",
-		"quiet_hours_start",
-		"quiet_hours_end",
-		"auto_publish_last_run_at",
-		"auto_publish_last_tick_at",
-		"auto_publish_last_skip_reason",
-	];
-
-	const settings =
-		await getSettingsMap(
-			env,
-			keys,
-		);
-
-	const get = (key, fallback) =>
-		settings.has(key)
-			? settings.get(key)
-			: fallback;
-
-	const quietStart = String(
-		get(
-			"quiet_hours_start",
-			DEFAULT_QUIET_HOURS.start,
-		),
-	);
-
-	const quietEnd = String(
-		get(
-			"quiet_hours_end",
-			DEFAULT_QUIET_HOURS.end,
-		),
-	);
-
-	return {
-		globalEnabled:
-			parseBoolean(
-				get(
-					"bot_enabled",
-					"true",
-				),
-			),
-
-		enabled:
-			parseBoolean(
-				get(
-					"auto_publish_enabled",
-					"false",
-				),
-			),
-
-		intervalMinutes:
-			normalizePublishInterval(
-				get(
-					"publish_interval_minutes",
-					String(
-						DEFAULT_PUBLISH_INTERVAL_MINUTES,
-					),
-				),
-			),
-
-		quietHours: {
-			enabled:
-				parseBoolean(
-					get(
-						"quiet_hours_enabled",
-						"false",
-					),
-				),
-
-			start:
-				isValidTimeString(quietStart)
-					? quietStart
-					: DEFAULT_QUIET_HOURS.start,
-
-			end:
-				isValidTimeString(quietEnd)
-					? quietEnd
-					: DEFAULT_QUIET_HOURS.end,
-		},
-
-		lastRunAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_run_at",
-					"0",
-				),
-			),
-
-		lastTickAt:
-			normalizeTimestamp(
-				get(
-					"auto_publish_last_tick_at",
-					"0",
-				),
-			),
-
-		lastSkipReason:
-			String(
-				get(
-					"auto_publish_last_skip_reason",
-					"",
-				) ?? "",
-			),
-	};
-}
-
-async function writeCronHealth(
-	env,
-	values,
-) {
-	try {
-		await setSettings(
-			env,
-			values,
-		);
-	} catch (error) {
-		console.warn(
-			"cron.health_write_failed",
-			errorMessage(error),
-		);
-	}
-}
-
-async function handleScheduledTick(
-	controller,
-	env,
-	ctx,
-) {
-	const now =
-		Number(
-			controller?.scheduledTime,
-		) || Date.now();
-
-	try {
-		if (!env.DB) {
-			throw new Error(
-				'D1 binding "DB" is not configured.',
-			);
-		}
-
-		// IMPORTANT: do not call ensureDatabase() here.
-		// Running migrations/default seeding on every minute was
-		// the main source of avoidable CPU work on Cron invocations.
-		const automation =
-			await getCronAutomationState(
-				env,
-			);
-
-		if (!automation.globalEnabled) {
-			if (
-				automation.lastSkipReason !==
-				"bot_disabled"
-			) {
-				await writeCronHealth(
-					env,
-					{
-						auto_publish_last_tick_at:
-							String(now),
-						auto_publish_last_skip_reason:
-							"bot_disabled",
-					},
-				);
-			}
-			return;
-		}
-
-		if (!automation.enabled) {
-			if (
-				automation.lastSkipReason !==
-				"automation_disabled"
-			) {
-				await writeCronHealth(
-					env,
-					{
-						auto_publish_last_tick_at:
-							String(now),
-						auto_publish_last_skip_reason:
-							"automation_disabled",
-					},
-				);
-			}
-			return;
-		}
-
-		if (
-			isInsideQuietHours(
-				env,
-				now,
-				automation.quietHours,
-			)
-		) {
-			if (
-				automation.lastSkipReason !==
-				"quiet_hours"
-			) {
-				await writeCronHealth(
-					env,
-					{
-						auto_publish_last_tick_at:
-							String(now),
-						auto_publish_last_skip_reason:
-							"quiet_hours",
-					},
-				);
-			}
-			return;
-		}
-
-		if (
-			!isAutoPublishDue(
-				now,
-				automation.lastRunAt,
-				automation.intervalMinutes,
-			)
-		) {
-			// Persist only a lightweight heartbeat every 5 minutes.
-			// This is enough for Cron health diagnostics without
-			// writing to D1 on every one-minute trigger.
-			if (
-				!automation.lastTickAt ||
-				now - automation.lastTickAt >=
-					5 * 60 * 1000
-			) {
-				await writeCronHealth(
-					env,
-					{
-						auto_publish_last_tick_at:
-							String(now),
-						auto_publish_last_skip_reason:
-							"interval_not_due",
-					},
-				);
-			}
-			return;
-		}
-
-		const claimed =
-			await claimAutoPublishSlot(
-				env,
-				automation.lastRunAt,
-				now,
-			);
-
-		if (!claimed) {
-			return;
-		}
-
-		await setSettings(
-			env,
-			{
-				auto_publish_last_tick_at:
-					String(now),
-				auto_publish_last_attempt_at:
-					String(now),
-				auto_publish_last_skip_reason:
-					"",
-			},
-		);
-
-		await performAutomaticPublish(
-			env,
-			now,
-		);
-	} catch (error) {
-		const message =
-			errorMessage(error).slice(
-				0,
-				500,
-			);
-
-		console.error(
-			"cron.error",
-			message,
-		);
-
-		await writeCronHealth(
-			env,
-			{
-				auto_publish_last_tick_at:
-					String(now),
-				auto_publish_last_error_at:
-					String(now),
-				auto_publish_last_error:
-					message,
-				auto_publish_last_skip_reason:
-					"error",
-			},
-		);
-	}
-}
-
-function isAutoPublishDue(
-	now,
-	lastRunAt,
-	intervalMinutes,
-) {
-	if (!lastRunAt) {
-		return true;
-	}
-
-	return (
-		now - lastRunAt >=
-		intervalMinutes *
-			60 *
-			1000
-	);
-}
-
-async function claimAutoPublishSlot(
-	env,
-	expectedLastRunAt,
-	now,
-) {
-	const expected =
-		String(
-			expectedLastRunAt || 0,
-		);
-
-	const result =
-		await env.DB
-			.prepare(`
-				INSERT INTO settings (
-					key,
-					value,
-					created_at,
-					updated_at
-				)
-				VALUES (
-					'auto_publish_last_run_at',
-					?,
-					?,
-					?
-				)
-				ON CONFLICT(key)
-				DO UPDATE SET
-					value = excluded.value,
-					updated_at = excluded.updated_at
-				WHERE settings.value = ?
-			`)
+				last_checked_at = excluded.last_checked_at`)
 			.bind(
-				String(now),
-				now,
-				now,
-				expected,
-			)
-			.run();
-
-	return (
-		Number(
-			result?.meta?.changes ?? 0,
-		) > 0
-	);
-}
-
-async function performAutomaticPublish(
-	env,
-	timestamp,
-) {
-	if (!env.TELEGRAM_CHANNEL_ID) {
-		throw new Error(
-			"TELEGRAM_CHANNEL_ID is missing",
-		);
+				source,
+				status.success ? 1 : 0,
+				status.status ?? null,
+				status.latency ?? null,
+				status.message ?? null,
+				status.price ?? null,
+				Date.now(),
+			).run();
 	}
 
-	const snapshot =
-		await getMarketSnapshot(
-			env,
-			timestamp,
-		);
-
-	const result =
-		await sendTelegramRichMessage(
-			env,
-			env.TELEGRAM_CHANNEL_ID,
-			buildChannelMarketRichMessage(
-				env,
-				snapshot,
-			),
-		);
-
-	await setSettings(
-		env,
-		{
-			auto_publish_last_success_at:
-				String(timestamp),
-			auto_publish_last_error_at:
-				"0",
-			auto_publish_last_error:
-				"",
-			auto_publish_last_skip_reason:
-				"",
-		},
-	);
-
-	// Audit is useful but non-critical. Keep it outside the
-	// success path so a log failure can never mark publishing
-	// itself as failed.
-	try {
-		await addAuditLog(
-			env,
-			"system",
-			"market.auto_published",
-			{
-				messageId:
-					result?.message_id ?? null,
-				partial:
-					snapshot.partial,
-				errors:
-					snapshot.errors,
-				timestamp,
-			},
-		);
-	} catch (error) {
-		console.warn(
-			"cron.audit_failed",
-			errorMessage(error),
-		);
-	}
-}
-
-function isInsideQuietHours(
-	env,
-	timestamp,
-	quietHours,
-) {
-	if (
-		!quietHours?.enabled
-	) {
-		return false;
+	async saveMany(map) {
+		for (const [name, status] of Object.entries(map)) await this.save(name, status);
 	}
 
-	const current =
-		getTimeMinutesInTimezone(
-			env,
-			timestamp,
-		);
-
-	const start =
-		timeStringToMinutes(
-			quietHours.start,
-		);
-
-	const end =
-		timeStringToMinutes(
-			quietHours.end,
-		);
-
-	if (
-		start === null ||
-		end === null ||
-		start === end
-	) {
-		return false;
-	}
-
-	if (start < end) {
-		return (
-			current >= start &&
-			current < end
-		);
-	}
-
-	return (
-		current >= start ||
-		current < end
-	);
-}
-
-function calculateNextPublishAt(
-	env,
-	automation,
-	now = Date.now(),
-) {
-	if (
-		!automation.enabled
-	) {
-		return null;
-	}
-
-	let candidate =
-		automation.lastRunAt
-			? automation.lastRunAt +
-				automation.intervalMinutes *
-					60 *
-					1000
-			: now;
-
-	if (
-		candidate < now
-	) {
-		candidate = now;
-	}
-
-	for (
-		let index = 0;
-		index < 1440;
-		index++
-	) {
-		if (
-			!isInsideQuietHours(
-				env,
-				candidate,
-				automation.quietHours,
-			)
-		) {
-			return candidate;
+	async all() {
+		const result = await this.env.DB.prepare(`SELECT source, success, status_code, latency_ms,
+			message, last_price, last_checked_at FROM source_status`).all();
+		const map = {};
+		for (const row of result.results || []) {
+			map[row.source] = {
+				success: Number(row.success) === 1,
+				status: row.status_code ?? null,
+				latency: row.latency_ms ?? null,
+				message: row.message ?? null,
+				price: row.last_price ?? null,
+				lastCheckedAt: Number(row.last_checked_at || 0),
+			};
 		}
-
-		candidate +=
-			60 * 1000;
-	}
-
-	return candidate;
-}
-
-/* ============================================================
- * ADMIN MANAGEMENT
- * ============================================================
- */
-
-async function getAdmins(
-	env,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT *
-				FROM admins
-
-				ORDER BY
-					is_active DESC,
-					created_at ASC
-			`)
-			.all();
-
-	return (
-		result.results ??
-			[]
-	);
-}
-
-async function getAdmin(
-	env,
-	userId,
-) {
-	return env.DB
-		.prepare(`
-			SELECT *
-			FROM admins
-			WHERE user_id = ?
-			LIMIT 1
-		`)
-		.bind(
-			String(userId),
-		)
-		.first();
-}
-
-function getAdminDisplayName(
-	admin,
-) {
-	if (
-		admin.first_name
-	) {
-		return admin.first_name;
-	}
-
-	if (
-		admin.username
-	) {
-		return `@${admin.username}`;
-	}
-
-	return admin.user_id;
-}
-
-async function showAdmins(
-	env,
-	message,
-	currentAdmin,
-) {
-	const admins =
-		await getAdmins(
-			env,
-		);
-
-	const lines = [
-		"<b>👥 مدیریت ادمین‌ها</b>",
-		"",
-		`👑 مالک: <code>${escapeHtml(
-			getOwnerId(env),
-		)}</code>`,
-		"",
-	];
-
-	if (
-		!admins.length
-	) {
-		lines.push(
-			"هنوز ادمینی اضافه نشده است.",
-		);
-	} else {
-		admins.forEach(
-			(
-				item,
-				index,
-			) => {
-				lines.push(
-					`${Number(item.is_active) === 1 ? "🟢" : "⚪"} ${index + 1}. <b>${escapeHtml(
-						getAdminDisplayName(
-							item,
-						),
-					)}</b>`,
-				);
-			},
-		);
-	}
-
-	lines.push(
-		"",
-		buildNote(
-			currentAdmin.role ===
-				"owner"
-				? "مالک می‌تواند ادمین جدید اضافه کند یا وضعیت ادمین‌های فعلی را تغییر دهد."
-				: "این بخش برای ادمین‌های عادی فقط خواندنی است.",
-		),
-	);
-
-	const keyboard = [];
-
-	if (
-		currentAdmin.role ===
-			"owner"
-	) {
-		for (
-			const item
-			of admins
-		) {
-			keyboard.push([
-				{
-					text:
-						`${Number(item.is_active) === 1 ? "🟢" : "⚪"} ${getAdminDisplayName(
-							item,
-						)}`,
-
-					callback_data:
-						`admin:view:${item.user_id}`,
-				},
-			]);
+		for (const source of ["wallex", "tabdeal", "exir", "coingecko", "wallgold"]) {
+			if (!map[source]) map[source] = { success: false, status: null, latency: null, message: "No cached data yet", price: null, lastCheckedAt: 0 };
 		}
-
-		keyboard.push([
-			{
-				text:
-					"➕ افزودن ادمین",
-
-				callback_data:
-					"admins:add",
-			},
-		]);
+		return map;
 	}
-
-	keyboard.push([
-		{
-			text:
-				"🔄 بروزرسانی",
-
-			callback_data:
-				"admins:refresh",
-		},
-	]);
-
-	keyboard.push([
-		{
-			text:
-				"⬅️ پنل مدیریت",
-
-			callback_data:
-				"menu:home",
-		},
-	]);
-
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		lines.join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
 }
 
-async function showAdminDetails(
-	env,
-	message,
-	currentAdmin,
-	targetId,
-) {
-	const target =
-		await getAdmin(
-			env,
-			targetId,
-		);
+/** CoinGecko asset-selection persistence. */
+class AssetRepository {
+	constructor(env, config) { this.env = env; this.config = config; }
 
-	if (!target) {
-		await showAdmins(
-			env,
-			message,
-			currentAdmin,
+	async initializeDefaults() {
+		const row = await this.env.DB.prepare("SELECT COUNT(*) AS count FROM coingecko_assets").first();
+		if (Number(row?.count || 0) > 0) return;
+		const now = Date.now();
+		const statements = this.config.defaultCoinGeckoAssets.map((coinId) =>
+			this.env.DB.prepare(`INSERT OR IGNORE INTO coingecko_assets
+				(coin_id, symbol, name, is_enabled, market_cap_rank, created_at, updated_at)
+				VALUES (?, ?, ?, 1, NULL, ?, ?)`)
+				.bind(coinId, coinId.toUpperCase(), coinId, now, now),
 		);
-
-		return;
+		if (statements.length) await this.env.DB.batch(statements);
 	}
 
-	const keyboard = [];
-
-	if (
-		currentAdmin.role ===
-			"owner"
-	) {
-		keyboard.push([
-			{
-				text:
-					Number(
-						target.is_active,
-					) === 1
-						? "⏸ غیرفعال کردن"
-						: "▶️ فعال کردن",
-
-				callback_data:
-					`admin:toggle:${target.user_id}`,
-			},
-		]);
-
-		keyboard.push([
-			{
-				text:
-					"🗑 حذف ادمین",
-
-				callback_data:
-					`admin:delete_confirm:${target.user_id}`,
-			},
-		]);
+	async enabled() {
+		const result = await this.env.DB.prepare(`SELECT coin_id, symbol, name, market_cap_rank
+			FROM coingecko_assets WHERE is_enabled = 1
+			ORDER BY CASE WHEN market_cap_rank IS NULL THEN 999999 ELSE market_cap_rank END ASC`).all();
+		return result.results || [];
 	}
 
-	keyboard.push([
-		{
-			text:
-				"⬅️ مدیریت ادمین‌ها",
+	async all() {
+		const result = await this.env.DB.prepare(`SELECT coin_id, symbol, name, market_cap_rank, is_enabled
+			FROM coingecko_assets
+			ORDER BY CASE WHEN market_cap_rank IS NULL THEN 999999 ELSE market_cap_rank END ASC`).all();
+		return (result.results || []).map((row) => ({
+			id: row.coin_id,
+			name: row.name,
+			name_fa: coinNameFa(row.coin_id, row.name),
+			symbol: row.symbol,
+			market_cap_rank: row.market_cap_rank ?? null,
+			enabled: Number(row.is_enabled) === 1,
+		}));
+	}
 
-			callback_data:
-				"admins:home",
-		},
-	]);
+	async toggle(coinId) {
+		const row = await this.env.DB.prepare("SELECT is_enabled FROM coingecko_assets WHERE coin_id = ? LIMIT 1").bind(coinId).first();
+		if (!row) throw new Error("Asset not found");
+		const next = Number(row.is_enabled) === 1 ? 0 : 1;
+		await this.env.DB.prepare("UPDATE coingecko_assets SET is_enabled = ?, updated_at = ? WHERE coin_id = ?")
+			.bind(next, Date.now(), coinId).run();
+		return next === 1;
+	}
 
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>👤 اطلاعات ادمین</b>",
-			"",
-			`وضعیت: ${
-				Number(
-					target.is_active,
-				) === 1
-					? "🟢 فعال"
-					: "⚪ غیرفعال"
-			}`,
-			"",
-			`نام: <b>${escapeHtml(
-				getAdminDisplayName(
-					target,
-				),
-			)}</b>`,
-			`شناسه: <code>${escapeHtml(
-				target.user_id,
-			)}</code>`,
-			"",
-			buildNote(
-				"غیرفعال کردن، دسترسی ادمین را قطع می‌کند ولی رکورد او را حذف نمی‌کند.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard:
-				keyboard,
-		},
-	);
+	async syncTopAssets(assets) {
+		const current = new Map((await this.all()).map((item) => [item.id, item]));
+		const defaults = new Set(this.config.defaultCoinGeckoAssets);
+		const now = Date.now();
+		const statements = assets.map((asset) => {
+			const existing = current.get(asset.id);
+			const enabled = existing ? (existing.enabled ? 1 : 0) : defaults.has(asset.id) ? 1 : 0;
+			return this.env.DB.prepare(`INSERT INTO coingecko_assets
+				(coin_id, symbol, name, is_enabled, market_cap_rank, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(coin_id) DO UPDATE SET
+					symbol = excluded.symbol,
+					name = excluded.name,
+					market_cap_rank = excluded.market_cap_rank,
+					updated_at = excluded.updated_at`)
+				.bind(asset.id, asset.symbol, asset.name, enabled, asset.marketCapRank ?? null, now, now);
+		});
+		if (statements.length) await this.env.DB.batch(statements);
+	}
 }
 
-async function beginAddAdmin(
-	env,
-	message,
-	ownerId,
-) {
-	await setAdminInputState(
-		env,
-		ownerId,
-		"add_admin",
-		{
-			panelChatId:
-				message.chat.id,
+/** Administrator persistence. Owner identity remains environment-based. */
+class AdminRepository {
+	constructor(env, config) { this.env = env; this.config = config; }
 
-			panelMessageId:
-				message.message_id,
-		},
-	);
+	isOwner(userId) { return String(userId) === this.config.ownerId && Boolean(this.config.ownerId); }
 
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>➕ افزودن ادمین</b>",
-			"",
-			"Telegram User ID ادمین را ارسال کن.",
-			"",
-			buildNote(
-				"کاربر می‌تواند با دستور /id شناسه عددی خودش را مشاهده کند.",
-			),
-		].join("\n"),
-		backKeyboard(
-			"مدیریت ادمین‌ها",
-			"admins:home",
-		),
-	);
-}
-
-async function handleAddAdminInput(
-	env,
-	message,
-	currentAdmin,
-	inputState,
-) {
-	if (
-		currentAdmin.role !==
-			"owner"
-	) {
-		return;
+	async resolve(user) {
+		if (!user?.id) return null;
+		if (this.isOwner(user.id)) return { role: "owner", active: true, userId: String(user.id), user };
+		const row = await this.env.DB.prepare("SELECT * FROM admins WHERE user_id = ? LIMIT 1").bind(String(user.id)).first();
+		if (!row || Number(row.is_active) !== 1) return null;
+		return { role: "admin", active: true, userId: String(user.id), row, user };
 	}
 
-	if (
-		Date.now() -
-			Number(
-				inputState.updated_at,
-			) >
-		ADMIN_INPUT_TTL_MS
-	) {
-		await clearAdminInputState(
-			env,
-			message.from.id,
-		);
-
-		return;
+	async touchProfile(user) {
+		if (!user?.id || this.isOwner(user.id)) return;
+		await this.env.DB.prepare(`UPDATE admins SET username = ?, first_name = ?, last_name = ?, updated_at = ? WHERE user_id = ?`)
+			.bind(user.username || null, user.first_name || null, user.last_name || null, Date.now(), String(user.id)).run();
 	}
 
-	const payload =
-		parseJson(
-			inputState.payload,
-			{},
-		);
-
-	const targetId =
-		normalizeDigits(
-			message.text,
-		).trim();
-
-	await tryDeleteMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-	);
-
-	if (
-		!/^\d{4,20}$/.test(
-			targetId,
-		)
-	) {
-		await editTelegramMessage(
-			env,
-			payload.panelChatId,
-			payload.panelMessageId,
-			[
-				"<b>❌ شناسه نامعتبر</b>",
-				"",
-				"فقط Telegram User ID عددی ارسال کن.",
-			].join("\n"),
-			backKeyboard(
-				"مدیریت ادمین‌ها",
-				"admins:home",
-			),
-		);
-
-		return;
+	async list() {
+		const result = await this.env.DB.prepare("SELECT * FROM admins ORDER BY created_at ASC").all();
+		return result.results || [];
 	}
 
-	const now =
-		Date.now();
+	async get(userId) {
+		return this.env.DB.prepare("SELECT * FROM admins WHERE user_id = ? LIMIT 1").bind(String(userId)).first();
+	}
 
-	await env.DB
-		.prepare(`
-			INSERT INTO admins (
-				user_id,
-				username,
-				first_name,
-				last_name,
-				is_active,
-				added_by,
-				created_at,
-				updated_at
-			)
-
+	async add(userId, addedBy) {
+		const now = Date.now();
+		await this.env.DB.prepare(`INSERT INTO admins
+			(user_id, username, first_name, last_name, is_active, added_by, created_at, updated_at)
 			VALUES (?, NULL, NULL, NULL, 1, ?, ?, ?)
-
-			ON CONFLICT(user_id)
-			DO UPDATE SET
-				is_active = 1,
-				updated_at = excluded.updated_at
-		`)
-		.bind(
-			targetId,
-			String(
-				message.from.id,
-			),
-			now,
-			now,
-		)
-		.run();
-
-	await addAuditLog(
-		env,
-		message.from.id,
-		"admin.added",
-		{
-			targetId,
-		},
-	);
-
-	await clearAdminInputState(
-		env,
-		message.from.id,
-	);
-
-	await showAdmins(
-		env,
-		{
-			chat: {
-				id:
-					Number(
-						payload.panelChatId,
-					),
-			},
-
-			message_id:
-				Number(
-					payload.panelMessageId,
-				),
-		},
-		currentAdmin,
-	);
-}
-
-async function toggleAdminActive(
-	env,
-	targetId,
-	ownerId,
-) {
-	const target =
-		await getAdmin(
-			env,
-			targetId,
-		);
-
-	if (!target) {
-		return;
+			ON CONFLICT(user_id) DO UPDATE SET is_active = 1, updated_at = excluded.updated_at`)
+			.bind(String(userId), String(addedBy), now, now).run();
 	}
 
-	const next =
-		Number(
-			target.is_active,
-		) === 1
-			? 0
-			: 1;
-
-	await env.DB
-		.prepare(`
-			UPDATE admins
-			SET
-				is_active = ?,
-				updated_at = ?
-			WHERE user_id = ?
-		`)
-		.bind(
-			next,
-			Date.now(),
-			String(targetId),
-		)
-		.run();
-
-	await addAuditLog(
-		env,
-		ownerId,
-		next
-			? "admin.enabled"
-			: "admin.disabled",
-		{
-			targetId,
-		},
-	);
-}
-
-async function showDeleteAdminConfirmation(
-	env,
-	message,
-	targetId,
-) {
-	const target =
-		await getAdmin(
-			env,
-			targetId,
-		);
-
-	if (!target) {
-		return;
+	async toggle(userId) {
+		const row = await this.get(userId);
+		if (!row) throw new Error("Admin not found");
+		const next = Number(row.is_active) === 1 ? 0 : 1;
+		await this.env.DB.prepare("UPDATE admins SET is_active = ?, updated_at = ? WHERE user_id = ?")
+			.bind(next, Date.now(), String(userId)).run();
+		return next === 1;
 	}
 
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		[
-			"<b>🗑 حذف ادمین</b>",
-			"",
-			`آیا از حذف <b>${escapeHtml(
-				getAdminDisplayName(
-					target,
-				),
-			)}</b> مطمئن هستی؟`,
-			"",
-			buildNote(
-				"این عملیات رکورد ادمین را از D1 حذف می‌کند.",
-			),
-		].join("\n"),
-		{
-			inline_keyboard: [
-				[
-					{
-						text:
-							"🗑 بله، حذف شود",
+	async remove(userId) {
+		await this.env.DB.prepare("DELETE FROM admins WHERE user_id = ?").bind(String(userId)).run();
+	}
 
-						callback_data:
-							`admin:delete:${target.user_id}`,
-					},
-				],
-
-				[
-					{
-						text:
-							"⬅️ انصراف",
-
-						callback_data:
-							`admin:view:${target.user_id}`,
-					},
-				],
-			],
-		},
-	);
-}
-
-async function deleteAdmin(
-	env,
-	targetId,
-) {
-	await env.DB
-		.prepare(`
-			DELETE FROM admins
-			WHERE user_id = ?
-		`)
-		.bind(
-			String(targetId),
-		)
-		.run();
-}
-
-async function getAdminStats(
-	env,
-) {
-	const result =
-		await env.DB
-			.prepare(`
-				SELECT
-					COUNT(*) AS total,
-
-					SUM(
-						CASE
-							WHEN is_active = 1
-							THEN 1
-							ELSE 0
-						END
-					) AS active,
-
-					SUM(
-						CASE
-							WHEN is_active = 0
-							THEN 1
-							ELSE 0
-						END
-					) AS inactive
-
-				FROM admins
-			`)
-			.first();
-
-	return {
-		total:
-			Number(
-				result?.total ??
-					0,
-			),
-
-		active:
-			Number(
-				result?.active ??
-					0,
-			),
-
-		inactive:
-			Number(
-				result?.inactive ??
-					0,
-			),
-	};
-}
-
-/* ============================================================
- * INPUT STATE
- * ============================================================
- */
-
-async function setAdminInputState(
-	env,
-	userId,
-	action,
-	payload = null,
-) {
-	const now =
-		Date.now();
-
-	await env.DB
-		.prepare(`
-			INSERT INTO admin_input_state (
-				telegram_user_id,
-				action,
-				payload,
-				created_at,
-				updated_at
-			)
-
-			VALUES (?, ?, ?, ?, ?)
-
-			ON CONFLICT(telegram_user_id)
-			DO UPDATE SET
-				action = excluded.action,
-				payload = excluded.payload,
-				updated_at = excluded.updated_at
-		`)
-		.bind(
-			String(userId),
-			action,
-
-			payload
-				? JSON.stringify(
-					payload,
-				)
-				: null,
-
-			now,
-			now,
-		)
-		.run();
-}
-
-async function getAdminInputState(
-	env,
-	userId,
-) {
-	return env.DB
-		.prepare(`
-			SELECT *
-			FROM admin_input_state
-			WHERE telegram_user_id = ?
-			LIMIT 1
-		`)
-		.bind(
-			String(userId),
-		)
-		.first();
-}
-
-async function clearAdminInputState(
-	env,
-	userId,
-) {
-	await env.DB
-		.prepare(`
-			DELETE FROM admin_input_state
-			WHERE telegram_user_id = ?
-		`)
-		.bind(
-			String(userId),
-		)
-		.run();
-}
-
-/* ============================================================
- * DISABLED
- * ============================================================
- */
-
-function buildDisabledText(
-	env,
-	admin,
-) {
-	return [
-		`<b>⏸ ${escapeHtml(
-			getBotDisplayName(env),
-		)}</b>`,
-		"",
-		"<blockquote>" +
-			`🔐 ${escapeHtml(
-				getRoleLabel(admin),
-			)}` +
-			"\n" +
-			"🔴 ربات غیرفعال" +
-			"</blockquote>",
-		"",
-		buildNote(
-			"در حالت غیرفعال، Cron و انتشار بازار اجرا نمی‌شوند.",
-		),
-	].join("\n");
-}
-
-function disabledKeyboard(
-	admin,
-) {
-	if (
-		admin.role !==
-			"owner"
-	) {
+	async stats() {
+		const rows = await this.list();
 		return {
-			inline_keyboard:
-				[],
+			total: rows.length + (this.config.ownerId ? 1 : 0),
+			active_admins: rows.filter((row) => Number(row.is_active) === 1).length,
+			inactive_admins: rows.filter((row) => Number(row.is_active) !== 1).length,
+			owner_configured: Boolean(this.config.ownerId),
 		};
 	}
-
-	return {
-		inline_keyboard: [
-			[
-				{
-					text:
-						"▶️ فعال کردن ربات",
-
-					callback_data:
-						"global:enable",
-				},
-			],
-		],
-	};
 }
 
-async function sendDisabledScreen(
-	env,
-	chatId,
-	admin,
-) {
-	await sendTelegramMessage(
-		env,
-		chatId,
-		buildDisabledText(
-			env,
-			admin,
-		),
-		disabledKeyboard(
-			admin,
-		),
-	);
-}
+/** Temporary admin-input state. */
+class AdminInputRepository {
+	constructor(env) { this.env = env; }
 
-async function showDisabledScreen(
-	env,
-	message,
-	admin,
-) {
-	await editTelegramMessage(
-		env,
-		message.chat.id,
-		message.message_id,
-		buildDisabledText(
-			env,
-			admin,
-		),
-		disabledKeyboard(
-			admin,
-		),
-	);
-}
-
-async function sendAccessDenied(
-	env,
-	chatId,
-) {
-	await sendTelegramMessage(
-		env,
-		chatId,
-		[
-			"<b>⛔️ دسترسی غیرمجاز</b>",
-			"",
-			"شما اجازه استفاده از این ربات را ندارید.",
-		].join("\n"),
-	);
-}
-
-/* ============================================================
- * PUBLIC API
- * ============================================================
- */
-
-async function handleRootApi(
-	env,
-) {
-	return jsonResponse({
-		success:
-			true,
-
-		service:
-			env.APP_NAME ??
-				APP.name,
-
-		version:
-			getVersion(env),
-
-		api_version:
-			APP.apiVersion,
-
-		endpoints: {
-			market:
-				"/api/v1/market",
-
-			assets:
-				"/api/v1/assets",
-
-			sources:
-				"/api/v1/sources",
-
-			usdt:
-				"/api/v1/sources/usdt",
-
-			automation:
-				"/api/v1/automation",
-
-			system:
-				"/api/v1/system",
-
-			database:
-				"/api/v1/system/database",
-		},
-	});
-}
-
-async function handleMarketApi(
-	env,
-) {
-	const snapshot =
-		await getMarketSnapshot(
-			env,
-		);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data:
-			serializeMarketSnapshot(
-				env,
-				snapshot,
-			),
-	});
-}
-
-async function handleAssetsApi(
-	env,
-) {
-	const result =
-		await fetchCoinGeckoTopAssets(
-			env,
-		);
-
-	if (!result.success) {
-		const stored =
-			await getStoredCoinGeckoAssets(
-				env,
-			);
-
-		return jsonResponse({
-			success:
-				true,
-
-			data: {
-				live:
-					false,
-
-				count:
-					stored.length,
-
-				enabled_count:
-					stored.filter(
-						(item) =>
-							item.enabled,
-					).length,
-
-				assets:
-					stored,
-			},
-		});
+	async set(userId, action, payload = null) {
+		const now = Date.now();
+		await this.env.DB.prepare(`INSERT INTO admin_input_state
+			(telegram_user_id, action, payload, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(telegram_user_id) DO UPDATE SET action = excluded.action, payload = excluded.payload, updated_at = excluded.updated_at`)
+			.bind(String(userId), action, payload ? JSON.stringify(payload) : null, now, now).run();
 	}
 
-	await syncCoinGeckoAssets(
-		env,
-		result.assets,
-	);
-
-	const map =
-		await getCoinGeckoAssetMap(
-			env,
-		);
-
-	const assets =
-		result.assets.map(
-			(asset) => ({
-				id:
-					asset.id,
-
-				name:
-					asset.name,
-
-				name_fa:
-					getPersianCoinName(
-						asset.id,
-						asset.name,
-					),
-
-				symbol:
-					asset.symbol,
-
-				market_cap_rank:
-					asset.market_cap_rank,
-
-				price_usd:
-					asset.price,
-
-				change_24h_percent:
-					asset.change24h,
-
-				enabled:
-					Number(
-						map[
-							asset.id
-						]?.is_enabled ??
-							0,
-					) === 1,
-			}),
-		);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data: {
-			live:
-				true,
-
-			count:
-				assets.length,
-
-			enabled_count:
-				assets.filter(
-					(item) =>
-						item.enabled,
-				).length,
-
-			assets,
-		},
-	});
-}
-
-async function handleSourcesApi(
-	env,
-) {
-	const sources =
-		await checkAllSources(
-			env,
-			true,
-		);
-
-	const usdt =
-		resolveUsdtFromChecks(
-			sources,
-		);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data: {
-			usdt: {
-				selected_source:
-					usdt.success
-						? usdt.sourceLabel
-						: null,
-
-				price_toman:
-					usdt.success
-						? usdt.price
-						: null,
-
-				priority: [
-					"Wallex",
-					"Tabdeal",
-					"Exir",
-				],
-
-				providers: {
-					wallex:
-						serializeSourceStatus(
-							sources.wallex,
-						),
-
-					tabdeal:
-						serializeSourceStatus(
-							sources.tabdeal,
-						),
-
-					exir:
-						serializeSourceStatus(
-							sources.exir,
-						),
-				},
-			},
-
-			crypto: {
-				coingecko:
-					serializeSourceStatus(
-						sources.coingecko,
-					),
-			},
-
-			metals: {
-				wallgold:
-					serializeSourceStatus(
-						sources.wallgold,
-					),
-
-				coingecko:
-					serializeSourceStatus(
-						sources.coingecko,
-					),
-			},
-		},
-	});
-}
-
-async function handleUsdtApi(
-	env,
-) {
-	const result =
-		await resolveUsdtToman(
-			env,
-			true,
-		);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data: {
-			available:
-				result.success,
-
-			price_toman:
-				result.success
-					? result.price
-					: null,
-
-			source:
-				result.success
-					? result.sourceLabel
-					: null,
-
-			source_key:
-				result.success
-					? result.source
-					: null,
-
-			fallback_level:
-				result.success
-					? result.fallbackLevel
-					: null,
-
-			latency_ms:
-				result.success
-					? result.latency
-					: null,
-
-			priority: [
-				"Wallex",
-				"Tabdeal",
-				"Exir",
-			],
-		},
-	});
-}
-
-async function handleAutomationApi(
-	env,
-) {
-	const automation =
-		await getAutomationSettings(
-			env,
-		);
-
-	const next =
-		calculateNextPublishAt(
-			env,
-			automation,
-		);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data: {
-			enabled:
-				automation.enabled,
-
-			interval_minutes:
-				automation.intervalMinutes,
-
-			quiet_hours: {
-				enabled:
-					automation
-						.quietHours
-						.enabled,
-
-				start:
-					automation
-						.quietHours
-						.start,
-
-				end:
-					automation
-						.quietHours
-						.end,
-			},
-
-			last_run_at:
-				automation.lastRunAt
-					? new Date(
-						automation.lastRunAt,
-					).toISOString()
-					: null,
-
-			last_success_at:
-				automation.lastSuccessAt
-					? new Date(
-						automation.lastSuccessAt,
-					).toISOString()
-					: null,
-
-			next_run_at:
-				next
-					? new Date(
-						next,
-					).toISOString()
-					: null,
-
-			last_tick_at:
-				automation.lastTickAt
-					? new Date(
-						automation.lastTickAt,
-					).toISOString()
-					: null,
-
-			last_attempt_at:
-				automation.lastAttemptAt
-					? new Date(
-						automation.lastAttemptAt,
-					).toISOString()
-					: null,
-
-			last_error_at:
-				automation.lastErrorAt
-					? new Date(
-						automation.lastErrorAt,
-					).toISOString()
-					: null,
-
-			last_skip_reason:
-				automation.lastSkipReason ||
-					null,
-
-			last_error:
-				automation.lastError ||
-					null,
-
-			timezone:
-				getTimezone(env),
-		},
-	});
-}
-
-async function handleSystemApi(
-	env,
-) {
-	const [
-		enabled,
-		database,
-		adminStats,
-		automation,
-	] = await Promise.all([
-		getGlobalEnabled(env),
-		getDatabaseStatus(env),
-		getAdminStats(env),
-		getAutomationSettings(env),
-	]);
-
-	return jsonResponse({
-		success:
-			true,
-
-		data: {
-			service:
-				env.APP_NAME ??
-					APP.name,
-
-			version:
-				getVersion(env),
-
-			api_version:
-				APP.apiVersion,
-
-			timezone:
-				getTimezone(env),
-
-			enabled,
-
-			automation: {
-				enabled:
-					automation.enabled,
-
-				interval_minutes:
-					automation.intervalMinutes,
-
-				quiet_hours_enabled:
-					automation
-						.quietHours
-						.enabled,
-			},
-
-			database: {
-				connected:
-					database.connected,
-
-				provider:
-					database.provider,
-
-				latency_ms:
-					database.latencyMs,
-			},
-
-			admins:
-				adminStats,
-		},
-	});
-}
-
-async function handleDatabaseApi(
-	env,
-) {
-	const [
-		database,
-		storage,
-		stats,
-	] = await Promise.all([
-		getDatabaseStatus(env),
-		getD1StorageUsage(env),
-		getDatabaseStats(env),
-	]);
-
-	return jsonResponse({
-		success:
-			database.connected,
-
-		data: {
-			connected:
-				database.connected,
-
-			provider:
-				database.provider,
-
-			latency_ms:
-				database.latencyMs,
-
-			storage,
-
-			records:
-				stats,
-
-			schema_version:
-				APP.schemaVersion,
-		},
-	});
-}
-
-function serializeMarketSnapshot(
-	env,
-	snapshot,
-) {
-	return {
-		generated_at:
-			new Date(
-				snapshot.createdAt,
-			).toISOString(),
-
-		timezone:
-			getTimezone(env),
-
-		date:
-			formatIranDate(
-				env,
-				snapshot.createdAt,
-			),
-
-		time:
-			formatIranTime(
-				env,
-				snapshot.createdAt,
-			),
-
-		partial:
-			snapshot.partial,
-
-		errors:
-			snapshot.errors,
-
-		usdt: {
-			available:
-				snapshot.usdt.price !==
-					null,
-
-			price_toman:
-				snapshot.usdt.price,
-
-			source:
-				snapshot.usdt.source,
-
-			fallback_level:
-				snapshot.usdt
-					.fallbackLevel,
-		},
-
-		crypto:
-			snapshot.crypto.map(
-				(item) => ({
-					id:
-						item.id,
-
-					name:
-						item.name,
-
-					name_fa:
-						getPersianCoinName(
-							item.id,
-							item.name,
-						),
-
-					symbol:
-						item.symbol,
-
-					available:
-						item.price !==
-							null,
-
-					price_usd:
-						item.price,
-
-					change_24h_percent:
-						item.change24h,
-
-					market_cap_rank:
-						item.marketCapRank,
-				}),
-			),
-
-		metals: {
-			gram_18_toman:
-				snapshot.metals
-					.gram18,
-
-			mazaneh_toman:
-				snapshot.metals
-					.mazaneh,
-
-			gold_usd:
-				snapshot.metals
-					.gold,
-
-			silver_usd:
-				snapshot.metals
-					.silver,
-		},
-	};
-}
-
-/* ============================================================
- * AUDIT
- * ============================================================
- */
-
-async function addAuditLog(
-	env,
-	userId,
-	action,
-	data = null,
-) {
-	try {
-		await env.DB
-			.prepare(`
-				INSERT INTO audit_logs (
-					telegram_user_id,
-					action,
-					data,
-					created_at
-				)
-
-				VALUES (?, ?, ?, ?)
-			`)
-			.bind(
-				String(userId),
-
-				action,
-
-				data
-					? JSON.stringify(
-						data,
-					)
-					: null,
-
-				Date.now(),
-			)
-			.run();
-	} catch (error) {
-		console.error(
-			"audit.error",
-			errorMessage(error),
-		);
-	}
-}
-
-/* ============================================================
- * TELEGRAM API
- * ============================================================
- */
-
-async function telegramApi(
-	env,
-	method,
-	payload = {},
-) {
-	if (
-		!env.TELEGRAM_BOT_TOKEN
-	) {
-		throw new Error(
-			"TELEGRAM_BOT_TOKEN is missing",
-		);
-	}
-
-	const response =
-		await fetchWithTimeout(
-			`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`,
-			{
-				method:
-					"POST",
-
-				headers: {
-					"Content-Type":
-						"application/json",
-				},
-
-				body:
-					JSON.stringify(
-						payload,
-					),
-			},
-			10000,
-		);
-
-	const data =
-		await response.json();
-
-	if (
-		!response.ok ||
-		!data.ok
-	) {
-		const description =
-			data?.description ??
-				`HTTP ${response.status}`;
-
-		if (
-			method ===
-				"editMessageText" &&
-			String(
-				description,
-			)
-				.toLowerCase()
-				.includes(
-					"message is not modified",
-				)
-		) {
+	async get(userId) {
+		const row = await this.env.DB.prepare("SELECT * FROM admin_input_state WHERE telegram_user_id = ? LIMIT 1").bind(String(userId)).first();
+		if (!row) return null;
+		if (Date.now() - Number(row.updated_at || 0) > APP.adminInputTtlMs) {
+			await this.clear(userId);
 			return null;
 		}
-
-		throw new Error(
-			description,
-		);
+		return { action: row.action, payload: safeJson(row.payload, null) };
 	}
 
-	return data.result;
-}
-
-async function sendTelegramMessage(
-	env,
-	chatId,
-	text,
-	replyMarkup = null,
-) {
-	return telegramApi(
-		env,
-		"sendMessage",
-		{
-			chat_id:
-				chatId,
-
-			text,
-
-			parse_mode:
-				"HTML",
-
-			disable_web_page_preview:
-				true,
-
-			...(replyMarkup
-				? {
-					reply_markup:
-						replyMarkup,
-				}
-				: {}),
-		},
-	);
-}
-
-async function sendTelegramRichMessage(
-	env,
-	chatId,
-	richMessage,
-	replyMarkup = null,
-) {
-	return telegramApi(
-		env,
-		"sendRichMessage",
-		{
-			chat_id:
-				chatId,
-
-			rich_message:
-				richMessage,
-
-			...(replyMarkup
-				? {
-					reply_markup:
-						replyMarkup,
-				}
-				: {}),
-		},
-	);
-}
-
-async function editTelegramRichMessage(
-	env,
-	chatId,
-	messageId,
-	richMessage,
-	replyMarkup = null,
-) {
-	try {
-		return await telegramApi(
-			env,
-			"editMessageText",
-			{
-				chat_id:
-					chatId,
-
-				message_id:
-					Number(
-						messageId,
-					),
-
-				rich_message:
-					richMessage,
-
-				...(replyMarkup
-					? {
-						reply_markup:
-							replyMarkup,
-					}
-					: {}),
-			},
-		);
-	} catch (error) {
-		console.warn(
-			"telegram.rich_preview_fallback",
-			errorMessage(error),
-		);
-
-		return editTelegramMessage(
-			env,
-			chatId,
-			messageId,
-			buildRichMessageFallbackText(
-				richMessage,
-			),
-			replyMarkup,
-		);
+	async clear(userId) {
+		await this.env.DB.prepare("DELETE FROM admin_input_state WHERE telegram_user_id = ?").bind(String(userId)).run();
 	}
 }
 
-function buildRichMessageFallbackText(
-	richMessage,
-) {
-	return [
-		"<b>📄 پیش‌نمایش Rich Message</b>",
-		"",
-		"این نسخه با Rich Message رسمی تلگرام و RTL سراسری منتشر می‌شود.",
-		"",
-		buildNote(
-			"اگر کلاینت فعلی پیش‌نمایش Rich Message را پشتیبانی نکند، انتشار کانال همچنان از sendRichMessage استفاده می‌کند.",
-		),
-	].join("\n");
-}
-
-async function editTelegramMessage(
-	env,
-	chatId,
-	messageId,
-	text,
-	replyMarkup = null,
-) {
-	return telegramApi(
-		env,
-		"editMessageText",
-		{
-			chat_id:
-				chatId,
-
-			message_id:
-				Number(
-					messageId,
-				),
-
-			text,
-
-			parse_mode:
-				"HTML",
-
-			disable_web_page_preview:
-				true,
-
-			...(replyMarkup
-				? {
-					reply_markup:
-						replyMarkup,
-				}
-				: {}),
-		},
-	);
-}
-
-async function safeAnswerCallbackQuery(
-	env,
-	id,
-	text = undefined,
-	showAlert = false,
-) {
-	try {
-		await telegramApi(
-			env,
-			"answerCallbackQuery",
-			{
-				callback_query_id:
-					id,
-
-				...(text
-					? {
-						text,
-					}
-					: {}),
-
-				show_alert:
-					showAlert,
-			},
-		);
-	} catch {
-		// Ignore expired callback.
+/** Best-effort audit logger; audit failure never breaks the business flow. */
+class AuditRepository {
+	constructor(env) { this.env = env; }
+	async add(userId, action, data = null) {
+		try {
+			await this.env.DB.prepare(`INSERT INTO audit_logs (telegram_user_id, action, data, created_at) VALUES (?, ?, ?, ?)`)
+				.bind(userId == null ? null : String(userId), action, data ? JSON.stringify(data) : null, Date.now()).run();
+		} catch (error) {
+			console.warn("audit.write_failed", errorMessage(error));
+		}
 	}
 }
 
-async function tryDeleteMessage(
-	env,
-	chatId,
-	messageId,
-) {
-	try {
-		await telegramApi(
-			env,
-			"deleteMessage",
-			{
-				chat_id:
-					chatId,
-
-				message_id:
-					messageId,
-			},
-		);
-	} catch {
-		// Ignore.
-	}
-}
-
-function backKeyboard(
-	label,
-	callback,
-) {
-	return {
-		inline_keyboard: [
-			[
-				{
-					text:
-						`⬅️ ${label}`,
-
-					callback_data:
-						callback,
-				},
-			],
-		],
-	};
-}
-
-/* ============================================================
- * SOURCE HELPERS
- * ============================================================
- */
-
-function sourceLabel(
-	source,
-) {
-	switch (source) {
-		case "wallex":
-			return "Wallex";
-
-		case "tabdeal":
-			return "Tabdeal";
-
-		case "exir":
-			return "Exir";
-
-		case "coingecko":
-			return "CoinGecko";
-
-		case "wallgold":
-			return "WallGold";
-
-		default:
-			return source;
-	}
-}
-
-function sourceError(
-	message,
-) {
-	return {
-		success:
-			false,
-
-		latency:
-			0,
-
-		message,
-	};
-}
-
-function sourceCatchError(
-	error,
-	startedAt,
-) {
-	return {
-		success:
-			false,
-
-		latency:
-			Date.now() -
-				startedAt,
-
-		message:
-			errorMessage(error),
-	};
-}
-
-async function sourceHttpError(
-	response,
-	latency,
-) {
-	const body =
-		await safeReadResponseText(
-			response,
-		);
-
-	return {
-		success:
-			false,
-
-		status:
-			response.status,
-
-		latency,
-
-		message:
-			createHttpErrorMessage(
-				response.status,
-				body,
-			),
-	};
-}
-
-async function createSourceHttpError(
-	response,
-) {
-	const body =
-		await safeReadResponseText(
-			response,
-		);
-
-	return createHttpErrorMessage(
-		response.status,
-		body,
-	);
-}
-
-/* ============================================================
- * HTTP
- * ============================================================
- */
-
-async function fetchWithTimeout(
-	url,
-	options = {},
-	timeout = 8000,
-) {
-	const controller =
-		new AbortController();
-
-	const timer =
-		setTimeout(
-			() =>
-				controller.abort(),
-			timeout,
-		);
-
-	try {
-		return await fetch(
-			url,
-			{
-				...options,
-
-				signal:
-					controller.signal,
-			},
-		);
-	} finally {
-		clearTimeout(
-			timer,
-		);
-	}
-}
-
-async function safeReadResponseText(
-	response,
-) {
-	try {
-		return (
-			await response.text()
-		).slice(
-			0,
-			300,
-		);
-	} catch {
-		return "";
-	}
-}
-
-/* ============================================================
- * GENERAL HELPERS
- * ============================================================
- */
-
-function rtlLine(
-	value,
-) {
-	const text = String(
-		value ?? "",
-	);
-
-	if (!text) {
-		return "";
+/** Timeout-aware HTTP client with compact source errors. */
+class HttpClient {
+	async fetch(url, init = {}, timeoutMs = 8000) {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), timeoutMs);
+		try {
+			return await fetch(url, { ...init, signal: controller.signal });
+		} finally {
+			clearTimeout(timer);
+		}
 	}
 
-	return `\u200F${text}`;
-}
-
-function buildNote(
-	text,
-) {
-	return `<blockquote>ℹ️ ${escapeHtml(
-		text,
-	)}</blockquote>`;
-}
-
-function buildTimeString(
-	hour,
-	minute,
-) {
-	return `${pad2(
-		hour,
-	)}:${pad2(
-		minute,
-	)}`;
-}
-
-function pad2(
-	value,
-) {
-	return String(
-		Number(value),
-	).padStart(
-		2,
-		"0",
-	);
-}
-
-function isValidTimeString(
-	value,
-) {
-	return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(
-		String(value),
-	);
-}
-
-function timeStringToMinutes(
-	value,
-) {
-	if (
-		!isValidTimeString(
-			value,
-		)
-	) {
-		return null;
+	async sourceError(response) {
+		let text = "";
+		try { text = await response.text(); } catch { /* ignore */ }
+		text = text.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
+		return `HTTP ${response.status}${text ? `: ${text}` : ""}`;
 	}
-
-	const [
-		hour,
-		minute,
-	] = value
-		.split(":")
-		.map(Number);
-
-	return (
-		hour * 60 +
-		minute
-	);
-}
-
-function getCachedDateTimeFormatter(
-	cacheKey,
-	locale,
-	options,
-) {
-	let formatter =
-		dateTimeFormatterCache.get(
-			cacheKey,
-		);
-
-	if (!formatter) {
-		formatter =
-			new Intl.DateTimeFormat(
-				locale,
-				options,
-			);
-
-		dateTimeFormatterCache.set(
-			cacheKey,
-			formatter,
-		);
-	}
-
-	return formatter;
-}
-
-function getTimeMinutesInTimezone(
-	env,
-	timestamp,
-) {
-	const timezone =
-		getTimezone(env);
-
-	const parts =
-		getCachedDateTimeFormatter(
-			`time-parts:${timezone}`,
-			"en-US",
-			{
-				timeZone: timezone,
-				hour: "2-digit",
-				minute: "2-digit",
-				hour12: false,
-			},
-		).formatToParts(
-			new Date(timestamp),
-		);
-
-	const hour =
-		Number(
-			parts.find(
-				(item) =>
-					item.type ===
-						"hour",
-			)?.value ??
-				0,
-		) % 24;
-
-	const minute =
-		Number(
-			parts.find(
-				(item) =>
-					item.type ===
-						"minute",
-			)?.value ??
-				0,
-		);
-
-	return (
-		hour * 60 +
-		minute
-	);
-}
-
-function getVersion(
-	env,
-) {
-	return String(
-		env.APP_VERSION ??
-			APP.version,
-	);
-}
-
-function getTimezone(
-	env,
-) {
-	return String(
-		env.TIMEZONE ??
-			"Asia/Tehran",
-	);
-}
-
-function getChannelHandle(
-	env,
-) {
-	const explicit =
-		String(
-			env.TELEGRAM_CHANNEL_HANDLE ??
-				"",
-		).trim();
-
-	if (explicit) {
-		return explicit;
-	}
-
-	const channelId =
-		String(
-			env.TELEGRAM_CHANNEL_ID ??
-				"",
-		).trim();
-
-	return channelId.startsWith(
-		"@",
-	)
-		? channelId
-		: "";
-}
-
-function getPersianCoinName(
-	coinId,
-	fallbackName = "",
-) {
-	return (
-		COIN_NAMES_FA[
-			coinId
-		] ||
-		fallbackName ||
-		coinId
-	);
-}
-
-function normalizeCommand(
-	text,
-) {
-	return String(text)
-		.split(/\s+/)[0]
-		.toLowerCase()
-		.replace(
-			/@[\w_]+$/,
-			"",
-		);
-}
-
-function parseBoolean(
-	value,
-) {
-	return [
-		"1",
-		"true",
-		"yes",
-		"on",
-	].includes(
-		String(value)
-			.trim()
-			.toLowerCase(),
-	);
-}
-
-function normalizeTimestamp(
-	value,
-) {
-	const number =
-		Number(value);
-
-	return (
-		Number.isFinite(
-			number,
-		) &&
-		number > 0
-			? number
-			: 0
-	);
-}
-
-function toNullableNumber(
-	value,
-) {
-	if (
-		value === null ||
-		value === undefined ||
-		value === ""
-	) {
-		return null;
-	}
-
-	const number =
-		Number(value);
-
-	return (
-		Number.isFinite(
-			number,
-		)
-			? number
-			: null
-	);
-}
-
-function normalizeDigits(
-	value,
-) {
-	const persian =
-		"۰۱۲۳۴۵۶۷۸۹";
-
-	const arabic =
-		"٠١٢٣٤٥٦٧٨٩";
-
-	return String(value)
-		.replace(
-			/[۰-۹]/g,
-			(char) =>
-				String(
-					persian.indexOf(
-						char,
-					),
-				),
-		)
-		.replace(
-			/[٠-٩]/g,
-			(char) =>
-				String(
-					arabic.indexOf(
-						char,
-					),
-				),
-		);
-}
-
-function toFaDigits(
-	value,
-) {
-	return String(value)
-		.replace(
-			/\d/g,
-			(digit) =>
-				"۰۱۲۳۴۵۶۷۸۹"[
-					Number(digit)
-				],
-		);
-}
-
-/* ============================================================
- * MARKET FORMATTERS
- * ============================================================
- */
-
-function formatFaInteger(
-	value,
-) {
-	const formatted =
-		faIntegerFormatter.format(
-			Math.round(
-				Number(value),
-			),
-		);
-
-	return toFaDigits(
-		formatted.replaceAll(
-			",",
-			"٬",
-		),
-	);
-}
-
-function formatFaPrice(
-	value,
-) {
-	const number =
-		Number(value);
-
-	const formatted =
-		(
-			number >= 1000
-				? faPriceLargeFormatter
-				: faPriceSmallFormatter
-		).format(number);
-
-	return toFaDigits(
-		formatted
-			.replaceAll(
-				",",
-				"٬",
-			)
-			.replaceAll(
-				".",
-				"٫",
-			),
-	);
 }
 
 /**
- * Price change UI:
- *
- * Positive -> 🟢
- * Negative -> 🔴
- * Zero     -> ⚪
+ * CoinGecko client.
+ * A market refresh performs exactly ONE CoinGecko request for both
+ * selected cryptocurrencies and metal proxy assets.
  */
-function formatChangeIcon(
-	value,
-) {
-	const number = Number(value);
-
-	if (!Number.isFinite(number)) {
-		return "⚪";
+class CoinGeckoClient {
+	constructor(env, config, http) {
+		this.env = env;
+		this.config = config;
+		this.http = http;
 	}
 
-	if (number > 0) {
-		return "🟢";
+	async fetchMarketBundle(enabledAssets) {
+		if (!this.env.COINGECKO_API_KEY) return failure("COINGECKO_API_KEY missing");
+		const ids = [...new Set([
+			...enabledAssets.map((item) => item.coin_id),
+			"tether-gold",
+			"kinesis-silver",
+		])];
+		const endpoint = `${this.config.coinGeckoBaseUrl}/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`;
+		const startedAt = Date.now();
+		try {
+			const response = await this.http.fetch(endpoint, { headers: this.config.coinGeckoHeaders() }, 8000);
+			const latency = Date.now() - startedAt;
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status, latency);
+			const data = await response.json();
+			if (!Array.isArray(data)) return failure("Invalid CoinGecko response", response.status, latency);
+			const map = new Map(data.map((item) => [String(item.id), item]));
+			const crypto = enabledAssets.map((stored) => {
+				const live = map.get(stored.coin_id);
+				return {
+					id: stored.coin_id,
+					symbol: String(live?.symbol || stored.symbol || "").toUpperCase(),
+					name: String(live?.name || stored.name || stored.coin_id),
+					price: nullableNumber(live?.current_price),
+					change24h: nullableNumber(live?.price_change_percentage_24h),
+					marketCapRank: nullableNumber(live?.market_cap_rank ?? stored.market_cap_rank),
+				};
+			});
+			return {
+				success: true,
+				status: response.status,
+				latency,
+				crypto,
+				gold: nullableNumber(map.get("tether-gold")?.current_price),
+				silver: nullableNumber(map.get("kinesis-silver")?.current_price),
+			};
+		} catch (error) {
+			return failure(errorMessage(error), null, Date.now() - startedAt);
+		}
 	}
 
-	if (number < 0) {
-		return "🔴";
-	}
-
-	return "⚪";
-}
-
-function formatFaChangeValue(
-	value,
-) {
-	const number = Number(value);
-
-	if (!Number.isFinite(number)) {
-		return "<b>نامشخص</b>";
-	}
-
-	const amount =
-		toFaDigits(
-			Math.abs(number)
-				.toFixed(2)
-				.replace(".", "٫"),
-		);
-
-	if (number > 0) {
-		return `<b>+${amount}٪</b>`;
-	}
-
-	if (number < 0) {
-		return `<b>−${amount}٪</b>`;
-	}
-
-	return "<b>۰٫۰۰٪</b>";
-}
-
-function formatOptionalToman(
-	value,
-) {
-	if (
-		value === null ||
-		value === undefined
-	) {
-		return "<b>نامشخص</b>";
-	}
-
-	return `<b>${formatFaInteger(
-		value,
-	)} تومان</b>`;
-}
-
-function formatOptionalUsd(
-	value,
-) {
-	if (
-		value === null ||
-		value === undefined
-	) {
-		return "<b>نامشخص</b>";
-	}
-
-	return `<b>${formatFaPrice(
-		value,
-	)} دلار</b>`;
-}
-
-/* ============================================================
- * DATE / TIME
- * ============================================================
- */
-
-function formatIranDate(
-	env,
-	timestamp,
-) {
-	const timezone = getTimezone(env);
-
-	return getCachedDateTimeFormatter(
-		`iran-date:${timezone}`,
-		"fa-IR",
-		{
-			timeZone: timezone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-		},
-	).format(new Date(timestamp));
-}
-
-function formatIranTime(
-	env,
-	timestamp,
-) {
-	const timezone = getTimezone(env);
-
-	return getCachedDateTimeFormatter(
-		`iran-time:${timezone}`,
-		"fa-IR",
-		{
-			timeZone: timezone,
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		},
-	).format(new Date(timestamp));
-}
-
-function formatSystemDate(
-	env,
-	timestamp,
-) {
-	const timezone = getTimezone(env);
-
-	return getCachedDateTimeFormatter(
-		`system-date:${timezone}`,
-		"en-CA",
-		{
-			timeZone: timezone,
-			year: "numeric",
-			month: "2-digit",
-			day: "2-digit",
-		},
-	).format(new Date(timestamp));
-}
-
-function formatSystemTime(
-	env,
-	timestamp,
-) {
-	const timezone = getTimezone(env);
-
-	return getCachedDateTimeFormatter(
-		`system-time:${timezone}`,
-		"en-GB",
-		{
-			timeZone: timezone,
-			hour: "2-digit",
-			minute: "2-digit",
-			hour12: false,
-		},
-	).format(new Date(timestamp));
-}
-
-function formatSystemDateTime(
-	env,
-	timestamp,
-) {
-	return `${formatSystemDate(
-		env,
-		timestamp,
-	)} · ${formatSystemTime(
-		env,
-		timestamp,
-	)}`;
-}
-
-function formatOptionalSystemDateTime(
-	env,
-	timestamp,
-) {
-	if (!timestamp) {
-		return "هنوز انجام نشده";
-	}
-
-	return formatSystemDateTime(
-		env,
-		timestamp,
-	);
-}
-
-/* ============================================================
- * MISC
- * ============================================================
- */
-
-function roundToNearest(
-	value,
-	step,
-) {
-	return (
-		Math.round(
-			Number(value) /
-				Number(step),
-		) *
-		Number(step)
-	);
-}
-
-function roundNumber(
-	value,
-	decimals = 2,
-) {
-	const factor =
-		10 ** decimals;
-
-	return (
-		Math.round(
-			Number(value) *
-				factor,
-		) /
-		factor
-	);
-}
-
-function formatBytes(
-	bytes,
-) {
-	const value =
-		Number(
-			bytes ??
-				0,
-		);
-
-	if (
-		value < 1024
-	) {
-		return `${value} B`;
-	}
-
-	if (
-		value <
-		1024 *
-			1024
-	) {
-		return `${(
-			value /
-				1024
-		).toFixed(
-			2,
-		)} KB`;
-	}
-
-	if (
-		value <
-		1024 *
-			1024 *
-			1024
-	) {
-		return `${(
-			value /
-			(
-				1024 *
-					1024
-			)
-		).toFixed(
-			2,
-		)} MB`;
-	}
-
-	return `${(
-		value /
-		(
-			1024 *
-				1024 *
-				1024
-		)
-	).toFixed(
-		2,
-	)} GB`;
-}
-
-function parseJson(
-	value,
-	fallback,
-) {
-	try {
-		return JSON.parse(
-			String(value),
-		);
-	} catch {
-		return fallback;
+	async fetchTopAssets() {
+		if (!this.env.COINGECKO_API_KEY) return failure("COINGECKO_API_KEY missing");
+		const endpoint = `${this.config.coinGeckoBaseUrl}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=${this.config.coinGeckoTopLimit}&page=1&sparkline=false&price_change_percentage=24h`;
+		const startedAt = Date.now();
+		try {
+			const response = await this.http.fetch(endpoint, { headers: this.config.coinGeckoHeaders() }, 8000);
+			const latency = Date.now() - startedAt;
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status, latency);
+			const data = await response.json();
+			if (!Array.isArray(data)) return failure("Invalid CoinGecko response", response.status, latency);
+			return {
+				success: true,
+				status: response.status,
+				latency,
+				assets: data.map((item) => ({
+					id: String(item.id),
+					symbol: String(item.symbol || "").toUpperCase(),
+					name: String(item.name || item.id),
+					marketCapRank: nullableNumber(item.market_cap_rank),
+				})),
+			};
+		} catch (error) {
+			return failure(errorMessage(error), null, Date.now() - startedAt);
+		}
 	}
 }
 
-function createHttpErrorMessage(
-	status,
-	body = "",
-) {
-	const value =
-		String(body)
-			.replace(
-				/\s+/g,
-				" ",
-			)
-			.trim()
-			.slice(
-				0,
-				180,
-			);
+/** Market source clients for USDT and Iranian gold. */
+class MarketSources {
+	constructor(env, http, statuses) {
+		this.env = env;
+		this.http = http;
+		this.statuses = statuses;
+	}
 
-	return value
-		? `HTTP ${status}: ${value}`
-		: `HTTP ${status}`;
+	async resolveUsdt() {
+		for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+			const source = USDT_SOURCE_PRIORITY[index];
+			const result = await this[`check${capitalize(source)}`]();
+			await this.statuses.save(source, result);
+			if (result.success) {
+				return { ...result, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
+			}
+		}
+		return failure("All USDT sources failed");
+	}
+
+	async checkAllUsdt() {
+		const [wallex, tabdeal, exir] = await Promise.all([
+			this.checkWallex(), this.checkTabdeal(), this.checkExir(),
+		]);
+		await this.statuses.saveMany({ wallex, tabdeal, exir });
+		return { wallex, tabdeal, exir };
+	}
+
+	async checkWallex() {
+		return this.#timed("wallex", async () => {
+			const url = this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
+			const response = await this.http.fetch(url, { headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } }, 7000);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const markets = data?.result?.markets;
+			const market = Array.isArray(markets) ? markets.find((item) => String(item.symbol || "").toUpperCase() === "USDTTMN") : null;
+			const price = nullableNumber(market?.price);
+			return price && price > 0 ? success(price, response.status) : failure("Invalid Wallex response", response.status);
+		});
+	}
+
+	async checkTabdeal() {
+		return this.#timed("tabdeal", async () => {
+			const url = this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1";
+			const response = await this.http.fetch(url, { headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } }, 7000);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.asks?.[0]?.[0]);
+			return price && price > 0 ? success(price, response.status) : failure("Invalid Tabdeal response", response.status);
+		});
+	}
+
+	async checkExir() {
+		return this.#timed("exir", async () => {
+			const url = this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt";
+			const response = await this.http.fetch(url, { headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } }, 7000);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.asks?.[0]?.[0] ?? data?.ask?.[0]?.price ?? data?.asks?.[0]?.price);
+			return price && price > 0 ? success(price, response.status) : failure("Invalid Exir response", response.status);
+		});
+	}
+
+	async checkWallGold() {
+		const result = await this.#timed("wallgold", async () => {
+			const url = this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN";
+			const response = await this.http.fetch(url, { headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } }, 7000);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(data?.result?.price);
+			return price && price > 0 ? success(price, response.status) : failure("Invalid WallGold response", response.status);
+		});
+		await this.statuses.save("wallgold", result);
+		return result;
+	}
+
+	async #timed(_source, operation) {
+		const startedAt = Date.now();
+		try {
+			const result = await operation();
+			return { ...result, latency: Date.now() - startedAt };
+		} catch (error) {
+			return failure(errorMessage(error), null, Date.now() - startedAt);
+		}
+	}
 }
 
-function errorMessage(
-	error,
-) {
-	if (
-		error instanceof Error
-	) {
-		if (
-			error.name ===
-				"AbortError"
-		) {
-			return "Request timeout";
+/** Central market cache/read-through service used by Bot, API and Cron. */
+class MarketService {
+	constructor(env, config, settings, cache, locks, assets, statuses, sources, coinGecko) {
+		Object.assign(this, { env, config, settings, cache, locks, assets, statuses, sources, coinGecko });
+	}
+
+	async cacheTtlSeconds() {
+		const raw = Number(await this.settings.get("market_cache_ttl_seconds", APP.defaultCacheTtlSeconds));
+		return Number.isFinite(raw) ? Math.min(3600, Math.max(5, Math.round(raw))) : APP.defaultCacheTtlSeconds;
+	}
+
+	async getSnapshot({ forceRefresh = false, fullSourceCheck = false } = {}) {
+		const ttlSeconds = await this.cacheTtlSeconds();
+		const cached = await this.cache.read();
+		const now = Date.now();
+		if (!forceRefresh && cached && now < cached.expiresAt) {
+			return this.#withCacheMeta(cached.payload, cached, ttlSeconds, true, false);
 		}
 
-		return error.message;
+		const token = await this.locks.acquire(APP.marketRefreshLockKey, APP.marketRefreshLockMs);
+		if (!token) {
+			if (cached) return this.#withCacheMeta(cached.payload, cached, ttlSeconds, true, true, "refresh_in_progress");
+			await sleep(150);
+			const retry = await this.cache.read();
+			if (retry) return this.#withCacheMeta(retry.payload, retry, ttlSeconds, true, false);
+			throw new Error("Market refresh is already in progress");
+		}
+
+		try {
+			const fresh = await this.#fetchLive(fullSourceCheck);
+			const merged = this.#mergeStale(fresh, cached?.payload || null);
+			const lastError = fresh.partial
+				? fresh.errors.map((item) => `${item.source}: ${item.message}`).join(" | ").slice(0, 1000)
+				: null;
+			const meta = await this.cache.write(merged, ttlSeconds, lastError);
+			return this.#withCacheMeta(merged, { ...meta, lastError }, ttlSeconds, false, fresh.partial && Boolean(cached));
+		} catch (error) {
+			if (cached) return this.#withCacheMeta(cached.payload, cached, ttlSeconds, true, true, errorMessage(error));
+			throw error;
+		} finally {
+			await this.locks.release(APP.marketRefreshLockKey, token);
+		}
 	}
 
-	return String(error);
+	async forceRefreshSources() {
+		await this.getSnapshot({ forceRefresh: true, fullSourceCheck: true });
+		return this.statuses.all();
+	}
+
+	async #fetchLive(fullSourceCheck = false) {
+		const enabledAssets = await this.assets.enabled();
+		const [usdtResult, coinGecko, wallgold] = await Promise.all([
+			fullSourceCheck ? this.sources.checkAllUsdt() : this.sources.resolveUsdt(),
+			this.coinGecko.fetchMarketBundle(enabledAssets),
+			this.sources.checkWallGold(),
+		]);
+		const usdt = fullSourceCheck ? resolveUsdtChecks(usdtResult) : usdtResult;
+		await this.statuses.save("coingecko", coinGecko.success
+			? { success: true, status: coinGecko.status, latency: coinGecko.latency, message: null, price: null }
+			: coinGecko);
+
+		const errors = [];
+		if (!usdt.success) errors.push({ source: "usdt", message: usdt.message || "USDT unavailable" });
+		if (!coinGecko.success) errors.push({ source: "coingecko", message: coinGecko.message || "CoinGecko unavailable" });
+		if (!wallgold.success) errors.push({ source: "wallgold", message: wallgold.message || "WallGold unavailable" });
+
+		return {
+			success: true,
+			partial: errors.length > 0,
+			errors,
+			createdAt: Date.now(),
+			usdt: {
+				price: usdt.success ? usdt.price : null,
+				source: usdt.success ? usdt.sourceLabel : null,
+				fallbackLevel: usdt.success ? usdt.fallbackLevel : null,
+			},
+			crypto: coinGecko.success
+				? coinGecko.crypto
+				: enabledAssets.map((item) => ({
+					id: item.coin_id, symbol: item.symbol, name: item.name,
+					price: null, change24h: null, marketCapRank: item.market_cap_rank ?? null,
+				})),
+			metals: {
+				gram18: wallgold.success ? wallgold.price : null,
+				mazaneh: wallgold.success ? calculateMazanehFromGram18(wallgold.price) : null,
+				gold: coinGecko.success ? coinGecko.gold : null,
+				silver: coinGecko.success ? coinGecko.silver : null,
+			},
+		};
+	}
+
+	#mergeStale(fresh, stale) {
+		if (!stale) return fresh;
+		const staleCrypto = new Map((stale.crypto || []).map((coin) => [coin.id, coin]));
+		return {
+			...fresh,
+			usdt: {
+				...fresh.usdt,
+				price: fresh.usdt.price ?? stale.usdt?.price ?? null,
+				source: fresh.usdt.source ?? stale.usdt?.source ?? null,
+				fallbackLevel: fresh.usdt.fallbackLevel ?? stale.usdt?.fallbackLevel ?? null,
+			},
+			crypto: (fresh.crypto || []).map((coin) => {
+				const previous = staleCrypto.get(coin.id);
+				return {
+					...coin,
+					price: coin.price ?? previous?.price ?? null,
+					change24h: coin.change24h ?? previous?.change24h ?? null,
+				};
+			}),
+			metals: {
+				gram18: fresh.metals?.gram18 ?? stale.metals?.gram18 ?? null,
+				mazaneh: fresh.metals?.mazaneh ?? stale.metals?.mazaneh ?? null,
+				gold: fresh.metals?.gold ?? stale.metals?.gold ?? null,
+				silver: fresh.metals?.silver ?? stale.metals?.silver ?? null,
+			},
+		};
+	}
+
+	#withCacheMeta(snapshot, cached, ttlSeconds, fromCache, staleFallback, overrideError = null) {
+		const fetchedAt = Number(cached?.fetchedAt || Date.now());
+		return {
+			...snapshot,
+			cache: {
+				fromCache,
+				staleFallback,
+				fetchedAt,
+				expiresAt: Number(cached?.expiresAt || fetchedAt + ttlSeconds * 1000),
+				ttlSeconds,
+				lastError: overrideError || cached?.lastError || null,
+			},
+		};
+	}
 }
 
-function escapeHtml(
-	value,
-) {
-	return String(value)
-		.replaceAll(
-			"&",
-			"&amp;",
-		)
-		.replaceAll(
-			"<",
-			"&lt;",
-		)
-		.replaceAll(
-			">",
-			"&gt;",
-		)
-		.replaceAll(
-			'"',
-			"&quot;",
+/** Telegram Bot API client. */
+class TelegramClient {
+	constructor(env) { this.env = env; }
+
+	async api(method, payload = {}) {
+		if (!this.env.TELEGRAM_BOT_TOKEN) throw new Error("TELEGRAM_BOT_TOKEN is missing");
+		const response = await new HttpClient().fetch(
+			`https://api.telegram.org/bot${this.env.TELEGRAM_BOT_TOKEN}/${method}`,
+			{ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+			10_000,
 		);
+		let data;
+		try { data = await response.json(); } catch { data = null; }
+		if (!response.ok || !data?.ok) {
+			const description = data?.description || `HTTP ${response.status}`;
+			if (method === "editMessageText" && String(description).toLowerCase().includes("message is not modified")) return null;
+			const error = new Error(description);
+			error.status = response.status;
+			throw error;
+		}
+		return data.result;
+	}
+
+	sendMessage(chatId, text, replyMarkup = null) {
+		return this.api("sendMessage", {
+			chat_id: chatId, text, parse_mode: "HTML", disable_web_page_preview: true,
+			...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+		});
+	}
+
+	editMessage(chatId, messageId, text, replyMarkup = null) {
+		return this.api("editMessageText", {
+			chat_id: chatId, message_id: Number(messageId), text,
+			parse_mode: "HTML", disable_web_page_preview: true,
+			...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+		});
+	}
+
+	sendRichMessage(chatId, richMessage, replyMarkup = null) {
+		return this.api("sendRichMessage", {
+			chat_id: chatId, rich_message: richMessage,
+			...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+		});
+	}
+
+	async editRichMessage(chatId, messageId, richMessage, fallbackText, replyMarkup = null) {
+		try {
+			return await this.api("editMessageText", {
+				chat_id: chatId,
+				message_id: Number(messageId),
+				rich_message: richMessage,
+				...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+			});
+		} catch (error) {
+			console.warn("telegram.rich_edit_fallback", errorMessage(error));
+			return this.editMessage(chatId, messageId, fallbackText, replyMarkup);
+		}
+	}
+
+	async answerCallback(id, text = undefined, showAlert = false) {
+		try {
+			await this.api("answerCallbackQuery", {
+				callback_query_id: id,
+				...(text ? { text } : {}),
+				show_alert: showAlert,
+			});
+		} catch { /* expired callback */ }
+	}
+
+	async syncInterface() {
+		if (!telegramSyncPromise) {
+			telegramSyncPromise = Promise.all([
+				this.api("setMyCommands", { commands: [
+					{ command: "start", description: "Start DRD Rate Manager" },
+					{ command: "menu", description: "Open management panel" },
+					{ command: "help", description: "Show help" },
+					{ command: "id", description: "Show your Telegram ID" },
+				] }),
+				this.api("setChatMenuButton", { menu_button: { type: "commands" } }),
+			]).catch((error) => {
+				telegramSyncPromise = null;
+				console.warn("telegram.interface_sync_failed", errorMessage(error));
+			});
+		}
+		return telegramSyncPromise;
+	}
 }
+
+/** Pure market-post renderer. No network or database access. */
+class MarketPostBuilder {
+	constructor(config) { this.config = config; }
+
+	buildRichMessage(snapshot) {
+		const LRI = "\u2066";
+		const PDI = "\u2069";
+		const ltr = (value) => `${LRI}${value}${PDI}`;
+		const cryptoItem = (coin) => {
+			const name = escapeHtml(coinNameFa(coin.id, coin.name));
+			const price = coin.price == null ? "<b>نامشخص</b>" : formatOptionalUsd(coin.price);
+			const change = coin.change24h == null
+				? "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>"
+				: `${changeIcon(coin.change24h)} تغییر ۲۴ ساعته: ${formatFaChangeValue(coin.change24h)}`;
+			return `<p><b>${name}</b><br>${price}<br>${change}</p>`;
+		};
+		const [firstCoin, ...remainingCoins] = snapshot.crypto || [];
+		const firstCryptoHtml = firstCoin ? cryptoItem(firstCoin) : "<p><b>نامشخص</b></p>";
+		const remainingCryptoHtml = remainingCoins.map(cryptoItem).join("");
+		const mazaneh = snapshot.metals?.mazaneh == null ? null : roundToNearest(snapshot.metals.mazaneh, 1000);
+		const remainingMetalsHtml = [
+			`<p><b>مظنه طلا</b><br>${formatOptionalToman(mazaneh)}</p>`,
+			`<p><b>انس طلا</b><br>${formatOptionalUsd(snapshot.metals?.gold)}</p>`,
+			`<p><b>نقره</b><br>${formatOptionalUsd(snapshot.metals?.silver)}</p>`,
+		].join("");
+		const footerTime = ltr(`🕒 ${formatIranTime(this.config, snapshot.createdAt)} · 📅 ${formatIranDate(this.config, snapshot.createdAt)}`);
+		const handle = this.config.channelHandle;
+		const footerChannel = handle ? ltr(`🚀 ${escapeHtml(handle)}`) : "";
+		const html = [
+			"<p><b>⚡️ نبض بازار</b></p>",
+			`<p>💵 <b>تتر</b><br>${formatOptionalToman(snapshot.usdt?.price)}</p>`,
+			"<p><br></p>",
+			"<p><b>🪙 رمزارزها</b></p>",
+			firstCryptoHtml,
+			remainingCoins.length
+				? `<details><summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>${remainingCryptoHtml}</details>`
+				: "",
+			"<p><br></p>",
+			"<p><b>🥇 طلا و فلزات</b></p>",
+			`<p><b>طلای ۱۸ عیار</b><br>${formatOptionalToman(snapshot.metals?.gram18)}</p>`,
+			`<details><summary>برای مشاهده بقیه، ضربه بزنید ↓</summary>${remainingMetalsHtml}</details>`,
+			"<p><br></p>",
+			"<hr/>",
+			`<p>${footerTime}</p>`,
+			handle ? `<blockquote>${footerChannel}</blockquote>` : "",
+		].join("");
+		return { html, is_rtl: true, skip_entity_detection: false };
+	}
+
+	buildFallbackHtml(snapshot) {
+		const lines = [
+			"⚡️ <b>نبض بازار</b>", "", "💵 <b>تتر</b>", formatOptionalToman(snapshot.usdt?.price), "", "",
+			"🪙 <b>رمزارزها</b>", "",
+		];
+		for (const coin of snapshot.crypto || []) {
+			lines.push(`<b>${escapeHtml(coinNameFa(coin.id, coin.name))}</b>`, formatOptionalUsd(coin.price),
+				coin.change24h == null ? "⚪ تغییر ۲۴ ساعته: <b>نامشخص</b>" : `${changeIcon(coin.change24h)} تغییر ۲۴ ساعته: ${formatFaChangeValue(coin.change24h)}`, "");
+		}
+		lines.push("", "🥇 <b>طلا و فلزات</b>", "",
+			"<b>طلای ۱۸ عیار</b>", formatOptionalToman(snapshot.metals?.gram18), "",
+			"<b>مظنه طلا</b>", formatOptionalToman(roundToNearest(snapshot.metals?.mazaneh, 1000)), "",
+			"<b>انس طلا</b>", formatOptionalUsd(snapshot.metals?.gold), "",
+			"<b>نقره</b>", formatOptionalUsd(snapshot.metals?.silver), "", "", "━━━━━━━━━━━━", "",
+			`🕒 <b>${escapeHtml(formatIranTime(this.config, snapshot.createdAt))}</b> · 📅 <b>${escapeHtml(formatIranDate(this.config, snapshot.createdAt))}</b>`);
+		if (this.config.channelHandle) lines.push("", `<blockquote>🚀 ${escapeHtml(this.config.channelHandle)}</blockquote>`);
+		return lines.join("\n");
+	}
+}
+
+/** Channel publisher with explicit rendering dependency. */
+class MarketPublisher {
+	constructor(config, telegram, builder) { this.config = config; this.telegram = telegram; this.builder = builder; }
+
+	async publish(snapshot) {
+		if (!this.config.channelId) throw new Error("TELEGRAM_CHANNEL_ID is missing");
+		return this.telegram.sendRichMessage(this.config.channelId, this.builder.buildRichMessage(snapshot));
+	}
+}
+
+/** Automatic publishing settings and scheduled execution. */
+class AutomationService {
+	constructor(env, config, settings, market, publisher) {
+		Object.assign(this, { env, config, settings, market, publisher });
+	}
+
+	async getSettings() {
+		const keys = [
+			"auto_publish_enabled", "publish_interval_minutes", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
+			"auto_publish_last_run_at", "auto_publish_last_success_at", "auto_publish_last_error", "auto_publish_last_tick_at",
+			"auto_publish_last_attempt_at", "auto_publish_last_error_at", "auto_publish_last_skip_reason",
+		];
+		const map = await this.settings.getMany(keys);
+		return {
+			enabled: parseBoolean(map.auto_publish_enabled, false),
+			intervalMinutes: normalizePublishInterval(map.publish_interval_minutes),
+			quietHours: {
+				enabled: parseBoolean(map.quiet_hours_enabled, false),
+				start: validTime(map.quiet_hours_start) ? map.quiet_hours_start : APP.defaultQuietHours.start,
+				end: validTime(map.quiet_hours_end) ? map.quiet_hours_end : APP.defaultQuietHours.end,
+			},
+			lastRunAt: normalizeTimestamp(map.auto_publish_last_run_at),
+			lastSuccessAt: normalizeTimestamp(map.auto_publish_last_success_at),
+			lastError: map.auto_publish_last_error || "",
+			lastTickAt: normalizeTimestamp(map.auto_publish_last_tick_at),
+			lastAttemptAt: normalizeTimestamp(map.auto_publish_last_attempt_at),
+			lastErrorAt: normalizeTimestamp(map.auto_publish_last_error_at),
+			lastSkipReason: map.auto_publish_last_skip_reason || "",
+		};
+	}
+
+	async tick() {
+		const now = Date.now();
+		const map = await this.settings.getMany([
+			"bot_enabled", "auto_publish_enabled", "publish_interval_minutes", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end", "auto_publish_last_run_at", "auto_publish_last_tick_at",
+		]);
+		const heartbeatDue = now - normalizeTimestamp(map.auto_publish_last_tick_at) >= 5 * 60 * 1000;
+		if (heartbeatDue) await this.settings.set("auto_publish_last_tick_at", now);
+		if (!parseBoolean(map.bot_enabled, true)) return this.#skip("bot_disabled");
+		if (!parseBoolean(map.auto_publish_enabled, false)) return this.#skip("automation_disabled");
+		const interval = normalizePublishInterval(map.publish_interval_minutes);
+		const quiet = {
+			enabled: parseBoolean(map.quiet_hours_enabled, false),
+			start: validTime(map.quiet_hours_start) ? map.quiet_hours_start : APP.defaultQuietHours.start,
+			end: validTime(map.quiet_hours_end) ? map.quiet_hours_end : APP.defaultQuietHours.end,
+		};
+		if (quiet.enabled && isInsideQuietHours(this.config, quiet, now)) return this.#skip("quiet_hours");
+		const lastRun = normalizeTimestamp(map.auto_publish_last_run_at);
+		if (lastRun && now - lastRun < interval * 60 * 1000) return this.#skip("interval_not_due");
+
+		const claimed = await this.#claim(lastRun, now);
+		if (!claimed) return this.#skip("already_claimed");
+		await this.settings.setMany({ auto_publish_last_attempt_at: now, auto_publish_last_skip_reason: "" });
+		try {
+			const snapshot = await this.market.getSnapshot();
+			await this.publisher.publish(snapshot);
+			await this.settings.setMany({
+				auto_publish_last_success_at: now,
+				auto_publish_last_error: "",
+				auto_publish_last_error_at: 0,
+				auto_publish_last_skip_reason: "success",
+			});
+		} catch (error) {
+			await this.settings.setMany({
+				auto_publish_last_error: errorMessage(error).slice(0, 1000),
+				auto_publish_last_error_at: now,
+				auto_publish_last_skip_reason: "error",
+			});
+			throw error;
+		}
+	}
+
+	async #claim(expectedLastRun, now) {
+		const result = await this.env.DB.prepare(`UPDATE settings SET value = ?, updated_at = ?
+			WHERE key = 'auto_publish_last_run_at' AND value = ?`)
+			.bind(String(now), now, String(expectedLastRun || 0)).run();
+		if (Number(result?.meta?.changes || 0) > 0) return true;
+		if (!expectedLastRun) {
+			const insert = await this.env.DB.prepare(`INSERT OR IGNORE INTO settings (key, value, created_at, updated_at)
+				VALUES ('auto_publish_last_run_at', ?, ?, ?)`)
+				.bind(String(now), now, now).run();
+			return Number(insert?.meta?.changes || 0) > 0;
+		}
+		return false;
+	}
+
+	async #skip(reason) {
+		if (["bot_disabled", "automation_disabled", "quiet_hours"].includes(reason)) {
+			await this.settings.set("auto_publish_last_skip_reason", reason);
+		}
+	}
+}
+
+/** HTTP API controller. */
+class ApiController {
+	constructor(services) { this.s = services; }
+
+	async route(request, url) {
+		if (request.method === "OPTIONS") return corsResponse();
+		if (request.method !== "GET") return null;
+		switch (url.pathname) {
+			case "/": return jsonResponse({
+				success: true,
+				service: this.s.config.env.APP_NAME || APP.name,
+				version: this.s.config.version,
+				api_version: APP.apiVersion,
+				endpoints: {
+					market: "/api/v1/market", assets: "/api/v1/assets", sources: "/api/v1/sources",
+					usdt: "/api/v1/sources/usdt", automation: "/api/v1/automation",
+					system: "/api/v1/system", database: "/api/v1/system/database",
+				},
+			});
+			case "/api/v1/market": {
+				const snapshot = await this.s.market.getSnapshot();
+				return jsonResponse({ success: true, data: serializeMarketSnapshot(this.s.config, snapshot) });
+			}
+			case "/api/v1/assets": {
+				const assets = await this.s.assets.all();
+				return jsonResponse({ success: true, data: {
+					cached: true, count: assets.length, enabled_count: assets.filter((item) => item.enabled).length, assets,
+				} });
+			}
+			case "/api/v1/sources": {
+				const sources = await this.s.statuses.all();
+				return jsonResponse({ success: true, data: { cached: true, sources, usdt: resolveUsdtFromStatuses(sources) } });
+			}
+			case "/api/v1/sources/usdt": {
+				const sources = await this.s.statuses.all();
+				return jsonResponse({ success: true, data: resolveUsdtFromStatuses(sources) });
+			}
+			case "/api/v1/automation": {
+				const a = await this.s.automation.getSettings();
+				return jsonResponse({ success: true, data: serializeAutomation(this.s.config, a) });
+			}
+			case "/api/v1/system": {
+				const [enabled, adminStats, automation] = await Promise.all([
+					this.s.settings.get("bot_enabled", "1"), this.s.admins.stats(), this.s.automation.getSettings(),
+				]);
+				return jsonResponse({ success: true, data: {
+					service: APP.name, version: this.s.config.version, api_version: APP.apiVersion,
+					timezone: this.s.config.timezone, enabled: parseBoolean(enabled, true),
+					integrity: runtimeIntegrity(), admins: adminStats,
+					automation: { enabled: automation.enabled, interval_minutes: automation.intervalMinutes, quiet_hours_enabled: automation.quietHours.enabled },
+				} });
+			}
+			case "/api/v1/system/database": return jsonResponse({ success: true, data: await databaseStatus(this.s) });
+			default: return null;
+		}
+	}
+}
+
+/** Telegram administration controller. */
+class BotController {
+	constructor(services) { this.s = services; }
+
+	async handleWebhook(request) {
+		if (!this.#verifyWebhook(request)) return jsonResponse({ success: false, message: "Unauthorized" }, 401);
+		const update = await request.json();
+		try {
+			await this.#process(update);
+		} catch (error) {
+			console.error("telegram.update_failed", { message: errorMessage(error), stack: error?.stack || null });
+		}
+		return jsonResponse({ success: true });
+	}
+
+	#verifyWebhook(request) {
+		const expected = String(this.s.env.TELEGRAM_WEBHOOK_SECRET || "");
+		if (!expected) return true;
+		return request.headers.get("X-Telegram-Bot-Api-Secret-Token") === expected;
+	}
+
+	async #process(update) {
+		if (update.callback_query) return this.#callback(update.callback_query);
+		if (update.message) return this.#message(update.message);
+	}
+
+	async #message(message) {
+		const user = message.from;
+		const command = normalizeCommand(message.text || "");
+		if (["/start", "/menu", "/help"].includes(command)) this.s.telegram.syncInterface();
+		if (command === "/id") return this.s.telegram.sendMessage(message.chat.id, `<b>🆔 شناسه شما</b>\n\n<code>${escapeHtml(String(user?.id || ""))}</code>`);
+
+		const admin = await this.s.admins.resolve(user);
+		if (!admin) return this.s.telegram.sendMessage(message.chat.id, "<b>⛔️ دسترسی غیرمجاز</b>\n\nشما اجازه استفاده از این ربات را ندارید.");
+		await this.s.admins.touchProfile(user);
+
+		const input = await this.s.adminInput.get(user.id);
+		if (input?.action === "add_admin" && !command) return this.#handleAddAdminInput(message, admin);
+
+		const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
+		if (!enabled && admin.role !== "owner") return this.s.telegram.sendMessage(message.chat.id, this.#disabledText(admin));
+
+		switch (command) {
+			case "/start": return this.#sendStart(message.chat.id, admin);
+			case "/menu": return this.#sendMenu(message.chat.id, admin);
+			case "/help": return this.#sendHelp(message.chat.id, admin);
+			default: return this.#sendMenu(message.chat.id, admin);
+		}
+	}
+
+	async #callback(query) {
+		await this.s.telegram.answerCallback(query.id);
+		const user = query.from;
+		const message = query.message;
+		const admin = await this.s.admins.resolve(user);
+		if (!admin) return this.s.telegram.editMessage(message.chat.id, message.message_id, "<b>⛔️ دسترسی غیرمجاز</b>");
+		const data = String(query.data || "");
+		const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
+		if (!enabled && admin.role !== "owner" && data !== "global:enable") {
+			return this.s.telegram.editMessage(message.chat.id, message.message_id, this.#disabledText(admin));
+		}
+
+		if (data === "menu:home") return this.#showMenu(message, admin);
+		if (data === "help:home") return this.#showHelp(message, admin);
+		if (data === "market:home") return this.#showMarket(message);
+		if (data === "market:refresh") return this.#showMarket(message, true);
+		if (data === "market:preview") return this.#showPreview(message);
+		if (data === "market:publish") return this.#publish(message, user);
+		if (data === "sources:home") return this.#showSources(message);
+		if (data === "sources:refresh") return this.#showSources(message, true);
+		if (data === "sources:usdt") return this.#showUsdt(message);
+		if (data === "coingecko:home") return this.#showCoinGecko(message);
+		if (data === "coingecko:refresh") return this.#showCoinGecko(message, true);
+		if (data.startsWith("coingecko:toggle:")) {
+			await this.s.assets.toggle(data.slice("coingecko:toggle:".length));
+			return this.#showCoinGecko(message);
+		}
+		if (data === "settings:home") return this.#showSettings(message, admin);
+		if (data === "cache:home") return this.#showCacheSettings(message);
+		if (data.startsWith("cache:set:")) {
+			const seconds = Number(data.slice("cache:set:".length));
+			if (APP.cacheTtlOptions.includes(seconds)) await this.s.settings.set("market_cache_ttl_seconds", seconds);
+			return this.#showCacheSettings(message);
+		}
+		if (data === "automation:home") return this.#showAutomation(message);
+		if (data === "automation:toggle") {
+			const a = await this.s.automation.getSettings();
+			await this.s.settings.set("auto_publish_enabled", a.enabled ? "0" : "1");
+			return this.#showAutomation(message);
+		}
+		if (data === "automation:interval") return this.#showIntervals(message);
+		if (data.startsWith("automation:interval:set:")) {
+			const minutes = Number(data.slice("automation:interval:set:".length));
+			if (APP.publishIntervals.includes(minutes)) await this.s.settings.set("publish_interval_minutes", minutes);
+			return this.#showAutomation(message);
+		}
+		if (data === "automation:quiet:toggle") {
+			const a = await this.s.automation.getSettings();
+			await this.s.settings.set("quiet_hours_enabled", a.quietHours.enabled ? "0" : "1");
+			return this.#showAutomation(message);
+		}
+		if (data === "automation:quiet:edit") return this.#quietStartHour(message);
+		if (data.startsWith("quiet:start_hour:")) return this.#quietStartMinute(message, Number(data.split(":")[2]));
+		if (data.startsWith("quiet:start_minute:")) {
+			const [, , hour, minute] = data.split(":");
+			return this.#quietEndHour(message, Number(hour), Number(minute));
+		}
+		if (data.startsWith("quiet:end_hour:")) {
+			const [, , startHour, startMinute, endHour] = data.split(":");
+			return this.#quietEndMinute(message, Number(startHour), Number(startMinute), Number(endHour));
+		}
+		if (data.startsWith("quiet:end_minute:")) {
+			const [, , sh, sm, eh, em] = data.split(":");
+			await this.s.settings.setMany({
+				quiet_hours_start: `${pad2(sh)}:${pad2(sm)}`,
+				quiet_hours_end: `${pad2(eh)}:${pad2(em)}`,
+				quiet_hours_enabled: "1",
+			});
+			return this.#showAutomation(message);
+		}
+		if (data === "system:home") return this.#showSystem(message);
+		if (data === "database:home") return this.#showDatabase(message);
+		if (data === "admins:home") return this.#showAdmins(message, admin);
+		if (data === "admins:add" && admin.role === "owner") {
+			await this.s.adminInput.set(user.id, "add_admin");
+			return this.s.telegram.editMessage(message.chat.id, message.message_id,
+				"<b>➕ افزودن ادمین</b>\n\nآیدی عددی Telegram کاربر را ارسال کنید.\n\n<blockquote>ℹ️ فقط مالک می‌تواند ادمین اضافه یا حذف کند.</blockquote>",
+				backKeyboard("مدیریت ادمین‌ها", "admins:home"));
+		}
+		if (data.startsWith("admins:view:")) return this.#showAdminDetail(message, admin, data.slice("admins:view:".length));
+		if (data.startsWith("admins:toggle:") && admin.role === "owner") {
+			await this.s.admins.toggle(data.slice("admins:toggle:".length));
+			return this.#showAdminDetail(message, admin, data.slice("admins:toggle:".length));
+		}
+		if (data.startsWith("admins:delete:") && admin.role === "owner") {
+			await this.s.admins.remove(data.slice("admins:delete:".length));
+			return this.#showAdmins(message, admin);
+		}
+		if (data === "global:disable" && admin.role === "owner") {
+			await this.s.settings.set("bot_enabled", "0");
+			return this.s.telegram.editMessage(message.chat.id, message.message_id, this.#disabledText(admin), { inline_keyboard: [[{ text: "▶️ فعال کردن ربات", callback_data: "global:enable" }]] });
+		}
+		if (data === "global:enable" && admin.role === "owner") {
+			await this.s.settings.set("bot_enabled", "1");
+			return this.#showMenu(message, admin);
+		}
+	}
+
+	async #sendStart(chatId, admin) {
+		return this.s.telegram.sendMessage(chatId, [
+			`<b>⚡️ ${escapeHtml(this.s.config.displayName)}</b>`, "",
+			`نقش شما: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`, "",
+			"مدیریت بازار، منابع، انتشار خودکار و وضعیت سیستم از همین ربات انجام می‌شود.",
+		].join("\n"), { inline_keyboard: [[{ text: "📋 پنل مدیریت", callback_data: "menu:home" }]] });
+	}
+
+	async #sendMenu(chatId, admin) {
+		return this.s.telegram.sendMessage(chatId, this.#menuText(admin), this.#menuKeyboard());
+	}
+
+	async #showMenu(message, admin) {
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, this.#menuText(admin), this.#menuKeyboard());
+	}
+
+	#menuText(admin) {
+		const now = Date.now();
+		return [
+			`<b>⚡️ ${escapeHtml(this.s.config.displayName)}</b>`, "",
+			`نقش: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`,
+			`📅 ${formatIranDate(this.s.config, now)}  ·  🕒 ${formatIranTime(this.s.config, now)}`,
+			`Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`, "",
+			"<blockquote>ℹ️ از دکمه‌های زیر برای مدیریت بازار و سیستم استفاده کنید.</blockquote>", "",
+			`Version: <code>${escapeHtml(this.s.config.version)}</code>`,
+		].join("\n");
+	}
+
+	#menuKeyboard() {
+		return { inline_keyboard: [
+			[{ text: "📈 مدیریت بازار", callback_data: "market:home" }],
+			[{ text: "📡 مدیریت منابع", callback_data: "sources:home" }, { text: "👥 مدیریت ادمین‌ها", callback_data: "admins:home" }],
+			[{ text: "⚙️ تنظیمات", callback_data: "settings:home" }, { text: "❓ راهنما", callback_data: "help:home" }],
+		] };
+	}
+
+	async #sendHelp(chatId, admin) { return this.s.telegram.sendMessage(chatId, this.#helpText(admin)); }
+	async #showHelp(message, admin) { return this.s.telegram.editMessage(message.chat.id, message.message_id, this.#helpText(admin), backKeyboard("پنل مدیریت", "menu:home")); }
+	#helpText(admin) {
+		return [
+			"<b>❓ راهنمای DRD RATE MANAGER</b>", "",
+			"<b>دستورات</b>", "<code>/start</code> شروع", "<code>/menu</code> پنل مدیریت", "<code>/help</code> راهنما", "<code>/id</code> شناسه تلگرام", "",
+			"<b>📈 مدیریت بازار</b>", "نمایش داده کش‌شده، پیش‌نمایش، انتشار دستی و بروزرسانی اجباری.", "",
+			"<b>📡 منابع</b>", "USDT: Wallex → Tabdeal → Exir", "Crypto + Global Metals: CoinGecko", "Iran Gold: WallGold", "",
+			"<b>🗃 کش بازار</b>", "تمام Bot/API/Cron از یک Snapshot مرکزی D1 استفاده می‌کنند. مدت اعتبار از تنظیمات قابل تغییر است.", "",
+			"<b>🤖 انتشار خودکار</b>", "Cron هر دقیقه وضعیت را بررسی می‌کند؛ انتشار فقط در موعد و خارج Quiet Hours انجام می‌شود.", "",
+			`Role: <code>${admin.role}</code>`, `Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`, `Version: <code>${escapeHtml(this.s.config.version)}</code>`,
+		].join("\n");
+	}
+
+	async #showMarket(message, force = false) {
+		await this.s.telegram.editMessage(message.chat.id, message.message_id, "<b>📈 مدیریت بازار</b>\n\n⏳ در حال خواندن کش بازار...", backKeyboard("پنل مدیریت", "menu:home"));
+		const [snapshot, automation] = await Promise.all([
+			this.s.market.getSnapshot({ forceRefresh: force }), this.s.automation.getSettings(),
+		]);
+		const lines = [
+			"<b>📈 مدیریت بازار</b>", "",
+			snapshot.partial ? "<blockquote>🟡 بخشی از اطلاعات از آخرین کش سالم تکمیل شده است</blockquote>" : "<blockquote>🟢 همه‌چیز آماده انتشار است</blockquote>", "",
+			`🗃 کش: <b>${snapshot.cache.fromCache ? "استفاده شد" : "بروزرسانی شد"}</b> · ${snapshot.cache.ttlSeconds} ثانیه`,
+			`🕒 داده: <b>${formatIranTime(this.s.config, snapshot.createdAt)}</b>`, "",
+			"💵 <b>تتر</b>", formatOptionalToman(snapshot.usdt.price), "", "",
+			`🪙 <b>رمزارزها</b> · <b>${snapshot.crypto.length} فعال</b>`, "",
+		];
+		for (const coin of snapshot.crypto) lines.push(`${escapeHtml(coinNameFa(coin.id, coin.name))} · ${formatOptionalUsd(coin.price)}`, coin.change24h == null ? "⚪ 24 ساعته: <b>نامشخص</b>" : `${changeIcon(coin.change24h)} 24 ساعته: ${formatFaChangeValue(coin.change24h)}`, "");
+		lines.push("", "🥇 <b>طلا و فلزات</b>", "",
+			`طلای ۱۸ عیار · ${formatOptionalToman(snapshot.metals.gram18)}`,
+			`مظنه طلا · ${formatOptionalToman(roundToNearest(snapshot.metals.mazaneh, 1000))}`,
+			`انس طلا · ${formatOptionalUsd(snapshot.metals.gold)}`,
+			`نقره · ${formatOptionalUsd(snapshot.metals.silver)}`, "", "━━━━━━━━━━━━", "",
+			`🤖 انتشار خودکار: ${automation.enabled ? "🟢 فعال" : "⚪ غیرفعال"}`,
+			`⏱ بازه: <b>${automation.intervalMinutes} دقیقه</b>`);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: [
+			[{ text: "🚀 انتشار اکنون", callback_data: "market:publish" }, { text: "📄 پیش‌نمایش", callback_data: "market:preview" }],
+			[{ text: "🤖 زمان‌بندی انتشار", callback_data: "automation:home" }],
+			[{ text: "🔄 بروزرسانی", callback_data: "market:refresh" }],
+			[{ text: "⬅️ پنل مدیریت", callback_data: "menu:home" }],
+		] });
+	}
+
+	async #showPreview(message) {
+		const snapshot = await this.s.market.getSnapshot();
+		const rich = this.s.postBuilder.buildRichMessage(snapshot);
+		return this.s.telegram.editRichMessage(message.chat.id, message.message_id, rich,
+			this.s.postBuilder.buildFallbackHtml(snapshot), { inline_keyboard: [
+				[{ text: "🚀 انتشار اکنون", callback_data: "market:publish" }],
+				[{ text: "🔄 پیش‌نمایش جدید", callback_data: "market:preview" }],
+				[{ text: "⬅️ مدیریت بازار", callback_data: "market:home" }],
+			] });
+	}
+
+	async #publish(message, user) {
+		await this.s.telegram.editMessage(message.chat.id, message.message_id, "<b>🚀 انتشار بازار</b>\n\n⏳ در حال آماده‌سازی داده کش‌شده...", backKeyboard("مدیریت بازار", "market:home"));
+		try {
+			const snapshot = await this.s.market.getSnapshot();
+			const result = await this.s.publisher.publish(snapshot);
+			await this.s.audit.add(user.id, "market.manual_published", { messageId: result?.message_id ?? null, partial: snapshot.partial });
+			return this.s.telegram.editMessage(message.chat.id, message.message_id,
+				"<b>🚀 انتشار بازار</b>\n\n<blockquote>✅ پست با موفقیت منتشر شد</blockquote>\n\n" + (snapshot.partial ? "🟡 بعضی داده‌ها از آخرین کش سالم تکمیل شدند." : "🟢 تمام اطلاعات بازار آماده بود."),
+				backKeyboard("مدیریت بازار", "market:home"));
+		} catch (error) {
+			return this.s.telegram.editMessage(message.chat.id, message.message_id,
+				`<b>🚀 انتشار بازار</b>\n\n🔴 ارسال پیام به کانال ناموفق بود.\n\n<code>${escapeHtml(errorMessage(error))}</code>`,
+				backKeyboard("مدیریت بازار", "market:home"));
+		}
+	}
+
+	async #showSources(message, force = false) {
+		if (force) await this.s.market.forceRefreshSources();
+		const sources = await this.s.statuses.all();
+		const lines = ["<b>📡 مدیریت منابع</b>", "", "<b>💵 تتر / تومان</b>", "",
+			sourceStatusText("Wallex", sources.wallex, "Primary"), "",
+			sourceStatusText("Tabdeal", sources.tabdeal, "Fallback #1"), "",
+			sourceStatusText("Exir", sources.exir, "Fallback #2"), "",
+			"<b>🪙 رمزارزها و فلزات جهانی</b>", "", sourceStatusText("CoinGecko", sources.coingecko), "",
+			"<b>🥇 طلای ایران</b>", "", sourceStatusText("WallGold", sources.wallgold), "",
+			"<blockquote>ℹ️ این صفحه فقط از وضعیت کش‌شده D1 می‌خواند. «بررسی مجدد» منابع را بروزرسانی می‌کند.</blockquote>"];
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: [
+			[{ text: "🪙 مدیریت CoinGecko", callback_data: "coingecko:home" }],
+			[{ text: "💵 مسیر دریافت تتر", callback_data: "sources:usdt" }],
+			[{ text: "🔄 بررسی مجدد", callback_data: "sources:refresh" }],
+			[{ text: "⬅️ پنل مدیریت", callback_data: "menu:home" }],
+		] });
+	}
+
+	async #showUsdt(message) {
+		const sources = await this.s.statuses.all();
+		const result = resolveUsdtFromStatuses(sources);
+		const text = result.available
+			? `<b>💵 مسیر دریافت تتر</b>\n\n<blockquote>✅ قیمت معتبر کش‌شده</blockquote>\n\n💰 <b>${formatFaInteger(result.price_toman)} تومان</b>\n\n📡 <b>${escapeHtml(result.selected_source)}</b>\n\nWallex → Tabdeal → Exir`
+			: "<b>💵 مسیر دریافت تتر</b>\n\n<blockquote>🟡 قیمت تتر در کش موجود نیست</blockquote>\n\nWallex → Tabdeal → Exir";
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, text, { inline_keyboard: [
+			[{ text: "🔄 بروزرسانی منابع", callback_data: "sources:refresh" }],
+			[{ text: "⬅️ مدیریت منابع", callback_data: "sources:home" }],
+		] });
+	}
+
+	async #showCoinGecko(message, force = false) {
+		let refreshError = null;
+		if (force) {
+			const result = await this.s.coinGecko.fetchTopAssets();
+			if (result.success) await this.s.assets.syncTopAssets(result.assets);
+			else refreshError = result.message;
+		}
+		const assets = await this.s.assets.all();
+		const lines = ["<b>🪙 مدیریت CoinGecko</b>", "", `<blockquote>${refreshError ? `🔴 ${escapeHtml(refreshError)}` : `🟢 ${assets.length} دارایی کش‌شده`}</blockquote>`, "",
+			"با انتخاب هر مورد، نمایش آن در پست‌های بازار فعال/غیرفعال می‌شود."];
+		const keyboard = assets.slice(0, this.s.config.coinGeckoTopLimit).map((asset) => [{
+			text: `${asset.enabled ? "✅" : "▫️"} ${asset.symbol} · ${asset.name_fa}`,
+			callback_data: `coingecko:toggle:${asset.id}`,
+		}]);
+		keyboard.push([{ text: "🔄 بروزرسانی لیست", callback_data: "coingecko:refresh" }]);
+		keyboard.push([{ text: "⬅️ مدیریت منابع", callback_data: "sources:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: keyboard });
+	}
+
+	async #showSettings(message, admin) {
+		const ttl = await this.s.market.cacheTtlSeconds();
+		const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
+		const keyboard = [
+			[{ text: "🕒 زمان‌بندی انتشار", callback_data: "automation:home" }],
+			[{ text: "📊 وضعیت سیستم", callback_data: "system:home" }],
+			[{ text: `🗃 کش بازار · ${ttl} ثانیه`, callback_data: "cache:home" }],
+		];
+		if (admin.role === "owner") keyboard.push([{ text: enabled ? "⏸ غیرفعال کردن ربات" : "▶️ فعال کردن ربات", callback_data: enabled ? "global:disable" : "global:enable" }]);
+		keyboard.push([{ text: "⬅️ پنل مدیریت", callback_data: "menu:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id,
+			`<b>⚙️ تنظیمات</b>\n\n<blockquote>${enabled ? "🟢 سیستم فعال است" : "🔴 سیستم غیرفعال است"}</blockquote>\n\n<blockquote>ℹ️ زمان‌بندی انتشار، وضعیت سیستم و مدت اعتبار کش بازار از این بخش مدیریت می‌شوند. کش فعلی: ${ttl} ثانیه.</blockquote>`,
+			{ inline_keyboard: keyboard });
+	}
+
+	async #showCacheSettings(message) {
+		const current = await this.s.market.cacheTtlSeconds();
+		const keyboard = chunk(APP.cacheTtlOptions.map((seconds) => ({
+			text: `${seconds === current ? "✅" : "▫️"} ${seconds} ثانیه`, callback_data: `cache:set:${seconds}`,
+		})), 2);
+		keyboard.push([{ text: "⬅️ تنظیمات", callback_data: "settings:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id,
+			`<b>🗃 کش بازار</b>\n\nمدت اعتبار فعلی: <b>${current} ثانیه</b>\n\n<blockquote>ℹ️ Bot، API و Cron همگی از همین Snapshot مرکزی استفاده می‌کنند.</blockquote>`,
+			{ inline_keyboard: keyboard });
+	}
+
+	async #showAutomation(message) {
+		const a = await this.s.automation.getSettings();
+		const next = calculateNextPublishAt(a);
+		const lines = ["<b>🕒 زمان‌بندی انتشار</b>", "", `<blockquote>${a.enabled ? "🟢 انتشار خودکار فعال است" : "⚪ انتشار خودکار غیرفعال است"}</blockquote>`, "",
+			`⏱ بازه انتشار: <b>${a.intervalMinutes} دقیقه</b>`, "",
+			`🌙 ساعت استراحت: <b>${a.quietHours.enabled ? `${a.quietHours.start} تا ${a.quietHours.end}` : "غیرفعال"}</b>`, "",
+			`📤 آخرین انتشار: <b>${formatOptionalSystemDateTime(this.s.config, a.lastSuccessAt)}</b>`,
+			`🫀 آخرین Cron Tick: <b>${formatOptionalSystemDateTime(this.s.config, a.lastTickAt)}</b>`,
+			`🎯 آخرین تلاش: <b>${formatOptionalSystemDateTime(this.s.config, a.lastAttemptAt)}</b>`,
+			`⚠️ آخرین خطا: ${a.lastError ? `<code>${escapeHtml(a.lastError)}</code>` : "ندارد"}`,
+			`ℹ️ وضعیت آخر: <code>${escapeHtml(a.lastSkipReason || "-")}</code>`, "",
+			`⏭ انتشار بعدی: <b>${formatOptionalSystemDateTime(this.s.config, next)}</b>`, "",
+			"<blockquote>ℹ️ Worker هر دقیقه بررسی می‌شود و فقط وقتی بازه انتشار رسیده باشد و داخل ساعت استراحت نباشیم، پست ارسال می‌شود.</blockquote>"];
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: [
+			[{ text: a.enabled ? "⏸ توقف انتشار خودکار" : "▶️ فعال‌سازی انتشار خودکار", callback_data: "automation:toggle" }],
+			[{ text: "🌙 ساعت استراحت", callback_data: "automation:quiet:edit" }, { text: "⏱ بازه انتشار", callback_data: "automation:interval" }],
+			[{ text: a.quietHours.enabled ? "🌙 غیرفعال کردن استراحت" : "🌙 فعال کردن استراحت", callback_data: "automation:quiet:toggle" }],
+			[{ text: "🔄 بروزرسانی", callback_data: "automation:home" }],
+			[{ text: "⬅️ تنظیمات", callback_data: "settings:home" }],
+		] });
+	}
+
+	async #showIntervals(message) {
+		const a = await this.s.automation.getSettings();
+		const buttons = APP.publishIntervals.map((minutes) => ({ text: `${minutes === a.intervalMinutes ? "✅" : "▫️"} ${minutes} دقیقه`, callback_data: `automation:interval:set:${minutes}` }));
+		const keyboard = chunk(buttons, 3); keyboard.push([{ text: "⬅️ زمان‌بندی انتشار", callback_data: "automation:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, "<b>⏱ بازه انتشار</b>\n\nبازه موردنظر را انتخاب کنید.", { inline_keyboard: keyboard });
+	}
+
+	#quietStartHour(message) { return this.#hourPicker(message, "<b>🌙 ساعت شروع استراحت</b>", (hour) => `quiet:start_hour:${hour}`, "automation:home"); }
+	#quietStartMinute(message, hour) { return this.#minutePicker(message, "<b>🌙 دقیقه شروع</b>", (minute) => `quiet:start_minute:${hour}:${minute}`, "automation:home"); }
+	#quietEndHour(message, startHour, startMinute) { return this.#hourPicker(message, "<b>🌙 ساعت پایان استراحت</b>", (hour) => `quiet:end_hour:${startHour}:${startMinute}:${hour}`, "automation:home"); }
+	#quietEndMinute(message, startHour, startMinute, endHour) { return this.#minutePicker(message, "<b>🌙 دقیقه پایان</b>", (minute) => `quiet:end_minute:${startHour}:${startMinute}:${endHour}:${minute}`, "automation:home"); }
+
+	#hourPicker(message, title, callback, back) {
+		const buttons = Array.from({ length: 24 }, (_, hour) => ({ text: pad2(hour), callback_data: callback(hour) }));
+		const keyboard = chunk(buttons, 4); keyboard.push([{ text: "⬅️ بازگشت", callback_data: back }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, `${title}\n\nساعت را انتخاب کنید.`, { inline_keyboard: keyboard });
+	}
+	#minutePicker(message, title, callback, back) {
+		const keyboard = [APP.quietMinuteOptions.map((minute) => ({ text: pad2(minute), callback_data: callback(minute) })), [{ text: "⬅️ بازگشت", callback_data: back }]];
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, `${title}\n\nدقیقه را انتخاب کنید.`, { inline_keyboard: keyboard });
+	}
+
+	async #showSystem(message) {
+		const [enabled, ttl, automation] = await Promise.all([
+			this.s.settings.get("bot_enabled", "1"), this.s.market.cacheTtlSeconds(), this.s.automation.getSettings(),
+		]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, [
+			"<b>📊 وضعیت سیستم</b>", "", `<blockquote>${parseBoolean(enabled, true) ? "🟢 Worker فعال است" : "🔴 Worker غیرفعال است"}</blockquote>`, "",
+			`Version: <code>${escapeHtml(this.s.config.version)}</code>`, `Schema: <code>${APP.schemaVersion}</code>`, `Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`,
+			`Cache: <code>${ttl}s</code>`, `Automation: <code>${automation.enabled ? "ON" : "OFF"}</code>`, `Integrity: <code>${runtimeIntegrity() ? "OK" : "FAILED"}</code>`, "",
+			`📅 ${formatSystemDate(this.s.config, Date.now())} · 🕒 ${formatSystemTime(this.s.config, Date.now())}`,
+		].join("\n"), { inline_keyboard: [[{ text: "🗄 وضعیت دیتابیس", callback_data: "database:home" }], [{ text: "⬅️ تنظیمات", callback_data: "settings:home" }]] });
+	}
+
+	async #showDatabase(message) {
+		const status = await databaseStatus(this.s);
+		const storage = status.storage;
+		const lines = ["<b>🗄 وضعیت دیتابیس</b>", "", `<blockquote>${status.connected ? "🟢 Cloudflare D1 متصل است" : "🔴 اتصال D1 ناموفق است"}</blockquote>`, "",
+			`Provider: <code>${escapeHtml(status.provider)}</code>`, `Latency: <code>${status.latency_ms}ms</code>`, "", "<b>💾 فضای دیتابیس</b>", ""];
+		if (storage.available) lines.push(`${storage.bar}  ${storage.percent.toFixed(2)}%`, "", `استفاده: ${storage.percent.toFixed(2)}%`, `مصرف‌شده: ${storage.used_mb.toFixed(2)} MB`, `فضای کل: ${storage.total_mb.toFixed(2)} MB`, `باقی‌مانده: ${storage.remaining_mb.toFixed(2)} MB`, "");
+		lines.push("<b>📊 رکوردها</b>", ...Object.entries(status.records).map(([key, value]) => `${escapeHtml(key)}: <code>${value}</code>`), "", `Schema: <code>${APP.schemaVersion}</code>`);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), backKeyboard("وضعیت سیستم", "system:home"));
+	}
+
+	async #showAdmins(message, admin) {
+		const admins = await this.s.admins.list();
+		const lines = ["<b>👥 مدیریت ادمین‌ها</b>", "", `مالک: <code>${escapeHtml(this.s.config.ownerId || "تنظیم نشده")}</code>`, "", `ادمین‌ها: <b>${admins.length}</b>`];
+		const keyboard = admins.map((row) => [{ text: `${Number(row.is_active) === 1 ? "🟢" : "⚪"} ${row.first_name || row.username || row.user_id}`, callback_data: `admins:view:${row.user_id}` }]);
+		if (admin.role === "owner") keyboard.push([{ text: "➕ افزودن ادمین", callback_data: "admins:add" }]);
+		keyboard.push([{ text: "⬅️ پنل مدیریت", callback_data: "menu:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: keyboard });
+	}
+
+	async #showAdminDetail(message, admin, userId) {
+		const row = await this.s.admins.get(userId);
+		if (!row) return this.#showAdmins(message, admin);
+		const name = row.first_name || row.username || row.user_id;
+		const keyboard = [];
+		if (admin.role === "owner") {
+			keyboard.push([{ text: Number(row.is_active) === 1 ? "⏸ غیرفعال" : "▶️ فعال", callback_data: `admins:toggle:${row.user_id}` }]);
+			keyboard.push([{ text: "🗑 حذف ادمین", callback_data: `admins:delete:${row.user_id}` }]);
+		}
+		keyboard.push([{ text: "⬅️ مدیریت ادمین‌ها", callback_data: "admins:home" }]);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id,
+			`<b>👤 ${escapeHtml(name)}</b>\n\nID: <code>${escapeHtml(row.user_id)}</code>\nStatus: <b>${Number(row.is_active) === 1 ? "فعال" : "غیرفعال"}</b>`, { inline_keyboard: keyboard });
+	}
+
+	async #handleAddAdminInput(message, admin) {
+		if (admin.role !== "owner") return;
+		const targetId = normalizeDigits(String(message.text || "").trim());
+		if (!/^\d{5,20}$/.test(targetId)) return this.s.telegram.sendMessage(message.chat.id, "🔴 آیدی عددی معتبر نیست.");
+		if (targetId === this.s.config.ownerId) return this.s.telegram.sendMessage(message.chat.id, "ℹ️ این شناسه متعلق به مالک است.");
+		await this.s.admins.add(targetId, message.from.id);
+		await this.s.adminInput.clear(message.from.id);
+		await this.s.audit.add(message.from.id, "admin.added", { targetId });
+		return this.s.telegram.sendMessage(message.chat.id, `✅ ادمین <code>${escapeHtml(targetId)}</code> اضافه شد.`, { inline_keyboard: [[{ text: "👥 مدیریت ادمین‌ها", callback_data: "admins:home" }]] });
+	}
+
+	#disabledText(admin) {
+		return `<b>⏸ ${escapeHtml(this.s.config.displayName)}</b>\n\n<blockquote>🔴 سیستم غیرفعال است</blockquote>\n\nنقش: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`;
+	}
+}
+
+/** Dependency composition root. */
+function createServices(env) {
+	const config = new Config(env);
+	const settings = new SettingsRepository(env);
+	const cache = new MarketCacheRepository(env);
+	const locks = new LockRepository(env);
+	const statuses = new SourceStatusRepository(env);
+	const assets = new AssetRepository(env, config);
+	const admins = new AdminRepository(env, config);
+	const adminInput = new AdminInputRepository(env);
+	const audit = new AuditRepository(env);
+	const http = new HttpClient();
+	const coinGecko = new CoinGeckoClient(env, config, http);
+	const sources = new MarketSources(env, http, statuses);
+	const market = new MarketService(env, config, settings, cache, locks, assets, statuses, sources, coinGecko);
+	const telegram = new TelegramClient(env);
+	const postBuilder = new MarketPostBuilder(config);
+	const publisher = new MarketPublisher(config, telegram, postBuilder);
+	const automation = new AutomationService(env, config, settings, market, publisher);
+	return { env, config, settings, cache, locks, statuses, assets, admins, adminInput, audit, http, coinGecko, sources, market, telegram, postBuilder, publisher, automation };
+}
+
+/** Application entrypoint controller. */
+class Application {
+	constructor(env) {
+		this.env = env;
+		this.database = new Database(env);
+		this.services = createServices(env);
+		this.api = new ApiController(this.services);
+		this.bot = new BotController(this.services);
+	}
+
+	async fetch(request) {
+		await this.database.ensureReady();
+		const url = new URL(request.url);
+		const apiResponse = await this.api.route(request, url);
+		if (apiResponse) return apiResponse;
+		if (request.method === "POST" && url.pathname === "/telegram/webhook") return this.bot.handleWebhook(request);
+		return jsonResponse({ success: false, message: "Not found" }, 404);
+	}
+
+	async scheduled() {
+		// Deliberately do not run schema bootstrap/migrations on every minute Cron.
+		return this.services.automation.tick();
+	}
+}
+
+/** Fail-fast component contract to catch accidental method deletion before deployment traffic. */
+function runtimeIntegrity() {
+	const contracts = [
+		[MarketPostBuilder.prototype, "buildRichMessage"],
+		[MarketService.prototype, "getSnapshot"],
+		[CoinGeckoClient.prototype, "fetchMarketBundle"],
+		[TelegramClient.prototype, "sendRichMessage"],
+		[AutomationService.prototype, "tick"],
+	];
+	return contracts.every(([target, method]) => typeof target?.[method] === "function");
+}
+
+if (!runtimeIntegrity()) throw new Error("Runtime integrity check failed");
+
+export default {
+	async fetch(request, env, ctx) {
+		try {
+			return await new Application(env).fetch(request, ctx);
+		} catch (error) {
+			console.error("http.unhandled_error", { message: errorMessage(error), stack: error?.stack || null });
+			return jsonResponse({ success: false, message: "Internal server error", error: errorMessage(error) }, 500);
+		}
+	},
+
+	async scheduled(controller, env, ctx) {
+		try {
+			await new Application(env).scheduled(controller, ctx);
+		} catch (error) {
+			console.error("cron.unhandled_error", { message: errorMessage(error), stack: error?.stack || null });
+			throw error;
+		}
+	},
+};
 
 /* ============================================================
- * RESPONSES
+ * PURE HELPERS
  * ============================================================
  */
 
-function jsonResponse(
-	data,
-	status = 200,
-) {
-	return new Response(
-		JSON.stringify(
-			data,
-			null,
-			2,
-		),
-		{
-			status,
+function success(price = null, status = 200) { return { success: true, price, status, message: null }; }
+function failure(message, status = null, latency = null) { return { success: false, status, latency, message: String(message || "Unknown error"), price: null }; }
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function capitalize(value) { return String(value).charAt(0).toUpperCase() + String(value).slice(1); }
+function chunk(items, size) { const rows = []; for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size)); return rows; }
+function safeJson(value, fallback = null) { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } }
+function nullableNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
+function parseBoolean(value, fallback = false) {
+	if (value === undefined || value === null || value === "") return fallback;
+	return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
+}
+function normalizeTimestamp(value) { const number = Number(value || 0); return Number.isFinite(number) && number > 0 ? number : 0; }
+function normalizeDigits(value) {
+	return String(value).replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+}
+function normalizePublishInterval(value) {
+	const number = Number(value);
+	return APP.publishIntervals.includes(number) ? number : APP.defaultPublishIntervalMinutes;
+}
+function pad2(value) { return String(Number(value)).padStart(2, "0"); }
+function validTime(value) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || "")); }
+function timeToMinutes(value) { const [h, m] = String(value).split(":").map(Number); return h * 60 + m; }
+function sourceLabel(source) { return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", coingecko: "CoinGecko", wallgold: "WallGold" })[source] || source; }
+function coinNameFa(id, fallback = "") { return COIN_NAMES_FA[id] || fallback || id; }
+function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function errorMessage(error) { return error instanceof Error ? error.message : String(error || "Unknown error"); }
 
-			headers: {
-				"Content-Type":
-					"application/json; charset=utf-8",
+function toFaDigits(value) { return String(value).replace(/\d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]); }
+function formatFaInteger(value) { const number = nullableNumber(value); return number == null ? "نامشخص" : toFaDigits(integerFormatter.format(number).replace(/,/g, "٬")); }
+function formatFaPrice(value) {
+	const number = nullableNumber(value); if (number == null) return "نامشخص";
+	const formatter = Math.abs(number) >= 1 ? priceLargeFormatter : priceSmallFormatter;
+	return toFaDigits(formatter.format(number).replace(/,/g, "٬").replace(/\./g, "٫"));
+}
+function formatOptionalToman(value) { const number = nullableNumber(value); return number == null ? "<b>نامشخص</b>" : `<b>${formatFaInteger(number)} تومان</b>`; }
+function formatOptionalUsd(value) { const number = nullableNumber(value); return number == null ? "<b>نامشخص</b>" : `<b>${formatFaPrice(number)} دلار</b>`; }
+function changeIcon(value) { const number = nullableNumber(value); return number == null || number === 0 ? "⚪" : number > 0 ? "🟢" : "🔴"; }
+function formatFaChangeValue(value) {
+	const number = nullableNumber(value); if (number == null) return "<b>نامشخص</b>";
+	const sign = number > 0 ? "+" : number < 0 ? "−" : "";
+	return `<b>${sign}${formatFaPrice(Math.abs(number))}٪</b>`;
+}
+function roundToNearest(value, step) { const number = nullableNumber(value); return number == null ? null : Math.round(number / step) * step; }
+function calculateMazanehFromGram18(value) { const gram = nullableNumber(value); return gram && gram > 0 ? Math.round(gram * 4.6083 * (705 / 750)) : null; }
 
-				"Cache-Control":
-					"no-store",
+function getDateTimeFormatter(config, kind) {
+	const key = `${config.timezone}:${kind}`;
+	if (dateTimeFormatterCache.has(key)) return dateTimeFormatterCache.get(key);
+	const options = kind === "time"
+		? { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }
+		: kind === "date"
+			? { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit" }
+			: { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false };
+	const locale = kind === "date" || kind === "time" ? "fa-IR-u-ca-persian" : "en-CA";
+	const formatter = new Intl.DateTimeFormat(locale, options);
+	dateTimeFormatterCache.set(key, formatter);
+	return formatter;
+}
+function formatIranDate(config, timestamp) { return getDateTimeFormatter(config, "date").format(new Date(timestamp)).replace(/\//g, "/"); }
+function formatIranTime(config, timestamp) { return getDateTimeFormatter(config, "time").format(new Date(timestamp)); }
+function formatSystemDate(config, timestamp) { return new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(timestamp)); }
+function formatSystemTime(config, timestamp) { return new Intl.DateTimeFormat("en-GB", { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp)); }
+function formatSystemDateTime(config, timestamp) { return `${formatSystemDate(config, timestamp)} · ${formatSystemTime(config, timestamp)}`; }
+function formatOptionalSystemDateTime(config, timestamp) { return timestamp ? escapeHtml(formatSystemDateTime(config, timestamp)) : "نامشخص"; }
 
-				"Access-Control-Allow-Origin":
-					"*",
-
-				"Access-Control-Allow-Methods":
-					"GET, POST, OPTIONS",
-
-				"Access-Control-Allow-Headers":
-					"Content-Type",
-			},
-		},
-	);
+function getCurrentMinutes(config, timestamp = Date.now()) {
+	const parts = new Intl.DateTimeFormat("en-GB", { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(timestamp));
+	const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+	const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+	return hour * 60 + minute;
+}
+function isInsideQuietHours(config, quietHours, timestamp = Date.now()) {
+	const now = getCurrentMinutes(config, timestamp);
+	const start = timeToMinutes(quietHours.start); const end = timeToMinutes(quietHours.end);
+	if (start === end) return true;
+	return start < end ? now >= start && now < end : now >= start || now < end;
+}
+function calculateNextPublishAt(automation) {
+	if (!automation.enabled) return 0;
+	const base = automation.lastRunAt || Date.now();
+	return base + automation.intervalMinutes * 60 * 1000;
 }
 
-function corsResponse() {
-	return new Response(
-		null,
-		{
-			status:
-				204,
-
-			headers: {
-				"Access-Control-Allow-Origin":
-					"*",
-
-				"Access-Control-Allow-Methods":
-					"GET, POST, OPTIONS",
-
-				"Access-Control-Allow-Headers":
-					"Content-Type",
-
-				"Access-Control-Max-Age":
-					"86400",
-			},
-		},
-	);
+function resolveUsdtChecks(checks) {
+	for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+		const source = USDT_SOURCE_PRIORITY[index];
+		const item = checks?.[source];
+		if (item?.success && nullableNumber(item.price) != null) {
+			return { ...item, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
+		}
+	}
+	return failure("All USDT sources failed");
 }
+
+function resolveUsdtFromStatuses(statuses) {
+	for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+		const key = USDT_SOURCE_PRIORITY[index]; const item = statuses[key];
+		if (item?.success && nullableNumber(item.price) != null) return {
+			available: true, selected_source: sourceLabel(key), price_toman: nullableNumber(item.price), fallback_level: index, latency_ms: item.latency ?? null,
+		};
+	}
+	return { available: false, selected_source: null, price_toman: null, fallback_level: null, latency_ms: null };
+}
+function sourceStatusText(label, status, role = null) {
+	const prefix = status?.success ? "🟢" : "🔴";
+	const parts = [`${prefix} <b>${escapeHtml(label)}</b>${role ? ` · <code>${escapeHtml(role)}</code>` : ""}`];
+	if (status?.status != null) parts.push(`HTTP: <code>${status.status}</code>`);
+	if (status?.latency != null) parts.push(`Latency: <code>${status.latency}ms</code>`);
+	if (status?.message) parts.push(`<code>${escapeHtml(String(status.message).slice(0, 180))}</code>`);
+	return parts.join("\n");
+}
+function backKeyboard(label, callback) { return { inline_keyboard: [[{ text: `⬅️ ${label}`, callback_data: callback }]] }; }
+function normalizeCommand(text) {
+	const first = String(text || "").trim().split(/\s+/)[0].toLowerCase();
+	return first.replace(/@[^\s]+$/, "");
+}
+
+function serializeMarketSnapshot(config, snapshot) {
+	return {
+		generated_at: new Date(snapshot.createdAt).toISOString(),
+		timezone: config.timezone,
+		date: formatIranDate(config, snapshot.createdAt),
+		time: formatIranTime(config, snapshot.createdAt),
+		partial: Boolean(snapshot.partial),
+		cache: snapshot.cache ? {
+			from_cache: Boolean(snapshot.cache.fromCache),
+			stale_fallback: Boolean(snapshot.cache.staleFallback),
+			fetched_at: new Date(snapshot.cache.fetchedAt).toISOString(),
+			expires_at: new Date(snapshot.cache.expiresAt).toISOString(),
+			ttl_seconds: snapshot.cache.ttlSeconds,
+			last_error: snapshot.cache.lastError || null,
+		} : null,
+		errors: snapshot.errors || [],
+		usdt: {
+			available: snapshot.usdt?.price != null,
+			price_toman: snapshot.usdt?.price ?? null,
+			source: snapshot.usdt?.source ?? null,
+			fallback_level: snapshot.usdt?.fallbackLevel ?? null,
+		},
+		crypto: (snapshot.crypto || []).map((item) => ({
+			id: item.id, name: item.name, name_fa: coinNameFa(item.id, item.name), symbol: item.symbol,
+			available: item.price != null, price_usd: item.price ?? null,
+			change_24h_percent: item.change24h ?? null, market_cap_rank: item.marketCapRank ?? null,
+		})),
+		metals: {
+			gram_18_toman: snapshot.metals?.gram18 ?? null,
+			mazaneh_toman: snapshot.metals?.mazaneh ?? null,
+			gold_usd: snapshot.metals?.gold ?? null,
+			silver_usd: snapshot.metals?.silver ?? null,
+		},
+	};
+}
+function serializeAutomation(config, a) {
+	return {
+		enabled: a.enabled, interval_minutes: a.intervalMinutes, quiet_hours: a.quietHours,
+		last_run_at: a.lastRunAt ? new Date(a.lastRunAt).toISOString() : null,
+		last_success_at: a.lastSuccessAt ? new Date(a.lastSuccessAt).toISOString() : null,
+		last_tick_at: a.lastTickAt ? new Date(a.lastTickAt).toISOString() : null,
+		last_attempt_at: a.lastAttemptAt ? new Date(a.lastAttemptAt).toISOString() : null,
+		last_error_at: a.lastErrorAt ? new Date(a.lastErrorAt).toISOString() : null,
+		last_skip_reason: a.lastSkipReason || null, last_error: a.lastError || null, timezone: config.timezone,
+	};
+}
+
+async function databaseStatus(services) {
+	const started = Date.now();
+	let connected = false;
+	try { await services.env.DB.prepare("SELECT 1 AS ok").first(); connected = true; } catch { connected = false; }
+	const latencyMs = Date.now() - started;
+	const tables = ["admins", "settings", "source_status", "coingecko_assets", "audit_logs", "market_cache", "runtime_locks"];
+	const records = {};
+	for (const table of tables) {
+		try { const row = await services.env.DB.prepare(`SELECT COUNT(*) AS count FROM "${table}"`).first(); records[table] = Number(row?.count || 0); }
+		catch { records[table] = 0; }
+	}
+	return { connected, provider: "Cloudflare D1", latency_ms: latencyMs, storage: await d1StorageUsage(services), records, schema_version: APP.schemaVersion };
+}
+async function d1StorageUsage(services) {
+	const { env } = services;
+	const totalMb = Number(env.D1_DATABASE_LIMIT_MB || 500);
+	if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_D1_DATABASE_ID || !env.CLOUDFLARE_API_TOKEN) {
+		return { available: false, used_mb: 0, total_mb: totalMb, remaining_mb: totalMb, percent: 0, bar: "░░░░░░░░░░░░" };
+	}
+	try {
+		const response = await new HttpClient().fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${env.CLOUDFLARE_D1_DATABASE_ID}`,
+			{ headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, Accept: "application/json" } }, 8000);
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const data = await response.json();
+		const bytes = Number(data?.result?.file_size || 0);
+		const usedMb = bytes / 1024 / 1024; const percent = totalMb > 0 ? Math.min(100, (usedMb / totalMb) * 100) : 0;
+		const filled = Math.round((percent / 100) * 12);
+		return { available: true, used_mb: usedMb, total_mb: totalMb, remaining_mb: Math.max(0, totalMb - usedMb), percent, bar: "█".repeat(filled) + "░".repeat(12 - filled) };
+	} catch (error) {
+		return { available: false, error: errorMessage(error), used_mb: 0, total_mb: totalMb, remaining_mb: totalMb, percent: 0, bar: "░░░░░░░░░░░░" };
+	}
+}
+
+function jsonResponse(payload, status = 200) {
+	return new Response(JSON.stringify(payload), { status, headers: {
+		"Content-Type": "application/json; charset=utf-8",
+		"Access-Control-Allow-Origin": "*",
+		"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+		"Access-Control-Allow-Headers": "Content-Type, X-Telegram-Bot-Api-Secret-Token",
+	} });
+}
+function corsResponse() { return new Response(null, { status: 204, headers: {
+	"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+	"Access-Control-Allow-Headers": "Content-Type, X-Telegram-Bot-Api-Secret-Token", "Access-Control-Max-Age": "86400",
+} }); }
