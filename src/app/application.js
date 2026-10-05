@@ -16,6 +16,7 @@ export class Application {
 
 	async fetch(request) {
 		await this.database.ensureReady();
+		await this.services.config.refresh();
 		const url = new URL(request.url);
 		const apiResponse = await this.api.route(request, url);
 		if (apiResponse) return apiResponse;
@@ -27,6 +28,7 @@ export class Application {
 
 	async scheduled() {
 		// Deliberately do not run schema bootstrap/migrations on every minute Cron.
+		await this.services.config.refresh({ tolerateMissingTable: true });
 		return this.services.automation.tick();
 	}
 }

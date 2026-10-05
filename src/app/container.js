@@ -15,11 +15,13 @@ import { SourceStatusRepository } from "../repositories/source-status.repository
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
+import { SettingsService } from "../services/settings.service.js";
 
 /** Dependency composition root. */
 export function createServices(env) {
-	const config = new Config(env);
 	const settings = new SettingsRepository(env);
+	const settingsService = new SettingsService(env, settings);
+	const config = new Config(env, settingsService);
 	const cache = new MarketCacheRepository(env);
 	const locks = new LockRepository(env);
 	const statuses = new SourceStatusRepository(env);
@@ -29,7 +31,7 @@ export function createServices(env) {
 	const audit = new AuditRepository(env);
 	const http = new HttpClient();
 	const coinGecko = new CoinGeckoClient(env, config, http);
-	const sources = new MarketSources(env, http, statuses);
+	const sources = new MarketSources(env, http, statuses, config);
 	const market = new MarketService(
 		env,
 		config,
@@ -50,6 +52,7 @@ export function createServices(env) {
 		env,
 		config,
 		settings,
+		settingsService,
 		cache,
 		locks,
 		statuses,

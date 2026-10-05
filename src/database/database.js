@@ -1,5 +1,6 @@
 import { APP } from "../config/app.js";
 import { Config } from "../config/config.js";
+import { RUNTIME_SETTINGS_VERSION, runtimeSettingSeedValues } from "../config/runtime-settings.js";
 import { AssetRepository } from "../repositories/asset.repository.js";
 
 let bootstrapPromise = null;
@@ -88,6 +89,7 @@ export class Database {
 			auto_publish_last_error_at: "0",
 			auto_publish_last_skip_reason: "",
 			market_cache_ttl_seconds: String(APP.defaultCacheTtlSeconds),
+			...runtimeSettingSeedValues(this.env),
 		};
 		await this.env.DB.batch(
 			Object.entries(defaults).map(([key, value]) =>
@@ -101,6 +103,12 @@ export class Database {
 			VALUES ('schema_version', ?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
 			.bind(String(APP.schemaVersion), now)
+			.run();
+
+		await this.env.DB.prepare(`INSERT INTO app_meta (key, value, updated_at)
+			VALUES ('runtime_settings_version', ?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+			.bind(String(RUNTIME_SETTINGS_VERSION), now)
 			.run();
 
 		await new AssetRepository(this.env, new Config(this.env)).initializeDefaults();

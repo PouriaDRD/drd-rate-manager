@@ -41,9 +41,12 @@ export async function databaseStatus(services) {
 }
 
 export async function d1StorageUsage(services) {
-	const { env } = services;
-	const totalMb = Number(env.D1_DATABASE_LIMIT_MB || 500);
-	if (!env.CLOUDFLARE_ACCOUNT_ID || !env.CLOUDFLARE_D1_DATABASE_ID || !env.CLOUDFLARE_API_TOKEN) {
+	const { config } = services;
+	const totalMb = config.d1DatabaseLimitMb;
+	const accountId = config.cloudflareAccountId;
+	const databaseId = config.cloudflareD1DatabaseId;
+	const apiToken = config.cloudflareApiToken;
+	if (!accountId || !databaseId || !apiToken) {
 		return {
 			available: false,
 			used_mb: 0,
@@ -55,8 +58,8 @@ export async function d1StorageUsage(services) {
 	}
 	try {
 		const response = await new HttpClient().fetch(
-			`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/d1/database/${env.CLOUDFLARE_D1_DATABASE_ID}`,
-			{ headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, Accept: "application/json" } },
+			`https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}`,
+			{ headers: { Authorization: `Bearer ${apiToken}`, Accept: "application/json" } },
 			8000,
 		);
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);

@@ -10,10 +10,11 @@ import {
 
 /** Market source clients for USDT and Iranian gold. */
 export class MarketSources {
-	constructor(env, http, statuses) {
+	constructor(env, http, statuses, config = null) {
 		this.env = env;
 		this.http = http;
 		this.statuses = statuses;
+		this.config = config;
 	}
 
 	async resolveUsdt() {
@@ -40,7 +41,7 @@ export class MarketSources {
 
 	async checkWallex() {
 		return this.#timed("wallex", async () => {
-			const url = this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
+			const url = this.config?.wallexApiUrl || this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
 			const response = await this.http.fetch(
 				url,
 				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
@@ -61,7 +62,7 @@ export class MarketSources {
 
 	async checkTabdeal() {
 		return this.#timed("tabdeal", async () => {
-			const url = this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1";
+			const url = this.config?.tabdealApiUrl || this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1";
 			const response = await this.http.fetch(
 				url,
 				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
@@ -78,7 +79,7 @@ export class MarketSources {
 
 	async checkExir() {
 		return this.#timed("exir", async () => {
-			const url = this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt";
+			const url = this.config?.exirApiUrl || this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt";
 			const response = await this.http.fetch(
 				url,
 				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
@@ -95,7 +96,7 @@ export class MarketSources {
 
 	async checkWallGold() {
 		const result = await this.#timed("wallgold", async () => {
-			const url = this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN";
+			const url = this.config?.wallGoldApiUrl || this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN";
 			const response = await this.http.fetch(
 				url,
 				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
