@@ -1,0 +1,9 @@
+{
+  "name": "drd-rate-manager",
+  "version": "0.13.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check worker.js"
+  }
+}
