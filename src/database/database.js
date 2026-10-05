@@ -80,6 +80,8 @@ export class Database {
 			quiet_hours_end: APP.defaultQuietHours.end,
 			auto_publish_last_run_at: "0",
 			auto_publish_last_success_at: "0",
+			auto_publish_last_success_slot_at: "0",
+			auto_publish_retry_slot_at: "0",
 			auto_publish_last_error: "",
 			auto_publish_last_tick_at: "0",
 			auto_publish_last_attempt_at: "0",

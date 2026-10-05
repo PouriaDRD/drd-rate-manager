@@ -44,7 +44,7 @@ export function createServices(env) {
 	const telegram = new TelegramClient(env, http);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
-	const automation = new AutomationService(env, config, settings, market, publisher);
+	const automation = new AutomationService(env, config, settings, market, publisher, locks);
 
 	return {
 		env,

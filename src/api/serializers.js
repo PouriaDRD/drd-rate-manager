@@ -1,3 +1,4 @@
+import { calculateNextPublishAt } from "../utils/automation.js";
 import { coinNameFa } from "../utils/core.js";
 import { formatIranDate, formatIranTime } from "../utils/datetime.js";
 
@@ -43,12 +44,21 @@ export function serializeMarketSnapshot(config, snapshot) {
 }
 
 export function serializeAutomation(config, automation) {
+	const nextPublishAt = calculateNextPublishAt({ ...automation, timezone: config.timezone });
 	return {
 		enabled: automation.enabled,
 		interval_minutes: automation.intervalMinutes,
 		quiet_hours: automation.quietHours,
+		schedule_changed_at: automation.scheduleChangedAt
+			? new Date(automation.scheduleChangedAt).toISOString()
+			: null,
+		next_publish_at: nextPublishAt ? new Date(nextPublishAt).toISOString() : null,
 		last_run_at: automation.lastRunAt ? new Date(automation.lastRunAt).toISOString() : null,
 		last_success_at: automation.lastSuccessAt ? new Date(automation.lastSuccessAt).toISOString() : null,
+		last_success_slot_at: automation.lastSuccessSlotAt
+			? new Date(automation.lastSuccessSlotAt).toISOString()
+			: null,
+		retry_slot_at: automation.retrySlotAt ? new Date(automation.retrySlotAt).toISOString() : null,
 		last_tick_at: automation.lastTickAt ? new Date(automation.lastTickAt).toISOString() : null,
 		last_attempt_at: automation.lastAttemptAt ? new Date(automation.lastAttemptAt).toISOString() : null,
 		last_error_at: automation.lastErrorAt ? new Date(automation.lastErrorAt).toISOString() : null,
