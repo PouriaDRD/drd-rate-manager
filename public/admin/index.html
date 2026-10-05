@@ -182,7 +182,7 @@
               <h2 data-i18n="dashboardHeadline">مرکز کنترل DRD Rate Manager</h2>
               <p data-i18n="dashboardIntro">نمای زنده از وضعیت بازار، انتشار خودکار و سلامت منابع.</p>
             </div>
-            <span class="phase-badge">Phase 7</span>
+            <span class="phase-badge">Phase 8</span>
           </div>
 
           <div class="metric-grid">
@@ -270,6 +270,53 @@
             </div>
             <pre id="preview-content" class="preview-content" dir="auto"></pre>
           </article>
+        </section>
+
+        <section id="sources-view" class="view-section" hidden>
+          <div class="section-heading-row">
+            <div>
+              <span class="eyebrow">DRD / 03</span>
+              <h2 data-i18n="sources">منابع</h2>
+              <p data-i18n="sourcesIntro">فعال‌سازی، تست سلامت و ترتیب fallback منابع بازار.</p>
+            </div>
+            <button id="sources-reload" class="secondary-button" type="button" data-i18n="reloadStatus">بروزرسانی وضعیت</button>
+          </div>
+
+          <article class="panel-card source-priority-card">
+            <div class="card-heading">
+              <div>
+                <h3 data-i18n="usdtPriority">اولویت منابع تتر</h3>
+                <p data-i18n="usdtPriorityHelp">منابع غیرفعال در runtime رد می‌شوند، ولی ترتیب fallback حفظ می‌شود.</p>
+              </div>
+            </div>
+            <div id="usdt-priority-list" class="priority-list"></div>
+          </article>
+
+          <div id="sources-list" class="source-grid"></div>
+        </section>
+
+        <section id="assets-view" class="view-section" hidden>
+          <div class="section-heading-row">
+            <div>
+              <span class="eyebrow">DRD / 04</span>
+              <h2 data-i18n="assets">دارایی‌ها</h2>
+              <p data-i18n="assetsIntro">دارایی‌های CoinGecko را جستجو، فعال یا غیرفعال و لیست را بروزرسانی کنید.</p>
+            </div>
+            <button id="assets-refresh" class="secondary-button" type="button" data-i18n="refreshAssets">بروزرسانی CoinGecko</button>
+          </div>
+
+          <article class="panel-card assets-toolbar">
+            <label class="field asset-search-field">
+              <span data-i18n="searchAssets">جستجوی دارایی</span>
+              <input id="asset-search" type="search" autocomplete="off" placeholder="BTC, Bitcoin, Ethereum...">
+            </label>
+            <div class="asset-stats" dir="ltr">
+              <span><strong id="assets-enabled-count">—</strong> <span data-i18n="enabledShort">enabled</span></span>
+              <span><strong id="assets-total-count">—</strong> <span data-i18n="totalShort">total</span></span>
+            </div>
+          </article>
+
+          <div id="assets-list" class="asset-list"></div>
         </section>
 
         <section id="settings-view" class="view-section" hidden>

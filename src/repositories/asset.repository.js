@@ -40,6 +40,17 @@ export class AssetRepository {
 		}));
 	}
 
+	async setEnabled(coinId, enabled) {
+		const row = await this.env.DB.prepare(
+			"SELECT 1 AS ok FROM coingecko_assets WHERE coin_id = ? LIMIT 1",
+		).bind(coinId).first();
+		if (!row) throw new Error("Asset not found");
+		await this.env.DB.prepare(
+			"UPDATE coingecko_assets SET is_enabled = ?, updated_at = ? WHERE coin_id = ?",
+		).bind(enabled ? 1 : 0, Date.now(), coinId).run();
+		return Boolean(enabled);
+	}
+
 	async toggle(coinId) {
 		const row = await this.env.DB.prepare(
 			"SELECT is_enabled FROM coingecko_assets WHERE coin_id = ? LIMIT 1",

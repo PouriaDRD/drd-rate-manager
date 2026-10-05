@@ -63,6 +63,49 @@ export class AdminApi {
     });
   }
 
+  sources() {
+    return this.#request("/api/v1/sources");
+  }
+
+  updateSource(source, enabled, csrfToken) {
+    return this.#request(`/api/v1/sources/${encodeURIComponent(source)}`, {
+      method: "PATCH",
+      body: { enabled },
+      csrfToken,
+    });
+  }
+
+  testSource(source, csrfToken) {
+    return this.#request(`/api/v1/sources/${encodeURIComponent(source)}/test`, {
+      method: "POST",
+      csrfToken,
+    });
+  }
+
+  updateUsdtPriority(priority, csrfToken) {
+    return this.#request("/api/v1/sources/usdt-priority", {
+      method: "PATCH",
+      body: { priority },
+      csrfToken,
+    });
+  }
+
+  assets() {
+    return this.#request("/api/v1/assets");
+  }
+
+  refreshAssets(csrfToken) {
+    return this.#request("/api/v1/assets/refresh", { method: "POST", csrfToken });
+  }
+
+  updateAsset(id, enabled, csrfToken) {
+    return this.#request(`/api/v1/assets/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: { enabled },
+      csrfToken,
+    });
+  }
+
   async #request(path, { method = "GET", body = null, csrfToken = "" } = {}) {
     const headers = { Accept: "application/json" };
     if (body !== null) headers["Content-Type"] = "application/json";

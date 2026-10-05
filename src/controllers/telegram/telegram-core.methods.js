@@ -97,6 +97,17 @@ async _callback(query) {
 	if (data === "sources:home") return this._showSources(message);
 	if (data === "sources:refresh") return this._showSources(message, true);
 	if (data === "sources:usdt") return this._showUsdt(message);
+	if (data.startsWith("sources:toggle:")) {
+		const source = data.slice("sources:toggle:".length);
+		const enabled = await this.s.sourceSettings.isEnabled(source);
+		await this.s.sourceSettings.setEnabled(source, !enabled);
+		return this._showSources(message);
+	}
+	if (data === "sources:priority:rotate") {
+		const priority = await this.s.sourceSettings.usdtPriority();
+		await this.s.sourceSettings.setUsdtPriority([...priority.slice(1), priority[0]]);
+		return this._showUsdt(message);
+	}
 	if (data === "coingecko:home") return this._showCoinGecko(message);
 	if (data === "coingecko:refresh") return this._showCoinGecko(message, true);
 	if (data.startsWith("coingecko:toggle:")) {

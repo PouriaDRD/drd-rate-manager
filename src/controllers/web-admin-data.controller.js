@@ -16,6 +16,11 @@ function booleanSetting(value, fallback = true) {
 	return !["0", "false", "off", "no"].includes(String(value).trim().toLowerCase());
 }
 
+function requireBoolean(value, field = "enabled") {
+	if (typeof value !== "boolean") throw new Error(`${field} must be a boolean.`);
+	return value;
+}
+
 export class WebAdminDataController {
 	constructor(services) {
 		this.s = services;
@@ -60,6 +65,38 @@ export class WebAdminDataController {
 				const data = await this.s.preferences.update(await readJson(request));
 				return adminJsonResponse({ success: true, data });
 			}
+			if (request.method === "GET" && url.pathname === `${base}/api/v1/sources`) {
+				return adminJsonResponse({ success: true, data: await this.s.sourceSettings.snapshot() });
+			}
+			if (request.method === "PATCH" && url.pathname === `${base}/api/v1/sources/usdt-priority`) {
+				const body = await readJson(request);
+				const priority = await this.s.sourceSettings.setUsdtPriority(body.priority);
+				return adminJsonResponse({ success: true, data: { usdt_priority: priority } });
+			}
+			const sourceMatch = url.pathname.match(new RegExp(`^${base}/api/v1/sources/([a-z0-9_-]+)$`));
+			if (request.method === "PATCH" && sourceMatch) {
+				const body = await readJson(request);
+				const enabled = await this.s.sourceSettings.setEnabled(sourceMatch[1], requireBoolean(body.enabled));
+				return adminJsonResponse({ success: true, data: { source: sourceMatch[1], enabled } });
+			}
+			const sourceTestMatch = url.pathname.match(new RegExp(`^${base}/api/v1/sources/([a-z0-9_-]+)/test$`));
+			if (request.method === "POST" && sourceTestMatch) {
+				return adminJsonResponse({ success: true, data: await this.#testSource(sourceTestMatch[1]) });
+			}
+			if (request.method === "GET" && url.pathname === `${base}/api/v1/assets`) {
+				const assets = await this.s.assets.all();
+				return adminJsonResponse({ success: true, data: { assets, count: assets.length, enabled_count: assets.filter((item) => item.enabled).length } });
+			}
+			if (request.method === "POST" && url.pathname === `${base}/api/v1/assets/refresh`) {
+				return adminJsonResponse({ success: true, data: await this.#refreshAssets() });
+			}
+			const assetMatch = url.pathname.match(new RegExp(`^${base}/api/v1/assets/([^/]+)$`));
+			if (request.method === "PATCH" && assetMatch) {
+				const body = await readJson(request);
+				const coinId = decodeURIComponent(assetMatch[1]);
+				const enabled = await this.s.assets.setEnabled(coinId, requireBoolean(body.enabled));
+				return adminJsonResponse({ success: true, data: { id: coinId, enabled } });
+			}
 		} catch (error) {
 			return adminJsonResponse({ success: false, message: String(error?.message || error) }, 400);
 		}
@@ -67,14 +104,14 @@ export class WebAdminDataController {
 	}
 
 	async #dashboard() {
-		const [snapshot, automation, statuses, assets, botEnabled] = await Promise.all([
+		const [snapshot, automation, sourceSnapshot, assets, botEnabled] = await Promise.all([
 			this.s.market.getSnapshot(),
 			this.s.automation.getSettings(),
-			this.s.statuses.all(),
+			this.s.sourceSettings.snapshot(),
 			this.s.assets.all(),
 			this.s.settings.get("bot_enabled", "1"),
 		]);
-		const sourceRows = Object.entries(statuses || {});
+		const sourceRows = Object.values(sourceSnapshot.sources || {}).filter((item) => item.enabled);
 		return adminJsonResponse({
 			success: true,
 			data: {
@@ -82,8 +119,9 @@ export class WebAdminDataController {
 				market: serializeMarketSnapshot(this.s.config, snapshot),
 				automation: serializeAutomation(this.s.config, automation),
 				sources: {
-					healthy: sourceRows.filter(([, item]) => item?.success).length,
+					healthy: sourceRows.filter((item) => item.status?.success).length,
 					total: sourceRows.length,
+					configured_total: Object.keys(sourceSnapshot.sources || {}).length,
 				},
 				assets: {
 					total: assets.length,
@@ -122,5 +160,47 @@ export class WebAdminDataController {
 			success: true,
 			data: { message_id: result?.message_id ?? null, partial: Boolean(snapshot.partial) },
 		});
+	}
+
+	async #testSource(name) {
+		let result;
+		switch (name) {
+			case "wallex":
+			case "tabdeal":
+			case "exir": {
+				const method = `check${name[0].toUpperCase()}${name.slice(1)}`;
+				result = await this.s.sources[method]();
+				await this.s.statuses.save(name, result);
+				break;
+			}
+			case "wallgold":
+				result = await this.s.sources.checkWallGold();
+				break;
+			case "coingecko": {
+				const probe = await this.s.coinGecko.fetchTopAssets();
+				result = probe.success
+					? { success: true, status: probe.status, latency: probe.latency, message: null, price: null }
+					: probe;
+				await this.s.statuses.save("coingecko", result);
+				break;
+			}
+			default:
+				throw new Error(`Unknown source: ${name}`);
+		}
+		return { source: name, ...result };
+	}
+
+	async #refreshAssets() {
+		const result = await this.s.coinGecko.fetchTopAssets();
+		await this.s.statuses.save(
+			"coingecko",
+			result.success
+				? { success: true, status: result.status, latency: result.latency, message: null, price: null }
+				: result,
+		);
+		if (!result.success) throw new Error(result.message || "CoinGecko refresh failed");
+		await this.s.assets.syncTopAssets(result.assets);
+		const assets = await this.s.assets.all();
+		return { assets, count: assets.length, enabled_count: assets.filter((item) => item.enabled).length };
 	}
 }

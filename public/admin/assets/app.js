@@ -22,6 +22,8 @@ const state = {
   theme: normalizeTheme(readPreference(THEME_KEY, "system")),
   telegramLanguage: "fa",
   activeView: "dashboard",
+  sourceData: null,
+  assets: [],
 };
 
 const basePath = `/${location.pathname.split("/").filter(Boolean)[0] || "admin"}`;
@@ -42,6 +44,8 @@ const els = {
   pageEyebrow: document.querySelector("#page-eyebrow"),
   dashboardView: document.querySelector("#dashboard-view"),
   marketView: document.querySelector("#market-view"),
+  sourcesView: document.querySelector("#sources-view"),
+  assetsView: document.querySelector("#assets-view"),
   settingsView: document.querySelector("#settings-view"),
   placeholderView: document.querySelector("#placeholder-view"),
   placeholderIndex: document.querySelector("#placeholder-index"),
@@ -57,6 +61,10 @@ const els = {
   telegramLanguage: document.querySelector("#telegram-language-select"),
   previewPanel: document.querySelector("#preview-panel"),
   previewContent: document.querySelector("#preview-content"),
+  sourcesList: document.querySelector("#sources-list"),
+  priorityList: document.querySelector("#usdt-priority-list"),
+  assetsList: document.querySelector("#assets-list"),
+  assetSearch: document.querySelector("#asset-search"),
 };
 
 initialize();
@@ -90,6 +98,9 @@ function bindEvents() {
   document.querySelector("#market-refresh")?.addEventListener("click", refreshMarket);
   document.querySelector("#market-preview")?.addEventListener("click", showMarketPreview);
   document.querySelector("#market-publish")?.addEventListener("click", publishMarket);
+  document.querySelector("#sources-reload")?.addEventListener("click", loadSources);
+  document.querySelector("#assets-refresh")?.addEventListener("click", refreshAssets);
+  els.assetSearch?.addEventListener("input", renderAssets);
   document.querySelector("#preview-close")?.addEventListener("click", () => {
     els.previewPanel.hidden = true;
   });
@@ -263,8 +274,10 @@ async function activateView(view) {
 
   els.dashboardView.hidden = view !== "dashboard";
   els.marketView.hidden = view !== "market";
+  els.sourcesView.hidden = view !== "sources";
+  els.assetsView.hidden = view !== "assets";
   els.settingsView.hidden = view !== "settings";
-  const placeholder = !["dashboard", "market", "settings"].includes(view);
+  const placeholder = !["dashboard", "market", "sources", "assets", "settings"].includes(view);
   els.placeholderView.hidden = !placeholder;
   if (placeholder) {
     els.placeholderIndex.textContent = VIEWS[view].index;
@@ -276,6 +289,8 @@ async function activateView(view) {
   try {
     if (view === "dashboard") await loadDashboard();
     if (view === "market") await loadMarket();
+    if (view === "sources") await loadSources();
+    if (view === "assets") await loadAssets();
     if (view === "settings") syncPreferencesForm();
   } catch (error) {
     showToast(error.message || t(state.language, "networkError"), "error");
@@ -370,6 +385,218 @@ function renderMarket(data) {
     change.dir = "ltr";
     row.append(name, price, change);
     list.append(row);
+  }
+}
+
+async function loadSources() {
+  const { data } = await api.sources();
+  state.sourceData = data || { sources: {}, usdt_priority: [] };
+  renderSources();
+}
+
+function renderSources() {
+  if (!state.sourceData) return;
+  els.sourcesList.replaceChildren();
+  for (const source of Object.values(state.sourceData.sources || {})) {
+    const card = document.createElement("article");
+    card.className = "panel-card source-card";
+
+    const head = document.createElement("div");
+    head.className = "source-card-head";
+    const identity = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = source.label;
+    const kind = document.createElement("span");
+    kind.className = "metric-detail";
+    kind.textContent = source.kind === "usdt" ? "USDT / TMN" : source.kind === "gold" ? "Iran Gold" : "Global Market";
+    identity.append(title, kind);
+
+    const toggle = document.createElement("button");
+    toggle.className = source.enabled ? "status-button is-enabled" : "status-button";
+    toggle.type = "button";
+    toggle.textContent = t(state.language, source.enabled ? "sourceEnabled" : "sourceDisabled");
+    toggle.addEventListener("click", () => updateSourceState(source.name, !source.enabled, toggle));
+    head.append(identity, toggle);
+
+    const status = source.status || {};
+    const grid = document.createElement("div");
+    grid.className = "source-meta-grid";
+    grid.append(
+      sourceMeta(t(state.language, "sourceStatus"), status.success ? "OK" : status.message || "—"),
+      sourceMeta(t(state.language, "httpStatus"), status.status ?? "—"),
+      sourceMeta(t(state.language, "latency"), status.latency == null ? "—" : `${status.latency}ms`),
+      sourceMeta(t(state.language, "lastCheck"), status.lastCheckedAt ? formatDateTime(status.lastCheckedAt) : t(state.language, "neverChecked")),
+    );
+
+    const actions = document.createElement("div");
+    actions.className = "action-row";
+    const testButton = document.createElement("button");
+    testButton.className = "secondary-button compact-button";
+    testButton.type = "button";
+    testButton.textContent = t(state.language, "testSource");
+    testButton.addEventListener("click", () => testSource(source.name, testButton));
+    actions.append(testButton);
+
+    card.append(head, grid, actions);
+    els.sourcesList.append(card);
+  }
+  renderPriority();
+}
+
+function sourceMeta(label, value) {
+  const box = document.createElement("div");
+  box.className = "source-meta";
+  const key = document.createElement("span");
+  key.textContent = label;
+  const content = document.createElement("strong");
+  content.textContent = String(value ?? "—");
+  box.append(key, content);
+  return box;
+}
+
+function renderPriority() {
+  els.priorityList.replaceChildren();
+  const priority = [...(state.sourceData?.usdt_priority || [])];
+  priority.forEach((sourceName, index) => {
+    const row = document.createElement("div");
+    row.className = "priority-row";
+    const position = document.createElement("span");
+    position.className = "priority-index";
+    position.textContent = String(index + 1).padStart(2, "0");
+    const label = document.createElement("strong");
+    label.textContent = state.sourceData?.sources?.[sourceName]?.label || sourceName;
+    const actions = document.createElement("div");
+    actions.className = "priority-actions";
+    for (const [delta, key, glyph] of [[-1, "moveUp", "↑"], [1, "moveDown", "↓"]]) {
+      const button = document.createElement("button");
+      button.className = "icon-button mini-icon";
+      button.type = "button";
+      button.textContent = glyph;
+      button.title = t(state.language, key);
+      button.disabled = index + delta < 0 || index + delta >= priority.length;
+      button.addEventListener("click", () => movePriority(index, index + delta, button));
+      actions.append(button);
+    }
+    row.append(position, label, actions);
+    els.priorityList.append(row);
+  });
+}
+
+async function movePriority(from, to, button) {
+  if (!state.sourceData || from === to) return;
+  const next = [...state.sourceData.usdt_priority];
+  [next[from], next[to]] = [next[to], next[from]];
+  setBusy(button, true);
+  try {
+    const { data } = await api.updateUsdtPriority(next, state.csrfToken);
+    state.sourceData.usdt_priority = data.usdt_priority;
+    renderPriority();
+    showToast(t(state.language, "prioritySaved"), "success");
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+    setBusy(button, false);
+  }
+}
+
+async function updateSourceState(source, enabled, button) {
+  setBusy(button, true);
+  try {
+    await api.updateSource(source, enabled, state.csrfToken);
+    await loadSources();
+    showToast(t(state.language, "sourceUpdated"), "success");
+    await loadDashboard();
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+    setBusy(button, false);
+  }
+}
+
+async function testSource(source, button) {
+  setBusy(button, true);
+  try {
+    await api.testSource(source, state.csrfToken);
+    await loadSources();
+    showToast(t(state.language, "sourceTested"), "success");
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+    setBusy(button, false);
+  }
+}
+
+async function loadAssets() {
+  const { data } = await api.assets();
+  state.assets = data.assets || [];
+  setText("assets-enabled-count", data.enabled_count ?? 0);
+  setText("assets-total-count", data.count ?? 0);
+  renderAssets();
+}
+
+function renderAssets() {
+  if (!els.assetsList) return;
+  const query = String(els.assetSearch?.value || "").trim().toLowerCase();
+  const filtered = state.assets.filter((asset) => {
+    if (!query) return true;
+    return [asset.id, asset.symbol, asset.name, asset.name_fa]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(query));
+  });
+  els.assetsList.replaceChildren();
+  if (!filtered.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-state compact-empty";
+    empty.textContent = t(state.language, "noAssets");
+    els.assetsList.append(empty);
+    return;
+  }
+  for (const asset of filtered) {
+    const row = document.createElement("article");
+    row.className = "panel-card asset-row";
+    const identity = document.createElement("div");
+    identity.className = "asset-identity";
+    const symbol = document.createElement("strong");
+    symbol.textContent = asset.symbol || asset.id;
+    const name = document.createElement("span");
+    name.textContent = state.language === "fa" ? asset.name_fa || asset.name : asset.name || asset.id;
+    identity.append(symbol, name);
+    const rank = document.createElement("span");
+    rank.className = "asset-rank";
+    rank.textContent = asset.market_cap_rank == null ? "—" : `#${asset.market_cap_rank}`;
+    const toggle = document.createElement("button");
+    toggle.className = asset.enabled ? "status-button is-enabled" : "status-button";
+    toggle.type = "button";
+    toggle.textContent = t(state.language, asset.enabled ? "sourceEnabled" : "sourceDisabled");
+    toggle.addEventListener("click", () => updateAssetState(asset.id, !asset.enabled, toggle));
+    row.append(identity, rank, toggle);
+    els.assetsList.append(row);
+  }
+}
+
+async function updateAssetState(id, enabled, button) {
+  setBusy(button, true);
+  try {
+    await api.updateAsset(id, enabled, state.csrfToken);
+    await loadAssets();
+    showToast(t(state.language, "assetUpdated"), "success");
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+    setBusy(button, false);
+  }
+}
+
+async function refreshAssets(event) {
+  const button = event?.currentTarget;
+  setBusy(button, true);
+  try {
+    const { data } = await api.refreshAssets(state.csrfToken);
+    state.assets = data.assets || [];
+    setText("assets-enabled-count", data.enabled_count ?? 0);
+    setText("assets-total-count", data.count ?? 0);
+    renderAssets();
+    showToast(t(state.language, "assetsRefreshed"), "success");
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally {
+    setBusy(button, false);
   }
 }
 

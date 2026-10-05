@@ -5,7 +5,7 @@ import { resolveUsdtChecks } from "./market-support.js";
 
 /** Central market cache/read-through service used by Bot, API and Cron. */
 export class MarketService {
-	constructor(env, config, settings, cache, locks, assets, statuses, sources, coinGecko) {
+	constructor(env, config, settings, cache, locks, assets, statuses, sources, coinGecko, sourceSettings = null) {
 		Object.assign(this, {
 			env,
 			config,
@@ -16,6 +16,7 @@ export class MarketService {
 			statuses,
 			sources,
 			coinGecko,
+			sourceSettings,
 		});
 	}
 
@@ -92,24 +93,39 @@ export class MarketService {
 
 	async #fetchLive(fullSourceCheck = false) {
 		const enabledAssets = await this.assets.enabled();
+		const [coinGeckoEnabled, wallGoldEnabled] = this.sourceSettings
+			? await Promise.all([
+				this.sourceSettings.isEnabled("coingecko"),
+				this.sourceSettings.isEnabled("wallgold"),
+			])
+			: [true, true];
+		const disabled = (source) => ({
+			success: false,
+			status: null,
+			latency: 0,
+			message: `${source} disabled`,
+			price: null,
+		});
 		const [usdtResult, coinGecko, wallgold] = await Promise.all([
 			fullSourceCheck ? this.sources.checkAllUsdt() : this.sources.resolveUsdt(),
-			this.coinGecko.fetchMarketBundle(enabledAssets),
-			this.sources.checkWallGold(),
+			coinGeckoEnabled ? this.coinGecko.fetchMarketBundle(enabledAssets) : disabled("CoinGecko"),
+			wallGoldEnabled ? this.sources.checkWallGold() : disabled("WallGold"),
 		]);
 		const usdt = fullSourceCheck ? resolveUsdtChecks(usdtResult) : usdtResult;
-		await this.statuses.save(
-			"coingecko",
-			coinGecko.success
-				? {
-					success: true,
-					status: coinGecko.status,
-					latency: coinGecko.latency,
-					message: null,
-					price: null,
-				}
-				: coinGecko,
-		);
+		if (coinGeckoEnabled) {
+			await this.statuses.save(
+				"coingecko",
+				coinGecko.success
+					? {
+						success: true,
+						status: coinGecko.status,
+						latency: coinGecko.latency,
+						message: null,
+						price: null,
+					}
+					: coinGecko,
+			);
+		}
 
 		const errors = [];
 		if (!usdt.success) errors.push({ source: "usdt", message: usdt.message || "USDT unavailable" });

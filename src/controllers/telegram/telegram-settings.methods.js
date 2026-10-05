@@ -8,45 +8,66 @@ import { formatFaInteger } from "../../utils/formatters.js";
 export const telegram_settingsMethods = {
 async _showSources(message, force = false) {
 	if (force) await this.s.market.forceRefreshSources();
-	const sources = await this.s.statuses.all();
+	const snapshot = await this.s.sourceSettings.snapshot();
 	const en = this._tgLanguage() === "en";
+	const roleFor = (name) => {
+		const index = snapshot.usdt_priority.indexOf(name);
+		return index === 0 ? "Primary" : index > 0 ? `Fallback #${index}` : null;
+	};
 	const lines = [
 		`<b>📡 ${en ? "Source management" : "مدیریت منابع"}</b>`, "",
 		`<b>💵 ${en ? "USDT / Toman" : "تتر / تومان"}</b>`, "",
-		sourceStatusText("Wallex", sources.wallex, "Primary"), "",
-		sourceStatusText("Tabdeal", sources.tabdeal, "Fallback #1"), "",
-		sourceStatusText("Exir", sources.exir, "Fallback #2"), "",
-		`<b>🪙 ${en ? "Crypto & global metals" : "رمزارزها و فلزات جهانی"}</b>`, "",
-		sourceStatusText("CoinGecko", sources.coingecko), "",
-		`<b>🥇 ${en ? "Iran gold" : "طلای ایران"}</b>`, "",
-		sourceStatusText("WallGold", sources.wallgold), "",
-		`<blockquote>ℹ️ ${en ? "This page reads cached D1 status. Refresh performs live provider checks." : "این صفحه فقط از وضعیت کش‌شده D1 می‌خواند. «بررسی مجدد» منابع را بروزرسانی می‌کند."}</blockquote>`,
 	];
-	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), {
-		inline_keyboard: [
-			[{ text: "🪙 CoinGecko", callback_data: "coingecko:home" }],
-			[{ text: en ? "💵 USDT route" : "💵 مسیر دریافت تتر", callback_data: "sources:usdt" }],
-			[{ text: en ? "🔄 Refresh" : "🔄 بررسی مجدد", callback_data: "sources:refresh" }],
-			[{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }],
-		],
-	});
+	for (const name of snapshot.usdt_priority) {
+		const source = snapshot.sources[name];
+		lines.push(
+			`${source.enabled ? "🟢" : "⚪"} <b>${escapeHtml(source.label)}</b> · <code>${roleFor(name)}</code>`,
+			source.enabled ? sourceStatusText(source.label, source.status, null) : `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
+			"",
+		);
+	}
+	for (const name of ["coingecko", "wallgold"]) {
+		const source = snapshot.sources[name];
+		lines.push(
+			`${source.enabled ? "🟢" : "⚪"} <b>${escapeHtml(source.label)}</b>`,
+			source.enabled ? sourceStatusText(source.label, source.status, null) : `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
+			"",
+		);
+	}
+	const toggles = Object.values(snapshot.sources).map((source) => ({
+		text: `${source.enabled ? "✅" : "▫️"} ${source.label}`,
+		callback_data: `sources:toggle:${source.name}`,
+	}));
+	const keyboard = chunk(toggles, 2);
+	keyboard.push([{ text: "🪙 CoinGecko", callback_data: "coingecko:home" }]);
+	keyboard.push([{ text: en ? "💵 USDT route" : "💵 مسیر دریافت تتر", callback_data: "sources:usdt" }]);
+	keyboard.push([{ text: en ? "🔄 Refresh" : "🔄 بررسی مجدد", callback_data: "sources:refresh" }]);
+	keyboard.push([{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }]);
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), { inline_keyboard: keyboard });
 },
-
 async _showUsdt(message) {
-	const sources = await this.s.statuses.all();
-	const result = resolveUsdtFromStatuses(sources);
+	const snapshot = await this.s.sourceSettings.snapshot();
 	const en = this._tgLanguage() === "en";
-	const text = result.available
-		? `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>✅ ${en ? "Valid cached price" : "قیمت معتبر کش‌شده"}</blockquote>\n\n💰 <b>${formatFaInteger(result.price_toman)} ${en ? "Toman" : "تومان"}</b>\n\n📡 <b>${escapeHtml(result.selected_source)}</b>\n\nWallex → Tabdeal → Exir`
-		: `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>🟡 ${en ? "No cached USDT price" : "قیمت تتر در کش موجود نیست"}</blockquote>\n\nWallex → Tabdeal → Exir`;
+	const labels = snapshot.usdt_priority.map((name) => snapshot.sources[name]?.label || name);
+	let selected = null;
+	for (const name of snapshot.usdt_priority) {
+		const source = snapshot.sources[name];
+		if (source?.enabled && source.status?.success && source.status?.price != null) {
+			selected = source;
+			break;
+		}
+	}
+	const text = selected
+		? `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>✅ ${en ? "Valid cached price" : "قیمت معتبر کش‌شده"}</blockquote>\n\n💰 <b>${formatFaInteger(selected.status.price)} ${en ? "Toman" : "تومان"}</b>\n\n📡 <b>${escapeHtml(selected.label)}</b>\n\n${labels.join(" → ")}`
+		: `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>🟡 ${en ? "No cached USDT price from enabled sources" : "قیمت تتر از منابع فعال در کش موجود نیست"}</blockquote>\n\n${labels.join(" → ")}`;
 	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
 		inline_keyboard: [
+			[{ text: en ? "↻ Rotate priority" : "↻ چرخش اولویت", callback_data: "sources:priority:rotate" }],
 			[{ text: en ? "🔄 Refresh sources" : "🔄 بروزرسانی منابع", callback_data: "sources:refresh" }],
 			[{ text: `⬅️ ${this._tg("sources")}`, callback_data: "sources:home" }],
 		],
 	});
 },
-
 async _showCoinGecko(message, force = false) {
 	let refreshError = null;
 	if (force) {

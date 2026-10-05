@@ -10,33 +10,43 @@ import {
 
 /** Market source clients for USDT and Iranian gold. */
 export class MarketSources {
-	constructor(env, http, statuses, config = null) {
+	constructor(env, http, statuses, config = null, sourceSettings = null) {
 		this.env = env;
 		this.http = http;
 		this.statuses = statuses;
 		this.config = config;
+		this.sourceSettings = sourceSettings;
 	}
 
 	async resolveUsdt() {
-		for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
-			const source = USDT_SOURCE_PRIORITY[index];
+		const priority = this.sourceSettings
+			? await this.sourceSettings.usdtPriority()
+			: [...USDT_SOURCE_PRIORITY];
+		let enabledCount = 0;
+		for (let index = 0; index < priority.length; index += 1) {
+			const source = priority[index];
+			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) continue;
+			enabledCount += 1;
 			const result = await this[`check${capitalize(source)}`]();
 			await this.statuses.save(source, result);
 			if (result.success) {
 				return { ...result, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
 			}
 		}
-		return failure("All USDT sources failed");
+		return failure(enabledCount ? "All enabled USDT sources failed" : "No USDT sources enabled");
 	}
 
 	async checkAllUsdt() {
-		const [wallex, tabdeal, exir] = await Promise.all([
-			this.checkWallex(),
-			this.checkTabdeal(),
-			this.checkExir(),
-		]);
-		await this.statuses.saveMany({ wallex, tabdeal, exir });
-		return { wallex, tabdeal, exir };
+		const results = {};
+		for (const source of ["wallex", "tabdeal", "exir"]) {
+			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) {
+				results[source] = failure("Source disabled", null, 0);
+				continue;
+			}
+			results[source] = await this[`check${capitalize(source)}`]();
+		}
+		await this.statuses.saveMany(results);
+		return results;
 	}
 
 	async checkWallex() {
