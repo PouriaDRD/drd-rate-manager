@@ -1,6 +1,6 @@
 import { APP } from "../../config/app.js";
 import { jsonResponse } from "../../http/responses.js";
-import { backKeyboard, normalizeCommand } from "../../telegram/ui.js";
+import { normalizeCommand } from "../../telegram/ui.js";
 import { telegramT } from "../../telegram/i18n.js";
 import { errorMessage, escapeHtml, pad2, parseBoolean } from "../../utils/core.js";
 
@@ -174,24 +174,27 @@ async _callback(query) {
 	if (data === "system:home") return this._showSystem(message);
 	if (data === "database:home") return this._showDatabase(message);
 	if (data === "admins:home") return this._showAdmins(message, admin);
-	if (data === "admins:add" && admin.role === "owner") {
-		await this.s.adminInput.set(user.id, "add_admin");
-		return this.s.telegram.editMessage(
-			message.chat.id,
-			message.message_id,
-			"<b>➕ افزودن ادمین</b>\n\nآیدی عددی Telegram کاربر را ارسال کنید.\n\n<blockquote>ℹ️ فقط مالک می‌تواند ادمین اضافه یا حذف کند.</blockquote>",
-			backKeyboard(this._tg("admins"), "admins:home"),
+	if (data === "admins:add") return this._beginAddAdmin(message, admin, user);
+	if (data.startsWith("admins:view:")) {
+		return this._showAdminDetail(message, admin, data.slice("admins:view:".length));
+	}
+	if (data.startsWith("admins:set:")) {
+		const [, , targetId, enabledValue] = data.split(":");
+		return this._setAdminEnabled(message, admin, targetId, enabledValue === "1");
+	}
+	if (data.startsWith("admins:delete:confirm:")) {
+		return this._confirmAdminDelete(
+			message,
+			admin,
+			data.slice("admins:delete:confirm:".length),
 		);
 	}
-	if (data.startsWith("admins:view:")) return this._showAdminDetail(message, admin, data.slice("admins:view:".length));
-	if (data.startsWith("admins:toggle:") && admin.role === "owner") {
-		const targetId = data.slice("admins:toggle:".length);
-		await this.s.admins.toggle(targetId);
-		return this._showAdminDetail(message, admin, targetId);
-	}
-	if (data.startsWith("admins:delete:") && admin.role === "owner") {
-		await this.s.admins.remove(data.slice("admins:delete:".length));
-		return this._showAdmins(message, admin);
+	if (data.startsWith("admins:delete:execute:")) {
+		return this._executeAdminDelete(
+			message,
+			admin,
+			data.slice("admins:delete:execute:".length),
+		);
 	}
 	if (data === "global:disable" && admin.role === "owner") {
 		await this.s.settings.set("bot_enabled", "0");
