@@ -1,0 +1,43 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "drd-rate-manager-bot",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-05",
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "drd-rate-manager-db",
+      "database_id": "<YOUR_D1_DATABASE_ID>"
+    }
+  ],
+
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+
+  "vars": {
+    "APP_NAME": "DRD RATE MANAGER",
+    "APP_VERSION": "0.13.0",
+    "BOT_DISPLAY_NAME": "DRD Rate Manager",
+    "TIMEZONE": "Asia/Tehran",
+
+    "TELEGRAM_OWNER_ID": "<YOUR_OWNER_ID>",
+    "TELEGRAM_CHANNEL_ID": "@DRDrate",
+    "TELEGRAM_CHANNEL_HANDLE": "@DRDrate",
+
+    "COINGECKO_API_PLAN": "demo",
+    "COINGECKO_TOP_LIMIT": "20",
+    "COINGECKO_DEFAULT_ASSETS": "bitcoin,ethereum,binancecoin,ripple,solana,tron",
+    "COINGECKO_USER_AGENT": "DRD-Rate-Manager/0.13.0 (+https://t.me/DRDrate)",
+
+    "WALLEX_API_URL": "https://api.wallex.ir/hector/web/v1/markets",
+    "TABDEAL_API_URL": "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1",
+    "EXIR_API_URL": "https://api.exir.io/v2/orderbook?symbol=usdt-irt",
+    "WALLGOLD_API_URL": "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN",
+
+    "CLOUDFLARE_ACCOUNT_ID": "<YOUR_ACCOUNT_ID>",
+    "CLOUDFLARE_D1_DATABASE_ID": "<YOUR_D1_DATABASE_ID>",
+    "D1_DATABASE_LIMIT_MB": "500"
+  }
+}
