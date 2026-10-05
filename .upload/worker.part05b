@@ -1,0 +1,100 @@
+}
+function normalizeTimestamp(value) { const number = Number(value || 0); return Number.isFinite(number) && number > 0 ? number : 0; }
+function normalizeDigits(value) {
+	return String(value).replace(/[۰-۹]/g, (d) => "۰۱۲۳۴۵۶۷۸۹".indexOf(d)).replace(/[٠-٩]/g, (d) => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+}
+function normalizePublishInterval(value) {
+	const number = Number(value);
+	return APP.publishIntervals.includes(number) ? number : APP.defaultPublishIntervalMinutes;
+}
+function pad2(value) { return String(Number(value)).padStart(2, "0"); }
+function validTime(value) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || "")); }
+function timeToMinutes(value) { const [h, m] = String(value).split(":").map(Number); return h * 60 + m; }
+function sourceLabel(source) { return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", coingecko: "CoinGecko", wallgold: "WallGold" })[source] || source; }
+function coinNameFa(id, fallback = "") { return COIN_NAMES_FA[id] || fallback || id; }
+function escapeHtml(value) { return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+function errorMessage(error) { return error instanceof Error ? error.message : String(error || "Unknown error"); }
+
+function toFaDigits(value) { return String(value).replace(/\d/g, (digit) => "۰۱۲۳۴۵۶۷۸۹"[Number(digit)]); }
+function formatFaInteger(value) { const number = nullableNumber(value); return number == null ? "نامشخص" : toFaDigits(integerFormatter.format(number).replace(/,/g, "٬")); }
+function formatFaPrice(value) {
+	const number = nullableNumber(value); if (number == null) return "نامشخص";
+	const formatter = Math.abs(number) >= 1 ? priceLargeFormatter : priceSmallFormatter;
+	return toFaDigits(formatter.format(number).replace(/,/g, "٬").replace(/\./g, "٫"));
+}
+function formatOptionalToman(value) { const number = nullableNumber(value); return number == null ? "<b>نامشخص</b>" : `<b>${formatFaInteger(number)} تومان</b>`; }
+function formatOptionalUsd(value) { const number = nullableNumber(value); return number == null ? "<b>نامشخص</b>" : `<b>${formatFaPrice(number)} دلار</b>`; }
+function changeIcon(value) { const number = nullableNumber(value); return number == null || number === 0 ? "⚪" : number > 0 ? "🟢" : "🔴"; }
+function formatFaChangeValue(value) {
+	const number = nullableNumber(value); if (number == null) return "<b>نامشخص</b>";
+	const sign = number > 0 ? "+" : number < 0 ? "−" : "";
+	return `<b>${sign}${formatFaPrice(Math.abs(number))}٪</b>`;
+}
+function roundToNearest(value, step) { const number = nullableNumber(value); return number == null ? null : Math.round(number / step) * step; }
+function calculateMazanehFromGram18(value) { const gram = nullableNumber(value); return gram && gram > 0 ? Math.round(gram * 4.6083 * (705 / 750)) : null; }
+
+function getDateTimeFormatter(config, kind) {
+	const key = `${config.timezone}:${kind}`;
+	if (dateTimeFormatterCache.has(key)) return dateTimeFormatterCache.get(key);
+	const options = kind === "time"
+		? { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }
+		: kind === "date"
+			? { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit" }
+			: { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false };
+	const locale = kind === "date" || kind === "time" ? "fa-IR-u-ca-persian" : "en-CA";
+	const formatter = new Intl.DateTimeFormat(locale, options);
+	dateTimeFormatterCache.set(key, formatter);
+	return formatter;
+}
+function formatIranDate(config, timestamp) { return getDateTimeFormatter(config, "date").format(new Date(timestamp)).replace(/\//g, "/"); }
+function formatIranTime(config, timestamp) { return getDateTimeFormatter(config, "time").format(new Date(timestamp)); }
+function formatSystemDate(config, timestamp) { return new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(timestamp)); }
+function formatSystemTime(config, timestamp) { return new Intl.DateTimeFormat("en-GB", { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(timestamp)); }
+function formatSystemDateTime(config, timestamp) { return `${formatSystemDate(config, timestamp)} · ${formatSystemTime(config, timestamp)}`; }
+function formatOptionalSystemDateTime(config, timestamp) { return timestamp ? escapeHtml(formatSystemDateTime(config, timestamp)) : "نامشخص"; }
+
+function getCurrentMinutes(config, timestamp = Date.now()) {
+	const parts = new Intl.DateTimeFormat("en-GB", { timeZone: config.timezone, hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date(timestamp));
+	const hour = Number(parts.find((part) => part.type === "hour")?.value || 0);
+	const minute = Number(parts.find((part) => part.type === "minute")?.value || 0);
+	return hour * 60 + minute;
+}
+function isInsideQuietHours(config, quietHours, timestamp = Date.now()) {
+	const now = getCurrentMinutes(config, timestamp);
+	const start = timeToMinutes(quietHours.start); const end = timeToMinutes(quietHours.end);
+	if (start === end) return true;
+	return start < end ? now >= start && now < end : now >= start || now < end;
+}
+function calculateNextPublishAt(automation) {
+	if (!automation.enabled) return 0;
+	const base = automation.lastRunAt || Date.now();
+	return base + automation.intervalMinutes * 60 * 1000;
+}
+
+function resolveUsdtChecks(checks) {
+	for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+		const source = USDT_SOURCE_PRIORITY[index];
+		const item = checks?.[source];
+		if (item?.success && nullableNumber(item.price) != null) {
+			return { ...item, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
+		}
+	}
+	return failure("All USDT sources failed");
+}
+
+function resolveUsdtFromStatuses(statuses) {
+	for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
+		const key = USDT_SOURCE_PRIORITY[index]; const item = statuses[key];
+		if (item?.success && nullableNumber(item.price) != null) return {
+			available: true, selected_source: sourceLabel(key), price_toman: nullableNumber(item.price), fallback_level: index, latency_ms: item.latency ?? null,
+		};
+	}
+	return { available: false, selected_source: null, price_toman: null, fallback_level: null, latency_ms: null };
+}
+function sourceStatusText(label, status, role = null) {
+	const prefix = status?.success ? "🟢" : "🔴";
+	const parts = [`${prefix} <b>${escapeHtml(label)}</b>${role ? ` · <code>${escapeHtml(role)}</code>` : ""}`];
+	if (status?.status != null) parts.push(`HTTP: <code>${status.status}</code>`);
+	if (status?.latency != null) parts.push(`Latency: <code>${status.latency}ms</code>`);
+	if (status?.message) parts.push(`<code>${escapeHtml(String(status.message).slice(0, 180))}</code>`);
+	return parts.join("\n");
