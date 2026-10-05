@@ -1,37 +1,87 @@
-name: Finalize v0.13.0 worker
+name: Recover v0.13.0 worker
 
 on:
   push:
     paths:
-      - ".upload/READY"
+      - ".github/workflows/finalize-v0.13.0.yml"
 
 permissions:
   contents: write
 
 jobs:
-  finalize:
+  recover:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Rebuild worker
+      - name: Rebuild reviewed v0.13.0 worker from Git history
+        shell: bash
         run: |
-          cat .upload/worker.part* > worker.js
-          node --check worker.js
-          HASH="$(git hash-object worker.js)"
-          test "$HASH" = "6f9facaab7f1e7c20522e7979e5785a042c44b6e"
+          set -euo pipefail
 
-      - name: Clean staging files
+          SOURCE_COMMIT="f84efd6e742bc27b2784fd18ad2a8ffae1ebe0e5"
+          EXPECTED_BYTES="95361"
+
+          : > worker.js
+
+          while IFS= read -r path; do
+            git show "${SOURCE_COMMIT}:${path}" >> worker.js
+          done < <(
+            git ls-tree -r --name-only "${SOURCE_COMMIT}" .upload \
+              | grep '^.upload/worker\.part' \
+              | sort
+          )
+
+          node --check worker.js
+
+          ACTUAL_BYTES="$(wc -c < worker.js | tr -d '[:space:]')"
+          test "${ACTUAL_BYTES}" = "${EXPECTED_BYTES}"
+
+          grep -Fq 'Version: 0.13.0' worker.js
+          grep -Fq 'version: "0.13.0"' worker.js
+          grep -Fq 'schemaVersion: 8' worker.js
+          grep -Fq 'class MarketService' worker.js
+          grep -Fq 'class MarketPostBuilder' worker.js
+          grep -Fq 'class LockRepository' worker.js
+          grep -Fq 'function calculateMazanehFromGram18' worker.js
+          grep -Fq 'sendRichMessage' worker.js
+
+          if grep -Fq 'buildChannelMarketRichMessage' worker.js; then
+            echo 'Legacy buildChannelMarketRichMessage reference detected.' >&2
+            exit 1
+          fi
+
+          if grep -Eq '👁|👀' worker.js; then
+            echo 'Forbidden eye emoji detected.' >&2
+            exit 1
+          fi
+
+          echo "Recovered worker blob: $(git hash-object worker.js)"
+
+      - name: Remove temporary recovery workflow
+        shell: bash
         run: |
-          rm -rf .upload
           rm -f .github/workflows/finalize-v0.13.0.yml
 
-      - name: Commit final v0.13.0 worker
+      - name: Validate repository diff
+        shell: bash
         run: |
+          set -euo pipefail
+          git diff --check
+          test ! -d .upload
+          git status --short
+
+      - name: Commit finalized v0.13.0 worker
+        shell: bash
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "v0.13.0 — Rebuild DRD Rate Manager architecture"
+          git commit -m "fix: finalize v0.13.0 worker recovery"
           git push
