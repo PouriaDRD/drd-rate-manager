@@ -26,7 +26,9 @@ _tg(key) {
 },
 
 _verifyWebhook(request) {
-	const expected = String(this.s.env.TELEGRAM_WEBHOOK_SECRET || "");
+	const expected = String(
+		this.s.env?.TELEGRAM_WEBHOOK_SECRET ?? this.s.config?.telegramWebhookSecret ?? "",
+	);
 	if (!expected) return true;
 	return request.headers.get("X-Telegram-Bot-Api-Secret-Token") === expected;
 },

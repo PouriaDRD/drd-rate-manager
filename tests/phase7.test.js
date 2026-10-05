@@ -115,10 +115,13 @@ test("format configuration prevents line ending churn and supports changed-file 
 	const attributes = await readFile(new URL("../.gitattributes", import.meta.url), "utf8");
 	const prettier = JSON.parse(await readFile(new URL("../.prettierrc.json", import.meta.url), "utf8"));
 	const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+	const vscode = JSON.parse(await readFile(new URL("../.vscode/settings.json", import.meta.url), "utf8"));
 	assert.match(editor, /end_of_line = lf/);
 	assert.match(attributes, /\* text=auto eol=lf/);
 	assert.equal(prettier.endOfLine, "lf");
 	assert.equal(prettier.useTabs, true);
 	assert.match(pkg.scripts["format:changed"], /format-changed/);
+	assert.match(pkg.scripts["format:check"], /check-format-stability/);
+	assert.equal(vscode["editor.formatOnSave"], false);
 	assert.equal(pkg.devDependencies.prettier, "3.9.9");
 });

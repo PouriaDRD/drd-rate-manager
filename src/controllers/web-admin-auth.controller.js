@@ -24,6 +24,19 @@ export class WebAdminAuthController {
 		if (url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return null;
 
 		if (request.method === "OPTIONS") return adminEmptyResponse(204);
+		if (
+			request.method === "GET" &&
+			url.pathname === base &&
+			typeof this.s.webAuth.authenticate === "function"
+		) {
+			const auth = await this.s.webAuth.authenticate(request);
+			return adminJsonResponse({
+				success: true,
+				service: "DRD Rate Manager Web Admin",
+				authenticated: Boolean(auth),
+				must_complete_bootstrap: state.mustCompleteBootstrap,
+			});
+		}
 		if (!url.pathname.startsWith(`${base}/api/`)) return null;
 
 		if (request.method === "POST" && url.pathname === `${base}/api/v1/auth/login`) {

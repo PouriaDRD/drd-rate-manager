@@ -10,6 +10,7 @@ function gitFiles(args) {
 const files = [...new Set([
 	...gitFiles(["diff", "--name-only", "--diff-filter=ACMR", "HEAD"]),
 	...gitFiles(["diff", "--cached", "--name-only", "--diff-filter=ACMR"]),
+	...gitFiles(["ls-files", "--others", "--exclude-standard"]),
 ])].filter((file) => supported.test(file));
 
 if (!files.length) {

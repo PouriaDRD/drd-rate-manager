@@ -36,7 +36,7 @@ export class AutomationService {
   }
 
   async getSettings() {
-    const rows = await this.settings.getManyWithMeta(AUTOMATION_SETTING_KEYS);
+    const rows = await this.#settingsRows(AUTOMATION_SETTING_KEYS);
     const value = (key) => rows[key]?.value;
     return {
       enabled: parseBoolean(value("auto_publish_enabled"), false),
@@ -65,7 +65,7 @@ export class AutomationService {
   }
 
   async tick(now = Date.now()) {
-    const rows = await this.settings.getManyWithMeta(AUTOMATION_SETTING_KEYS);
+    const rows = await this.#settingsRows(AUTOMATION_SETTING_KEYS);
     const value = (key) => rows[key]?.value;
     const lastTick = normalizeTimestamp(value("auto_publish_last_tick_at"));
     if (now - lastTick >= 5 * 60 * 1000) {
@@ -142,6 +142,19 @@ export class AutomationService {
     } finally {
       if (!successful) await this.locks.release(AUTOMATION_LOCK_KEY, token);
     }
+  }
+
+  async #settingsRows(keys) {
+    if (typeof this.settings.getManyWithMeta === "function") {
+      return this.settings.getManyWithMeta(keys);
+    }
+    if (typeof this.settings.getMany !== "function") {
+      throw new Error("Settings repository must implement getManyWithMeta() or getMany().");
+    }
+    const values = await this.settings.getMany(keys);
+    return Object.fromEntries(
+      keys.map((key) => [key, { value: values?.[key], updatedAt: 0 }]),
+    );
   }
 
   #scheduleChangedAt(rows) {

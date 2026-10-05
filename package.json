@@ -8,7 +8,7 @@
     "check:syntax": "node scripts/check.mjs",
     "format": "prettier --write . --ignore-unknown",
     "format:changed": "node scripts/format-changed.mjs",
-    "format:check": "prettier --check . --ignore-unknown",
+    "format:check": "node scripts/check-format-stability.mjs",
     "check": "npm run check:syntax && npm run format:check"
   },
   "devDependencies": {
