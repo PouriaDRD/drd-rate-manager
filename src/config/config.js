@@ -1,6 +1,21 @@
 import { APP } from "./app.js";
+import {
+	RUNTIME_SETTING_MAP,
+	resolveConfigCompatibilitySetting,
+	resolveRuntimeSettingFallback,
+} from "./runtime-settings.js";
 
-/** Runtime configuration facade backed by typed D1 settings plus legacy env fallback. */
+/**
+ * Runtime configuration facade.
+ *
+ * Managed non-secret values resolve through SettingsService, whose source
+ * priority is D1 -> legacy ENV -> code default. If Config is constructed
+ * without SettingsService (bootstrap/tests), it uses the same runtime-setting
+ * catalog directly instead of duplicating fallback rules here.
+ *
+ * Managed secrets are exposed through the runtime env proxy and therefore
+ * resolve from encrypted D1 after SecureSettingsService initialization.
+ */
 export class Config {
 	constructor(env, settingsService = null) {
 		this.env = env;
@@ -21,32 +36,28 @@ export class Config {
 	}
 
 	get timezone() {
-		return this.#setting("general.timezone", String(this.env.TIMEZONE || "Asia/Tehran"));
+		return this.#setting("general.timezone");
 	}
 
 	get displayName() {
-		return this.#setting("general.bot_display_name", String(this.env.BOT_DISPLAY_NAME || APP.displayName));
+		return this.#setting("general.bot_display_name");
 	}
 
 	get channelId() {
-		const value = this.#setting("telegram.channel_id", this.env.TELEGRAM_CHANNEL_ID || "");
+		const value = this.#setting("telegram.channel_id");
 		return value || null;
 	}
 
 	get channelHandle() {
-		const value = String(this.#setting("telegram.channel_handle", this.env.TELEGRAM_CHANNEL_HANDLE || "")).trim();
-		if (!value) return "";
-		return value.startsWith("@") ? value : `@${value}`;
+		return String(this.#setting("telegram.channel_handle") || "").trim();
 	}
 
 	get ownerId() {
-		return String(this.#setting("telegram.owner_id", this.env.TELEGRAM_OWNER_ID || "")).trim();
+		return String(this.#setting("telegram.owner_id") || "").trim();
 	}
 
 	get coinGeckoPlan() {
-		return String(this.#setting("coingecko.plan", this.env.COINGECKO_API_PLAN || "demo")).toLowerCase() === "pro"
-			? "pro"
-			: "demo";
+		return this.#setting("coingecko.plan") === "pro" ? "pro" : "demo";
 	}
 
 	get coinGeckoBaseUrl() {
@@ -60,29 +71,17 @@ export class Config {
 	}
 
 	get coinGeckoTopLimit() {
-		const raw = Number(this.#setting("coingecko.top_limit", this.env.COINGECKO_TOP_LIMIT || 20));
-		return Number.isFinite(raw) ? Math.min(50, Math.max(10, Math.floor(raw))) : 20;
+		return this.#setting("coingecko.top_limit");
 	}
 
 	get defaultCoinGeckoAssets() {
-		const configured = this.#setting(
-			"coingecko.default_assets",
-			String(this.env.COINGECKO_DEFAULT_ASSETS || "bitcoin,ethereum,binancecoin,ripple,solana,tron")
-				.split(",")
-				.map((item) => item.trim())
-				.filter(Boolean),
-		);
-		return Array.isArray(configured)
-			? configured
-			: String(configured || "")
-				.split(",")
-				.map((item) => item.trim())
-				.filter(Boolean);
+		const configured = this.#setting("coingecko.default_assets");
+		return Array.isArray(configured) ? configured : [];
 	}
 
 	get coinGeckoUserAgent() {
-		const legacy = String(this.env.COINGECKO_USER_AGENT || "").trim();
-		if (legacy) return legacy;
+		const configured = String(this.#setting("coingecko.user_agent") || "").trim();
+		if (configured) return configured;
 		return `DRD-Rate-Manager/${this.version} (+https://t.me/${this.channelHandle.replace(/^@/, "") || "DRDrate"})`;
 	}
 
@@ -98,32 +97,31 @@ export class Config {
 	}
 
 	get wallexApiUrl() {
-		return this.#setting("providers.wallex_api_url", this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets");
+		return this.#setting("providers.wallex_api_url");
 	}
 
 	get tabdealApiUrl() {
-		return this.#setting("providers.tabdeal_api_url", this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1");
+		return this.#setting("providers.tabdeal_api_url");
 	}
 
 	get exirApiUrl() {
-		return this.#setting("providers.exir_api_url", this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt");
+		return this.#setting("providers.exir_api_url");
 	}
 
 	get wallGoldApiUrl() {
-		return this.#setting("providers.wallgold_api_url", this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN");
+		return this.#setting("providers.wallgold_api_url");
 	}
 
 	get cloudflareAccountId() {
-		return String(this.#setting("cloudflare.account_id", this.env.CLOUDFLARE_ACCOUNT_ID || "")).trim();
+		return String(this.#setting("cloudflare.account_id") || "").trim();
 	}
 
 	get cloudflareD1DatabaseId() {
-		return String(this.#setting("cloudflare.d1_database_id", this.env.CLOUDFLARE_D1_DATABASE_ID || "")).trim();
+		return String(this.#setting("cloudflare.d1_database_id") || "").trim();
 	}
 
 	get d1DatabaseLimitMb() {
-		const raw = Number(this.#setting("cloudflare.d1_database_limit_mb", this.env.D1_DATABASE_LIMIT_MB || 500));
-		return Number.isFinite(raw) && raw > 0 ? raw : 500;
+		return this.#setting("cloudflare.d1_database_limit_mb");
 	}
 
 	get telegramBotToken() {
@@ -138,12 +136,14 @@ export class Config {
 		return String(this.env.CLOUDFLARE_API_TOKEN || "").trim();
 	}
 
-	#setting(key, fallback) {
-		if (!this.settingsService) return fallback;
+	#setting(key) {
+		const definition = RUNTIME_SETTING_MAP.get(key);
+		if (!definition) throw new Error(`Unknown runtime setting: ${key}`);
+		if (!this.settingsService) return resolveConfigCompatibilitySetting(this.env, definition);
 		try {
 			return this.settingsService.get(key);
 		} catch {
-			return fallback;
+			return resolveRuntimeSettingFallback(this.env, definition);
 		}
 	}
 }

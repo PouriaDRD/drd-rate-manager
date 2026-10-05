@@ -9,6 +9,16 @@ export const SECURE_SETTING_DEFINITIONS = Object.freeze({
 
 export const SECURE_SETTING_KEYS = Object.freeze(Object.keys(SECURE_SETTING_DEFINITIONS));
 
+export const LEGACY_SECURE_ENV_KEYS = Object.freeze(
+	Object.values(SECURE_SETTING_DEFINITIONS).map((definition) => definition.envKey),
+);
+
+export const SECURE_SETTING_ENV_MAP = Object.freeze(
+	Object.fromEntries(
+		Object.entries(SECURE_SETTING_DEFINITIONS).map(([key, definition]) => [definition.envKey, key]),
+	),
+);
+
 export function isManagedSecureSetting(key) {
 	return Object.prototype.hasOwnProperty.call(SECURE_SETTING_DEFINITIONS, key);
 }

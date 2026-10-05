@@ -1,6 +1,6 @@
 import { APP } from "./app.js";
 
-export const RUNTIME_SETTINGS_VERSION = 1;
+export const RUNTIME_SETTINGS_VERSION = 2;
 
 const DEFAULT_ASSETS = "bitcoin,ethereum,binancecoin,ripple,solana,tron";
 
@@ -23,6 +23,9 @@ export const RUNTIME_SETTING_DEFINITIONS = Object.freeze([
 		max: 50,
 	}),
 	setting("coingecko.default_assets", "coingecko", "csv", DEFAULT_ASSETS, "COINGECKO_DEFAULT_ASSETS"),
+	setting("coingecko.user_agent", "coingecko", "string", "", "COINGECKO_USER_AGENT", {
+		maxLength: 256,
+	}),
 	setting(
 		"providers.wallex_api_url",
 		"providers",
@@ -67,6 +70,16 @@ export const RUNTIME_SETTING_MAP = new Map(
 	RUNTIME_SETTING_DEFINITIONS.map((definition) => [definition.key, definition]),
 );
 
+export const LEGACY_RUNTIME_ENV_KEYS = Object.freeze(
+	RUNTIME_SETTING_DEFINITIONS.map((definition) => definition.legacyEnvKey).filter(Boolean),
+);
+
+export const RUNTIME_SETTING_BY_LEGACY_ENV = new Map(
+	RUNTIME_SETTING_DEFINITIONS
+		.filter((definition) => definition.legacyEnvKey)
+		.map((definition) => [definition.legacyEnvKey, definition.key]),
+);
+
 function setting(key, category, type, defaultValue, legacyEnvKey, rules = {}) {
 	return Object.freeze({ key, category, type, defaultValue, legacyEnvKey, ...rules });
 }
@@ -82,6 +95,57 @@ export function runtimeSettingSeedValues(env = {}) {
 
 export function resolveRuntimeSettingFallback(env, definition) {
 	return normalizeRuntimeSetting(definition, safeFallbackValue(env, definition));
+}
+
+/**
+ * Preserves the v0.13.0 Config behavior during bootstrap before
+ * SettingsService has loaded D1. This is intentionally more permissive than
+ * managed D1 writes while still deriving all ENV keys/defaults/rules from the
+ * central runtime-setting catalog.
+ */
+export function resolveConfigCompatibilitySetting(env, definitionOrKey) {
+	const definition = typeof definitionOrKey === "string"
+		? RUNTIME_SETTING_MAP.get(definitionOrKey)
+		: definitionOrKey;
+	if (!definition) throw new Error(`Unknown runtime setting: ${String(definitionOrKey)}`);
+
+	const raw = definition.legacyEnvKey ? env?.[definition.legacyEnvKey] : undefined;
+	const hasLegacy = raw !== undefined && raw !== null && String(raw).trim() !== "";
+	if (!hasLegacy) return normalizeRuntimeSetting(definition, definition.defaultValue);
+
+	switch (definition.type) {
+		case "integer": {
+			const number = Number(raw);
+			if (!Number.isFinite(number)) return normalizeRuntimeSetting(definition, definition.defaultValue);
+			const floored = Math.floor(number);
+			const min = definition.min ?? Number.NEGATIVE_INFINITY;
+			const max = definition.max ?? Number.POSITIVE_INFINITY;
+			return Math.min(max, Math.max(min, floored));
+		}
+		case "telegram_id":
+			return String(raw).trim();
+		case "telegram_handle": {
+			const text = String(raw).trim();
+			return text.startsWith("@") ? text : `@${text}`;
+		}
+		case "enum": {
+			const value = String(raw).trim().toLowerCase();
+			return definition.options?.includes(value)
+				? value
+				: normalizeRuntimeSetting(definition, definition.defaultValue);
+		}
+		case "csv":
+			return String(raw)
+				.split(",")
+				.map((item) => item.trim())
+				.filter(Boolean);
+		case "string":
+		case "timezone":
+		case "url":
+			return String(raw).trim();
+		default:
+			return normalizeRuntimeSetting(definition, raw);
+	}
 }
 
 function safeFallbackValue(env, definition) {
