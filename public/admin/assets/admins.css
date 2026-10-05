@@ -1,0 +1,263 @@
+.admins-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.admin-summary-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, var(--panel), var(--panel-2));
+}
+
+.admin-summary-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 7px;
+}
+
+.admin-summary-card strong {
+  font-size: clamp(22px, 4vw, 32px);
+}
+
+.admin-management-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, .75fr) minmax(0, 1.75fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-add-card {
+  position: sticky;
+  top: 96px;
+}
+
+.admin-add-card .field {
+  margin-bottom: 12px;
+}
+
+.admin-list-card {
+  min-width: 0;
+}
+
+.admin-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-search {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 11px 13px;
+  outline: none;
+}
+
+.admin-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.admin-access-list {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-access-card {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.15fr) minmax(300px, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 15px;
+  background: var(--panel-2);
+}
+
+.admin-access-card.is-owner {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 38%, var(--panel-2));
+}
+
+.admin-identity {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.admin-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  font: 800 12px ui-monospace, monospace;
+}
+
+.admin-identity-copy {
+  min-width: 0;
+}
+
+.admin-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.admin-title-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-subline,
+.admin-meta-label,
+.admin-owner-note,
+.admins-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.admin-subline {
+  display: block;
+  margin-top: 5px;
+}
+
+.admin-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-meta-item {
+  min-width: 0;
+}
+
+.admin-meta-item strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-badge.owner,
+.admin-badge.protected {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.admin-badge.success {
+  border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  color: var(--success);
+}
+
+.admin-badge.muted {
+  color: var(--muted);
+}
+
+.admin-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-owner-note {
+  max-width: 230px;
+  line-height: 1.65;
+}
+
+.admins-empty {
+  padding: 28px 10px;
+  text-align: center;
+}
+
+@media (max-width: 1120px) {
+  .admin-management-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-add-card {
+    position: static;
+  }
+
+  .admin-access-card {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .admins-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-summary-grid,
+  .admin-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-list-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .admin-actions button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-access-card,
+  .admin-actions button {
+    transition: none !important;
+  }
+}

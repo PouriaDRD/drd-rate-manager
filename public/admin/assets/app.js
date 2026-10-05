@@ -32,6 +32,16 @@ const basePath = `/${location.pathname.split("/").filter(Boolean)[0] || "admin"}
 const api = new AdminApi(basePath);
 const media = matchMedia("(prefers-color-scheme: dark)");
 
+window.DRDAdminShell = Object.freeze({
+  language: () => state.language,
+  listAdmins: () => api.admins(),
+  getAdmin: (id) => api.admin(id),
+  addAdmin: (userId) => api.addAdmin(userId, state.csrfToken),
+  setAdminEnabled: (id, enabled) => api.updateAdmin(id, enabled, state.csrfToken),
+  removeAdmin: (id) => api.removeAdmin(id, state.csrfToken),
+  toast: (message, type = "info") => showToast(message, type),
+});
+
 const els = Object.fromEntries([
   "auth-screen","app-shell","login-form","bootstrap-form","login-error","bootstrap-error",
   "user-name","user-avatar","admin-route-value","page-title","page-eyebrow","dashboard-view",
@@ -246,7 +256,7 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const realViews = ["dashboard", "market", "sources", "assets", "automation", "settings"];
+  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "settings"];
   for (const key of realViews) {
     const node = document.querySelector(`#${key}-view`);
     if (node) node.hidden = key !== view;
@@ -266,6 +276,7 @@ async function activateView(view) {
     if (view === "sources") await loadSources();
     if (view === "assets") await loadAssets();
     if (view === "automation") await loadAutomation();
+    if (view === "admins") await window.DRDAdmins?.load?.();
     else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
   } catch (error) {
@@ -585,6 +596,7 @@ async function toggleLanguage() {
   if (state.activeView === "automation" && state.automationData) renderAutomation(state.automationData);
   if (state.activeView === "sources" && state.sourceData) renderSources();
   if (state.activeView === "assets") renderAssets();
+  if (state.activeView === "admins") window.DRDAdmins?.render?.();
   refreshLanguageButtons();
 }
 function cycleTheme() {

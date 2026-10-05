@@ -7,6 +7,7 @@
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>DRD Rate Manager</title>
   <link rel="stylesheet" href="assets/styles.css">
+  <link rel="stylesheet" href="assets/admins.css">
 </head>
 <body>
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
@@ -155,6 +156,42 @@
           </article>
         </section>
 
+        <section id="admins-view" class="view-section" hidden>
+          <div class="section-heading-row admins-hero">
+            <div>
+              <span class="eyebrow">DRD / 06</span>
+              <h2 data-admin-i18n="title">مدیریت ادمین‌ها</h2>
+              <p class="section-description" data-admin-i18n="intro">دسترسی تلگرام ادمین‌ها را از یک منبع مشترک مدیریت کنید.</p>
+            </div>
+            <button id="admins-reload" class="secondary-button" type="button" data-admin-i18n="reload">بروزرسانی</button>
+          </div>
+
+          <div class="admin-summary-grid">
+            <article class="admin-summary-card"><span data-admin-i18n="total">کل دسترسی‌ها</span><strong id="admins-total">—</strong></article>
+            <article class="admin-summary-card"><span data-admin-i18n="active">ادمین فعال</span><strong id="admins-active">—</strong></article>
+            <article class="admin-summary-card"><span data-admin-i18n="inactive">ادمین غیرفعال</span><strong id="admins-inactive">—</strong></article>
+          </div>
+
+          <div class="admin-management-grid">
+            <form id="admin-add-form" class="panel-card admin-add-card" novalidate>
+              <div class="card-heading"><div><h3 data-admin-i18n="addTitle">افزودن ادمین</h3><p data-admin-i18n="addHelp">آیدی عددی Telegram را وارد کنید.</p></div></div>
+              <label class="field">
+                <span data-admin-i18n="telegramId">آیدی عددی Telegram</span>
+                <input id="admin-add-id" type="text" inputmode="numeric" autocomplete="off" maxlength="20" dir="ltr" required>
+              </label>
+              <button class="primary-button wide-button" type="submit" data-admin-i18n="add">افزودن</button>
+            </form>
+
+            <article class="panel-card admin-list-card">
+              <div class="card-heading"><div><h3 data-admin-i18n="listTitle">دسترسی‌ها</h3></div></div>
+              <div class="admin-list-toolbar">
+                <input id="admin-search" class="admin-search" type="search" data-admin-i18n-placeholder="search" placeholder="جستجو…" autocomplete="off">
+              </div>
+              <div id="admins-list" class="admin-access-list"></div>
+            </article>
+          </div>
+        </section>
+
         <section id="settings-view" class="view-section" hidden>
           <div class="section-heading-row"><div><span class="eyebrow">DRD / 08</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
           <form id="preferences-form" class="panel-card form-card">
@@ -180,5 +217,6 @@
   </div>
 
   <script type="module" src="assets/app.js"></script>
+  <script type="module" src="assets/admins.js"></script>
 </body>
 </html>

@@ -65,6 +65,24 @@ export class AdminApi {
     });
   }
 
+  admins() { return this.#request("/api/v1/admins"); }
+  admin(id) { return this.#request(`/api/v1/admins/${encodeURIComponent(id)}`); }
+  addAdmin(userId, csrfToken) {
+    return this.#request("/api/v1/admins", {
+      method: "POST", body: { user_id: userId }, csrfToken,
+    });
+  }
+  updateAdmin(id, enabled, csrfToken) {
+    return this.#request(`/api/v1/admins/${encodeURIComponent(id)}`, {
+      method: "PATCH", body: { enabled }, csrfToken,
+    });
+  }
+  removeAdmin(id, csrfToken) {
+    return this.#request(`/api/v1/admins/${encodeURIComponent(id)}`, {
+      method: "DELETE", csrfToken,
+    });
+  }
+
   automation() { return this.#request("/api/v1/automation"); }
   updateAutomationSettings(payload, csrfToken) {
     return this.#request("/api/v1/automation/settings", {
