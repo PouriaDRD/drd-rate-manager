@@ -1,5 +1,6 @@
 import { ApiController } from "../controllers/api.controller.js";
 import { TelegramController } from "../controllers/telegram.controller.js";
+import { WebAdminAdminsController } from "../controllers/web-admin-admins.controller.js";
 import { WebAdminAuthController } from "../controllers/web-admin-auth.controller.js";
 import { WebAdminDataController } from "../controllers/web-admin-data.controller.js";
 import { WebAdminUiController } from "../controllers/web-admin-ui.controller.js";
@@ -16,6 +17,7 @@ export class Application {
 		this.api = new ApiController(this.services);
 		this.telegram = new TelegramController(this.services);
 		this.webAdmin = new WebAdminAuthController(this.services);
+		this.webAdminAdmins = new WebAdminAdminsController(this.services);
 		this.webAdminData = new WebAdminDataController(this.services);
 		this.webAdminUi = new WebAdminUiController(this.services);
 	}
@@ -35,6 +37,8 @@ export class Application {
 		}
 		const webAdminUiResponse = await this.webAdminUi.route(request, url);
 		if (webAdminUiResponse) return webAdminUiResponse;
+		const webAdminAdminsResponse = await this.webAdminAdmins.route(request, url);
+		if (webAdminAdminsResponse) return webAdminAdminsResponse;
 		const webAdminDataResponse = await this.webAdminData.route(request, url);
 		if (webAdminDataResponse) return webAdminDataResponse;
 		const webAdminResponse = await this.webAdmin.route(request, url);

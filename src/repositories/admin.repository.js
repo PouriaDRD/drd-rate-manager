@@ -48,22 +48,30 @@ export class AdminRepository {
 			ON CONFLICT(user_id) DO UPDATE SET is_active = 1, updated_at = excluded.updated_at`)
 			.bind(String(userId), String(addedBy), now, now)
 			.run();
+		return this.get(userId);
 	}
 
-	async toggle(userId) {
+	async setEnabled(userId, enabled) {
 		const row = await this.get(userId);
 		if (!row) throw new Error("Admin not found");
-		const next = Number(row.is_active) === 1 ? 0 : 1;
+		const next = enabled ? 1 : 0;
 		await this.env.DB.prepare("UPDATE admins SET is_active = ?, updated_at = ? WHERE user_id = ?")
 			.bind(next, Date.now(), String(userId))
 			.run();
 		return next === 1;
 	}
 
+	async toggle(userId) {
+		const row = await this.get(userId);
+		if (!row) throw new Error("Admin not found");
+		return this.setEnabled(userId, Number(row.is_active) !== 1);
+	}
+
 	async remove(userId) {
-		await this.env.DB.prepare("DELETE FROM admins WHERE user_id = ?")
+		const result = await this.env.DB.prepare("DELETE FROM admins WHERE user_id = ?")
 			.bind(String(userId))
 			.run();
+		return Number(result?.meta?.changes || 0) > 0;
 	}
 
 	async stats() {

@@ -19,6 +19,7 @@ import { SourceStatusRepository } from "../repositories/source-status.repository
 import { WebAdminRepository } from "../repositories/web-admin.repository.js";
 import { WebAuthAttemptRepository } from "../repositories/web-auth-attempt.repository.js";
 import { WebSessionRepository } from "../repositories/web-session.repository.js";
+import { AdminManagementService } from "../services/admin-management.service.js";
 import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
@@ -49,6 +50,7 @@ export function createServices(env) {
 	const admins = new AdminRepository(runtimeEnv, config);
 	const adminInput = new AdminInputRepository(runtimeEnv);
 	const audit = new AuditRepository(runtimeEnv);
+	const adminManagement = new AdminManagementService(config, admins, audit);
 	const webAdmins = new WebAdminRepository(runtimeEnv);
 	const webSessions = new WebSessionRepository(runtimeEnv);
 	const webAuthAttempts = new WebAuthAttemptRepository(runtimeEnv);
@@ -91,6 +93,7 @@ export function createServices(env) {
 		admins,
 		adminInput,
 		audit,
+		adminManagement,
 		webAdmins,
 		webSessions,
 		webAuthAttempts,
