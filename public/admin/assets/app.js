@@ -34,6 +34,7 @@ const media = matchMedia("(prefers-color-scheme: dark)");
 
 window.DRDAdminShell = Object.freeze({
   language: () => state.language,
+  system: () => api.system(),
   listAdmins: () => api.admins(),
   getAdmin: (id) => api.admin(id),
   addAdmin: (userId) => api.addAdmin(userId, state.csrfToken),
@@ -256,7 +257,7 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "settings"];
+  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "system", "settings"];
   for (const key of realViews) {
     const node = document.querySelector(`#${key}-view`);
     if (node) node.hidden = key !== view;
@@ -277,6 +278,7 @@ async function activateView(view) {
     if (view === "assets") await loadAssets();
     if (view === "automation") await loadAutomation();
     if (view === "admins") await window.DRDAdmins?.load?.();
+    if (view === "system") await window.DRDSystem?.load?.();
     else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
   } catch (error) {
@@ -597,6 +599,7 @@ async function toggleLanguage() {
   if (state.activeView === "sources" && state.sourceData) renderSources();
   if (state.activeView === "assets") renderAssets();
   if (state.activeView === "admins") window.DRDAdmins?.render?.();
+  if (state.activeView === "system") window.DRDSystem?.render?.();
   refreshLanguageButtons();
 }
 function cycleTheme() {

@@ -8,6 +8,7 @@
   <title>DRD Rate Manager</title>
   <link rel="stylesheet" href="assets/styles.css">
   <link rel="stylesheet" href="assets/admins.css">
+  <link rel="stylesheet" href="assets/system.css">
 </head>
 <body>
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
@@ -192,6 +193,116 @@
           </div>
         </section>
 
+        <section id="system-view" class="view-section" hidden>
+          <div class="section-heading-row system-hero">
+            <div>
+              <span class="eyebrow">DRD / 07</span>
+              <h2 data-system-i18n="title">وضعیت سیستم</h2>
+              <p class="section-description" data-system-i18n="intro">نمای تجمیعی سلامت سیستم.</p>
+            </div>
+            <button id="system-reload" class="secondary-button" type="button" data-system-i18n="refresh">بروزرسانی وضعیت</button>
+          </div>
+
+          <div class="system-health-grid">
+            <article id="system-health-card" class="system-health-card"><span data-system-i18n="overallHealth">سلامت کلی</span><strong id="system-health">—</strong><span id="system-generated" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="database">دیتابیس</span><strong id="system-db-status">—</strong><span id="system-db-latency" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="runtime">Runtime</span><strong id="system-runtime-integrity">—</strong><span id="system-runtime-version" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="cache">کش بازار</span><strong id="system-cache-status">—</strong><span id="system-cache-age" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="automation">اتوماسیون</span><strong id="system-automation-status">—</strong><span id="system-automation-reason" class="system-muted">—</span></article>
+          </div>
+
+          <div class="system-summary-grid">
+            <article class="system-health-card"><span data-system-i18n="enabledSources">منابع فعال</span><strong id="system-sources-enabled">—</strong><span><span id="system-sources-healthy">—</span> / <span id="system-sources-failed">—</span></span></article>
+            <article class="system-health-card"><span data-system-i18n="activeAdmins">ادمین فعال</span><strong id="system-admin-active">—</strong><span id="system-admin-total" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="schema">Schema</span><strong id="system-runtime-schema">—</strong><span id="system-runtime-timezone" class="system-muted">—</span></article>
+            <article class="system-health-card"><span data-system-i18n="bot">ربات</span><strong id="system-bot-status">—</strong><span id="system-owner-configured" class="system-muted">—</span></article>
+          </div>
+
+          <div class="system-layout">
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="database">دیتابیس</h3><p id="system-db-provider">—</p></div></div>
+              <div class="system-storage">
+                <div class="system-storage-head"><strong data-system-i18n="storage">فضای D1</strong><span id="system-storage-percent">—</span></div>
+                <div class="system-storage-track"><div id="system-storage-fill" class="system-storage-fill"></div></div>
+                <div class="system-storage-values"><span><span data-system-i18n="used">مصرف‌شده</span>: <strong id="system-storage-used">—</strong></span><span><span data-system-i18n="remaining">باقی‌مانده</span>: <strong id="system-storage-remaining">—</strong></span><span>Total: <strong id="system-storage-total">—</strong></span></div>
+              </div>
+              <div class="card-heading"><div><h3 data-system-i18n="records">رکوردهای دیتابیس</h3></div></div>
+              <div id="system-records" class="system-records"></div>
+            </article>
+
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="runtime">Runtime</h3></div></div>
+              <div class="system-kv-list">
+                <div class="system-kv-row"><span data-system-i18n="version">نسخه</span><strong id="system-runtime-version-detail" dir="ltr">v0.13.0</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="schema">Schema</span><strong id="system-runtime-schema-detail">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="timezone">Timezone</span><strong id="system-runtime-timezone-detail" dir="ltr">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="integrity">Runtime integrity</span><strong id="system-runtime-integrity-detail">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="bot">ربات</span><strong id="system-bot-status-detail">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="cache">کش بازار</h3></div></div>
+              <div class="system-kv-list">
+                <div class="system-kv-row"><span data-system-i18n="cacheAge">سن کش</span><strong id="system-cache-age-detail">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="ttlRemaining">TTL باقی‌مانده</span><strong id="system-cache-ttl">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="lastError">آخرین خطا</span><strong id="system-cache-error">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="automation">اتوماسیون</h3></div></div>
+              <div class="system-kv-list">
+                <div class="system-kv-row"><span data-system-i18n="currentReason">وضعیت فعلی</span><strong id="system-automation-reason-detail">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="canPublish">قابل انتشار اکنون</span><strong id="system-automation-can-publish">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="nextPublish">انتشار بعدی</span><strong id="system-automation-next" dir="ltr">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="lastSuccess">آخرین موفقیت</span><strong id="system-automation-last" dir="ltr">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel-card system-panel system-panel-wide">
+              <div class="card-heading"><div><h3 data-system-i18n="sources">منابع</h3><p><span data-system-i18n="usdtPriority">اولویت USDT</span>: <span id="system-usdt-priority" dir="ltr">—</span></p></div></div>
+              <div class="system-summary-grid">
+                <div class="system-health-card"><span data-system-i18n="healthySources">سالم</span><strong id="system-sources-healthy-detail">—</strong></div>
+                <div class="system-health-card"><span data-system-i18n="failedSources">ناموفق</span><strong id="system-sources-failed-detail">—</strong></div>
+                <div class="system-health-card"><span data-system-i18n="uncheckedSources">بررسی‌نشده</span><strong id="system-sources-unchecked">—</strong></div>
+                <div class="system-health-card"><span data-system-i18n="enabledSources">منابع فعال</span><strong id="system-sources-enabled-detail">—</strong></div>
+              </div>
+              <div id="system-source-list" class="system-source-list"></div>
+            </article>
+
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="admins">ادمین‌ها</h3></div></div>
+              <div class="system-kv-list">
+                <div class="system-kv-row"><span data-system-i18n="activeAdmins">ادمین فعال</span><strong id="system-admin-active-detail">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="inactiveAdmins">ادمین غیرفعال</span><strong id="system-admin-inactive">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="ownerConfigured">مالک تنظیم شده</span><strong id="system-owner-configured-detail">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel-card system-panel">
+              <div class="card-heading"><div><h3 data-system-i18n="settings">وضعیت تنظیمات</h3></div></div>
+              <div class="system-kv-list">
+                <div class="system-kv-row"><span data-system-i18n="runtimeSettings">Runtime settings</span><strong id="system-runtime-migration">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="d1Coverage">پوشش D1</span><strong id="system-runtime-coverage">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="runtimeInvalid">کلیدهای نامعتبر D1</span><strong id="system-runtime-invalid">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="legacyFallback">Fallback به ENV</span><strong id="system-runtime-legacy">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="defaultFallback">Fallback به default</span><strong id="system-runtime-default">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="secureSettings">Secure settings</span><strong id="system-secure-migration">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="encryptedCoverage">پوشش رمزنگاری‌شده</span><strong id="system-secure-coverage">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="masterKey">APP_MASTER_KEY</span><strong id="system-master-key">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="secureLegacy">Secure fallback به ENV</span><strong id="system-secure-legacy">—</strong></div>
+                <div class="system-kv-row"><span data-system-i18n="secureMissing">Secretهای تنظیم‌نشده</span><strong id="system-secure-missing">—</strong></div>
+              </div>
+            </article>
+
+            <article class="panel-card system-panel system-panel-wide">
+              <div class="card-heading"><div><h3 data-system-i18n="reasons">دلایل وضعیت</h3></div></div>
+              <div id="system-reasons" class="system-reasons"></div>
+            </article>
+          </div>
+        </section>
+
         <section id="settings-view" class="view-section" hidden>
           <div class="section-heading-row"><div><span class="eyebrow">DRD / 08</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
           <form id="preferences-form" class="panel-card form-card">
@@ -218,5 +329,6 @@
 
   <script type="module" src="assets/app.js"></script>
   <script type="module" src="assets/admins.js"></script>
+  <script type="module" src="assets/system.js"></script>
 </body>
 </html>

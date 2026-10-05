@@ -65,6 +65,8 @@ export class AdminApi {
     });
   }
 
+  system() { return this.#request("/api/v1/system"); }
+
   admins() { return this.#request("/api/v1/admins"); }
   admin(id) { return this.#request(`/api/v1/admins/${encodeURIComponent(id)}`); }
   addAdmin(userId, csrfToken) {
