@@ -10,6 +10,8 @@ function serializeConfiguration(configuration = {}) {
 	return {
 		ownership: {
 			version: ownership.version ?? null,
+			runtime_settings_version: ownership.runtimeSettingsVersion ?? null,
+			secure_settings_version: ownership.secureSettingsVersion ?? null,
 			valid: Boolean(ownership.valid),
 			runtime_owner: ownership.runtime?.owner || null,
 			secure_owner: ownership.secure?.owner || null,

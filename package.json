@@ -9,7 +9,8 @@
     "format": "prettier --write . --ignore-unknown",
     "format:changed": "node scripts/format-changed.mjs",
     "format:check": "node scripts/check-format-stability.mjs",
-    "check": "npm run check:syntax && npm run format:check"
+    "check": "npm run check:syntax && npm run format:check",
+    "config:finalize": "node scripts/finalize-config-cleanup.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.9"
