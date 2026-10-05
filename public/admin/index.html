@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="fa" dir="rtl" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>DRD Rate Manager</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <section id="auth-screen" class="auth-screen" aria-label="Authentication">
+    <header class="auth-toolbar">
+      <a class="brand brand-compact" href="./" aria-label="DRD Rate Manager">
+        <span class="brand-mark" aria-hidden="true">D</span>
+        <span class="brand-copy">
+          <strong>DRD Rate Manager</strong>
+          <span data-i18n="adminPanel">پنل مدیریت</span>
+        </span>
+      </a>
+      <div class="toolbar-actions">
+        <button class="icon-button" type="button" data-action="lang-toggle" aria-label="Change language">EN</button>
+        <button class="icon-button" type="button" data-action="theme-cycle" aria-label="Change theme">
+          <span data-theme-icon aria-hidden="true">◐</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="auth-main">
+      <div class="auth-intro" aria-hidden="true">
+        <span class="eyebrow">DRD Network</span>
+        <h1 data-i18n="authHeadline">کنترل بازار، بدون شلوغی.</h1>
+        <p data-i18n="authIntro">یک پنل سبک و مستقیم برای مدیریت نرخ‌ها، منابع، انتشار و تنظیمات سیستم.</p>
+        <div class="auth-intro-line"></div>
+        <p class="auth-footnote" data-i18n="securityFootnote">ورود امن، نشست HttpOnly و محافظت CSRF فعال است.</p>
+      </div>
+
+      <div class="auth-card-wrap">
+        <form id="login-form" class="panel-card auth-card" novalidate>
+          <div class="card-heading">
+            <span class="status-dot" aria-hidden="true"></span>
+            <div>
+              <h2 data-i18n="signIn">ورود</h2>
+              <p data-i18n="signInHelp">برای ادامه وارد پنل مدیریت شوید.</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span data-i18n="username">نام کاربری</span>
+            <input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" required>
+          </label>
+
+          <label class="field">
+            <span data-i18n="password">رمز عبور</span>
+            <span class="password-field">
+              <input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
+              <button type="button" class="field-action" data-toggle-password="login-password" data-i18n-aria="togglePassword">نمایش</button>
+            </span>
+          </label>
+
+          <p id="login-error" class="form-error" role="alert" hidden></p>
+          <button class="primary-button" type="submit" data-submit-label="signIn">
+            <span data-i18n="signIn">ورود</span>
+          </button>
+        </form>
+
+        <form id="bootstrap-form" class="panel-card auth-card" novalidate hidden>
+          <div class="security-warning" role="alert">
+            <span class="warning-mark" aria-hidden="true">!</span>
+            <div>
+              <strong data-i18n="bootstrapRequired">تکمیل راه‌اندازی الزامی است</strong>
+              <p data-i18n="bootstrapWarning">اطلاعات پیش‌فرض را تغییر دهید. بعد از ذخیره، همه نشست‌ها بسته می‌شوند.</p>
+            </div>
+          </div>
+
+          <div class="card-heading compact-heading">
+            <div>
+              <h2 data-i18n="secureAdmin">ایمن‌سازی پنل</h2>
+              <p data-i18n="secureAdminHelp">هر سه مقدار زیر باید جدید باشند.</p>
+            </div>
+          </div>
+
+          <label class="field">
+            <span data-i18n="newUsername">نام کاربری جدید</span>
+            <input id="bootstrap-username" name="username" type="text" autocomplete="username" minlength="3" maxlength="64" required>
+          </label>
+
+          <label class="field">
+            <span data-i18n="newPassword">رمز عبور جدید</span>
+            <span class="password-field">
+              <input id="bootstrap-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+              <button type="button" class="field-action" data-toggle-password="bootstrap-password" data-i18n-aria="togglePassword">نمایش</button>
+            </span>
+            <small data-i18n="passwordRule">حداقل ۱۲ کاراکتر</small>
+          </label>
+
+          <label class="field">
+            <span data-i18n="adminPath">مسیر پنل مدیریت</span>
+            <span class="path-field" dir="ltr">
+              <span>/</span>
+              <input id="bootstrap-path" name="admin_path" type="text" autocomplete="off" minlength="4" maxlength="64" placeholder="management-x8k2" required>
+            </span>
+            <small data-i18n="adminPathHelp">این مسیر جایگزین /admin می‌شود.</small>
+          </label>
+
+          <p id="bootstrap-error" class="form-error" role="alert" hidden></p>
+          <button class="primary-button" type="submit" data-submit-label="saveAndSecure">
+            <span data-i18n="saveAndSecure">ذخیره و ایمن‌سازی</span>
+          </button>
+        </form>
+      </div>
+    </main>
+  </section>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <div id="sidebar-overlay" class="sidebar-overlay" hidden></div>
+    <aside id="sidebar" class="sidebar" aria-label="Main navigation">
+      <div class="sidebar-header">
+        <a class="brand" href="./" aria-label="DRD Rate Manager">
+          <span class="brand-mark" aria-hidden="true">D</span>
+          <span class="brand-copy">
+            <strong>DRD Rate Manager</strong>
+            <span data-i18n="adminPanel">پنل مدیریت</span>
+          </span>
+        </a>
+        <button id="sidebar-close" class="icon-button mobile-only" type="button" aria-label="Close menu">×</button>
+      </div>
+
+      <nav class="nav-list">
+        <button class="nav-item is-active" type="button" data-view="dashboard"><span class="nav-glyph">01</span><span data-i18n="dashboard">داشبورد</span></button>
+        <button class="nav-item" type="button" data-view="market"><span class="nav-glyph">02</span><span data-i18n="market">بازار</span></button>
+        <button class="nav-item" type="button" data-view="sources"><span class="nav-glyph">03</span><span data-i18n="sources">منابع</span></button>
+        <button class="nav-item" type="button" data-view="assets"><span class="nav-glyph">04</span><span data-i18n="assets">دارایی‌ها</span></button>
+        <button class="nav-item" type="button" data-view="automation"><span class="nav-glyph">05</span><span data-i18n="automation">اتوماسیون</span></button>
+        <button class="nav-item" type="button" data-view="admins"><span class="nav-glyph">06</span><span data-i18n="admins">ادمین‌ها</span></button>
+        <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">07</span><span data-i18n="system">سیستم</span></button>
+        <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">08</span><span data-i18n="settings">تنظیمات</span></button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="mini-status">
+          <span class="status-dot"></span>
+          <div>
+            <strong data-i18n="webAdminOnline">Web Admin فعال</strong>
+            <span>v0.13.0</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div class="topbar-start">
+          <button id="sidebar-open" class="icon-button mobile-only" type="button" aria-label="Open menu">☰</button>
+          <div>
+            <span id="page-eyebrow" class="eyebrow" data-i18n="overview">Overview</span>
+            <h1 id="page-title" data-i18n="dashboard">داشبورد</h1>
+          </div>
+        </div>
+        <div class="toolbar-actions">
+          <button class="icon-button text-button" type="button" data-action="lang-toggle">EN</button>
+          <button class="icon-button" type="button" data-action="theme-cycle" aria-label="Change theme"><span data-theme-icon>◐</span></button>
+          <div class="user-chip">
+            <span class="user-avatar" id="user-avatar">A</span>
+            <div class="user-copy">
+              <strong id="user-name">admin</strong>
+              <span data-i18n="administrator">Administrator</span>
+            </div>
+          </div>
+          <button id="logout-button" class="secondary-button" type="button" data-i18n="logout">خروج</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <section id="dashboard-view" class="view-section">
+          <div class="hero-panel">
+            <div>
+              <span class="eyebrow" data-i18n="controlCenter">Control Center</span>
+              <h2 data-i18n="dashboardHeadline">مرکز کنترل DRD Rate Manager</h2>
+              <p data-i18n="dashboardIntro">اسکلت پنل آماده است. مدیریت بازار و سرویس‌ها در فازهای بعدی روی همین ساختار فعال می‌شود.</p>
+            </div>
+            <span class="phase-badge">Phase 6</span>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="sessionStatus">وضعیت نشست</span>
+              <strong data-i18n="authenticated">Authenticated</strong>
+              <span class="metric-detail" data-i18n="secureSession">HttpOnly + CSRF protected</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="adminRoute">مسیر مدیریت</span>
+              <strong id="admin-route-value" dir="ltr">/admin</strong>
+              <span class="metric-detail" data-i18n="dynamicRoute">Dynamic admin route</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="interfaceTheme">تم رابط</span>
+              <strong id="theme-value">System</strong>
+              <span class="metric-detail" data-i18n="themeModes">Dark / Light / System</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="interfaceLanguage">زبان رابط</span>
+              <strong id="language-value">فارسی</strong>
+              <span class="metric-detail">RTL / LTR</span>
+            </article>
+          </div>
+
+          <div class="section-grid">
+            <article class="panel-card shell-card">
+              <span class="shell-index">01</span>
+              <div>
+                <h3 data-i18n="nextMarket">Market management</h3>
+                <p data-i18n="nextMarketHelp">Refresh, preview and publishing controls will appear here.</p>
+              </div>
+            </article>
+            <article class="panel-card shell-card">
+              <span class="shell-index">02</span>
+              <div>
+                <h3 data-i18n="nextSources">Source health</h3>
+                <p data-i18n="nextSourcesHelp">Provider status and latency will use this shell.</p>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section id="placeholder-view" class="view-section" hidden>
+          <div class="empty-state">
+            <span id="placeholder-index" class="empty-index">—</span>
+            <h2 id="placeholder-title"></h2>
+            <p id="placeholder-description"></p>
+            <span class="phase-badge" data-i18n="shellReady">UI Shell آماده است</span>
+          </div>
+        </section>
+      </main>
+    </section>
+  </div>
+
+  <script type="module" src="assets/app.js"></script>
+</body>
+</html>
