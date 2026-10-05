@@ -1,0 +1,100 @@
+		return `<b>⏸ ${escapeHtml(this.s.config.displayName)}</b>\n\n<blockquote>🔴 سیستم غیرفعال است</blockquote>\n\nنقش: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`;
+	}
+}
+
+/** Dependency composition root. */
+function createServices(env) {
+	const config = new Config(env);
+	const settings = new SettingsRepository(env);
+	const cache = new MarketCacheRepository(env);
+	const locks = new LockRepository(env);
+	const statuses = new SourceStatusRepository(env);
+	const assets = new AssetRepository(env, config);
+	const admins = new AdminRepository(env, config);
+	const adminInput = new AdminInputRepository(env);
+	const audit = new AuditRepository(env);
+	const http = new HttpClient();
+	const coinGecko = new CoinGeckoClient(env, config, http);
+	const sources = new MarketSources(env, http, statuses);
+	const market = new MarketService(env, config, settings, cache, locks, assets, statuses, sources, coinGecko);
+	const telegram = new TelegramClient(env);
+	const postBuilder = new MarketPostBuilder(config);
+	const publisher = new MarketPublisher(config, telegram, postBuilder);
+	const automation = new AutomationService(env, config, settings, market, publisher);
+	return { env, config, settings, cache, locks, statuses, assets, admins, adminInput, audit, http, coinGecko, sources, market, telegram, postBuilder, publisher, automation };
+}
+
+/** Application entrypoint controller. */
+class Application {
+	constructor(env) {
+		this.env = env;
+		this.database = new Database(env);
+		this.services = createServices(env);
+		this.api = new ApiController(this.services);
+		this.bot = new BotController(this.services);
+	}
+
+	async fetch(request) {
+		await this.database.ensureReady();
+		const url = new URL(request.url);
+		const apiResponse = await this.api.route(request, url);
+		if (apiResponse) return apiResponse;
+		if (request.method === "POST" && url.pathname === "/telegram/webhook") return this.bot.handleWebhook(request);
+		return jsonResponse({ success: false, message: "Not found" }, 404);
+	}
+
+	async scheduled() {
+		// Deliberately do not run schema bootstrap/migrations on every minute Cron.
+		return this.services.automation.tick();
+	}
+}
+
+/** Fail-fast component contract to catch accidental method deletion before deployment traffic. */
+function runtimeIntegrity() {
+	const contracts = [
+		[MarketPostBuilder.prototype, "buildRichMessage"],
+		[MarketService.prototype, "getSnapshot"],
+		[CoinGeckoClient.prototype, "fetchMarketBundle"],
+		[TelegramClient.prototype, "sendRichMessage"],
+		[AutomationService.prototype, "tick"],
+	];
+	return contracts.every(([target, method]) => typeof target?.[method] === "function");
+}
+
+if (!runtimeIntegrity()) throw new Error("Runtime integrity check failed");
+
+export default {
+	async fetch(request, env, ctx) {
+		try {
+			return await new Application(env).fetch(request, ctx);
+		} catch (error) {
+			console.error("http.unhandled_error", { message: errorMessage(error), stack: error?.stack || null });
+			return jsonResponse({ success: false, message: "Internal server error", error: errorMessage(error) }, 500);
+		}
+	},
+
+	async scheduled(controller, env, ctx) {
+		try {
+			await new Application(env).scheduled(controller, ctx);
+		} catch (error) {
+			console.error("cron.unhandled_error", { message: errorMessage(error), stack: error?.stack || null });
+			throw error;
+		}
+	},
+};
+
+/* ============================================================
+ * PURE HELPERS
+ * ============================================================
+ */
+
+function success(price = null, status = 200) { return { success: true, price, status, message: null }; }
+function failure(message, status = null, latency = null) { return { success: false, status, latency, message: String(message || "Unknown error"), price: null }; }
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function capitalize(value) { return String(value).charAt(0).toUpperCase() + String(value).slice(1); }
+function chunk(items, size) { const rows = []; for (let i = 0; i < items.length; i += size) rows.push(items.slice(i, i + size)); return rows; }
+function safeJson(value, fallback = null) { try { return value ? JSON.parse(value) : fallback; } catch { return fallback; } }
+function nullableNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : null; }
+function parseBoolean(value, fallback = false) {
+	if (value === undefined || value === null || value === "") return fallback;
+	return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
