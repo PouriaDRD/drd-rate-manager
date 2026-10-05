@@ -31,8 +31,8 @@ const AUTOMATION_SETTING_KEYS = Object.freeze([
 
 /** Automatic publishing settings and aligned scheduled execution. */
 export class AutomationService {
-  constructor(env, config, settings, market, publisher, locks) {
-    Object.assign(this, { env, config, settings, market, publisher, locks });
+  constructor(env, config, settings, market, publisher, locks, runs = null) {
+    Object.assign(this, { env, config, settings, market, publisher, locks, runs });
   }
 
   async getSettings() {
@@ -114,13 +114,14 @@ export class AutomationService {
     if (!token) return this.#skip("already_claimed");
 
     let successful = false;
+    const startedAt = Date.now();
     await this.settings.setMany({
       auto_publish_last_attempt_at: now,
       auto_publish_last_skip_reason: "",
     });
     try {
       const snapshot = await this.market.getSnapshot();
-      await this.publisher.publish(snapshot);
+      const publishResult = await this.publisher.publish(snapshot);
       successful = true;
       await this.settings.setMany({
         auto_publish_last_run_at: slotAt,
@@ -131,12 +132,38 @@ export class AutomationService {
         auto_publish_last_error_at: 0,
         auto_publish_last_skip_reason: "success",
       });
+      await this.#recordRun({
+        mode: "scheduled",
+        status: "success",
+        reason: "success",
+        slotAt,
+        startedAt,
+        finishedAt: Date.now(),
+        actorType: "cron",
+        actorId: null,
+        messageId: publishResult?.message_id ?? null,
+        partial: Boolean(snapshot?.partial),
+        details: { intervalMinutes: interval },
+      });
     } catch (error) {
+      const message = errorMessage(error).slice(0, 1000);
       await this.settings.setMany({
         auto_publish_retry_slot_at: slotAt,
-        auto_publish_last_error: errorMessage(error).slice(0, 1000),
+        auto_publish_last_error: message,
         auto_publish_last_error_at: now,
         auto_publish_last_skip_reason: "error",
+      });
+      await this.#recordRun({
+        mode: "scheduled",
+        status: "error",
+        reason: "error",
+        slotAt,
+        startedAt,
+        finishedAt: Date.now(),
+        actorType: "cron",
+        actorId: null,
+        error: message,
+        details: { intervalMinutes: interval },
       });
       throw error;
     } finally {
@@ -162,6 +189,15 @@ export class AutomationService {
       (latest, key) => Math.max(latest, normalizeTimestamp(rows[key]?.updatedAt)),
       0,
     );
+  }
+
+  async #recordRun(record) {
+    if (!this.runs?.add) return;
+    try {
+      await this.runs.add(record);
+    } catch (error) {
+      console.warn("automation.history_write_failed", errorMessage(error));
+    }
   }
 
   async #skip(reason) {

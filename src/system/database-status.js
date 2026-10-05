@@ -24,6 +24,7 @@ export async function databaseStatus(services) {
 		"audit_logs",
 		"market_cache",
 		"runtime_locks",
+		"automation_runs",
 	];
 	const records = {};
 	for (const table of tables) {

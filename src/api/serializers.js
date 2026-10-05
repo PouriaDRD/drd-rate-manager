@@ -2,6 +2,10 @@ import { calculateNextPublishAt } from "../utils/automation.js";
 import { coinNameFa } from "../utils/core.js";
 import { formatIranDate, formatIranTime } from "../utils/datetime.js";
 
+function isoOrNull(timestamp) {
+	return timestamp ? new Date(timestamp).toISOString() : null;
+}
+
 export function serializeMarketSnapshot(config, snapshot) {
 	return {
 		generated_at: new Date(snapshot.createdAt).toISOString(),
@@ -49,21 +53,50 @@ export function serializeAutomation(config, automation) {
 		enabled: automation.enabled,
 		interval_minutes: automation.intervalMinutes,
 		quiet_hours: automation.quietHours,
-		schedule_changed_at: automation.scheduleChangedAt
-			? new Date(automation.scheduleChangedAt).toISOString()
-			: null,
-		next_publish_at: nextPublishAt ? new Date(nextPublishAt).toISOString() : null,
-		last_run_at: automation.lastRunAt ? new Date(automation.lastRunAt).toISOString() : null,
-		last_success_at: automation.lastSuccessAt ? new Date(automation.lastSuccessAt).toISOString() : null,
-		last_success_slot_at: automation.lastSuccessSlotAt
-			? new Date(automation.lastSuccessSlotAt).toISOString()
-			: null,
-		retry_slot_at: automation.retrySlotAt ? new Date(automation.retrySlotAt).toISOString() : null,
-		last_tick_at: automation.lastTickAt ? new Date(automation.lastTickAt).toISOString() : null,
-		last_attempt_at: automation.lastAttemptAt ? new Date(automation.lastAttemptAt).toISOString() : null,
-		last_error_at: automation.lastErrorAt ? new Date(automation.lastErrorAt).toISOString() : null,
+		schedule_changed_at: isoOrNull(automation.scheduleChangedAt),
+		next_publish_at: isoOrNull(nextPublishAt),
+		last_run_at: isoOrNull(automation.lastRunAt),
+		last_success_at: isoOrNull(automation.lastSuccessAt),
+		last_success_slot_at: isoOrNull(automation.lastSuccessSlotAt),
+		retry_slot_at: isoOrNull(automation.retrySlotAt),
+		last_tick_at: isoOrNull(automation.lastTickAt),
+		last_attempt_at: isoOrNull(automation.lastAttemptAt),
+		last_error_at: isoOrNull(automation.lastErrorAt),
 		last_skip_reason: automation.lastSkipReason || null,
 		last_error: automation.lastError || null,
 		timezone: config.timezone,
+	};
+}
+
+export function serializeAutomationDiagnostics(config, diagnostics) {
+	return {
+		reason: diagnostics.reason,
+		can_publish_now: Boolean(diagnostics.canPublishNow),
+		inside_quiet_hours: Boolean(diagnostics.insideQuietHours),
+		current_slot_at: isoOrNull(diagnostics.currentSlotAt),
+		next_aligned_slot_at: isoOrNull(diagnostics.nextAlignedSlotAt),
+		next_publish_at: isoOrNull(diagnostics.nextPublishAt),
+		seconds_until_next: diagnostics.secondsUntilNext,
+		retry_pending: Boolean(diagnostics.retryPending),
+		last_error_pending: Boolean(diagnostics.lastErrorPending),
+		timezone: config.timezone,
+	};
+}
+
+export function serializeAutomationRun(run) {
+	return {
+		id: run.id ?? null,
+		mode: run.mode,
+		status: run.status,
+		reason: run.reason || null,
+		slot_at: isoOrNull(run.slotAt),
+		started_at: isoOrNull(run.startedAt),
+		finished_at: isoOrNull(run.finishedAt),
+		actor_type: run.actorType || "system",
+		actor_id: run.actorId ?? null,
+		message_id: run.messageId ?? null,
+		partial: Boolean(run.partial),
+		error: run.error || null,
+		details: run.details ?? null,
 	};
 }

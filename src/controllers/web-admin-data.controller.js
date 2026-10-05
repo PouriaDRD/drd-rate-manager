@@ -1,4 +1,10 @@
-import { serializeAutomation, serializeMarketSnapshot } from "../api/serializers.js";
+import {
+	serializeAutomation,
+	serializeAutomationDiagnostics,
+	serializeAutomationRun,
+	serializeMarketSnapshot,
+} from "../api/serializers.js";
+import { APP } from "../config/app.js";
 import { adminEmptyResponse, adminJsonResponse } from "../http/admin-responses.js";
 
 async function readJson(request) {
@@ -56,6 +62,66 @@ export class WebAdminDataController {
 			if (request.method === "POST" && url.pathname === `${base}/api/v1/market/publish`) {
 				return this.#publish(auth);
 			}
+			if (request.method === "GET" && url.pathname === `${base}/api/v1/automation`) {
+				return this.#automationState();
+			}
+			if (request.method === "PATCH" && url.pathname === `${base}/api/v1/automation/settings`) {
+				const body = await readJson(request);
+				const next = await this.s.automationManagement.updateSettings(body);
+				await this.s.audit.add(String(auth.user.id), "web.automation.settings_updated", body);
+				return adminJsonResponse({ success: true, data: this.#serializeAutomationState(next) });
+			}
+			if (request.method === "POST" && url.pathname === `${base}/api/v1/automation/dry-run`) {
+				const body = await readJson(request);
+				const result = await this.s.automationManagement.dryRun({
+					actor: { type: "web", id: auth.user.id },
+					refreshMarket: Boolean(body.refresh_market),
+				});
+				await this.s.audit.add(String(auth.user.id), "web.automation.dry_run", {
+					refreshMarket: Boolean(body.refresh_market),
+					partial: result.partial,
+				});
+				return adminJsonResponse({
+					success: true,
+					data: {
+						mode: result.mode,
+						partial: result.partial,
+						generated_at: new Date(result.generatedAt).toISOString(),
+						preview: {
+							rich: result.rich,
+							fallback_html: result.fallbackHtml,
+						},
+					},
+				});
+			}
+			if (request.method === "POST" && url.pathname === `${base}/api/v1/automation/force-run`) {
+				const body = await readJson(request);
+				const result = await this.s.automationManagement.forceRun({
+					actor: { type: "web", id: auth.user.id },
+					refreshMarket: Boolean(body.refresh_market),
+				});
+				await this.s.audit.add(String(auth.user.id), "web.automation.force_run", {
+					refreshMarket: Boolean(body.refresh_market),
+					messageId: result.messageId,
+					partial: result.partial,
+				});
+				return adminJsonResponse({
+					success: true,
+					data: {
+						mode: result.mode,
+						message_id: result.messageId,
+						partial: result.partial,
+					},
+				});
+			}
+			if (request.method === "GET" && url.pathname === `${base}/api/v1/automation/history`) {
+				const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit")) || 20));
+				const history = await this.s.automationManagement.history(limit);
+				return adminJsonResponse({
+					success: true,
+					data: history.map(serializeAutomationRun),
+				});
+			}
 			if (request.method === "GET" && url.pathname === `${base}/api/v1/preferences`) {
 				await this.s.preferences.refresh();
 				return adminJsonResponse({ success: true, data: this.s.preferences.snapshot() });
@@ -101,6 +167,21 @@ export class WebAdminDataController {
 			return adminJsonResponse({ success: false, message: String(error?.message || error) }, 400);
 		}
 		return adminJsonResponse({ success: false, message: "Not found" }, 404);
+	}
+
+	async #automationState() {
+		const state = await this.s.automationManagement.state();
+		return adminJsonResponse({ success: true, data: this.#serializeAutomationState(state) });
+	}
+
+	#serializeAutomationState(state) {
+		return {
+			bot_enabled: state.botEnabled,
+			settings: serializeAutomation(this.s.config, state.settings),
+			diagnostics: serializeAutomationDiagnostics(this.s.config, state.diagnostics),
+			history: state.history.map(serializeAutomationRun),
+			interval_options: APP.publishIntervals,
+		};
 	}
 
 	async #dashboard() {

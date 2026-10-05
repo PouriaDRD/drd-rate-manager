@@ -10,6 +10,7 @@ import { AdminInputRepository } from "../repositories/admin-input.repository.js"
 import { AdminRepository } from "../repositories/admin.repository.js";
 import { AssetRepository } from "../repositories/asset.repository.js";
 import { AuditRepository } from "../repositories/audit.repository.js";
+import { AutomationRunRepository } from "../repositories/automation-run.repository.js";
 import { LockRepository } from "../repositories/lock.repository.js";
 import { MarketCacheRepository } from "../repositories/market-cache.repository.js";
 import { SecureSettingsRepository } from "../repositories/secure-settings.repository.js";
@@ -18,6 +19,7 @@ import { SourceStatusRepository } from "../repositories/source-status.repository
 import { WebAdminRepository } from "../repositories/web-admin.repository.js";
 import { WebAuthAttemptRepository } from "../repositories/web-auth-attempt.repository.js";
 import { WebSessionRepository } from "../repositories/web-session.repository.js";
+import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
@@ -40,6 +42,7 @@ export function createServices(env) {
 	const config = new Config(runtimeEnv, settingsService);
 	const cache = new MarketCacheRepository(runtimeEnv);
 	const locks = new LockRepository(runtimeEnv);
+	const automationRuns = new AutomationRunRepository(runtimeEnv);
 	const statuses = new SourceStatusRepository(runtimeEnv);
 	const sourceSettings = new SourceSettingsService(settings, statuses);
 	const assets = new AssetRepository(runtimeEnv, config);
@@ -57,7 +60,17 @@ export function createServices(env) {
 	const telegram = new TelegramClient(runtimeEnv, http);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
-	const automation = new AutomationService(runtimeEnv, config, settings, market, publisher, locks);
+	const automation = new AutomationService(runtimeEnv, config, settings, market, publisher, locks, automationRuns);
+	const automationManagement = new AutomationManagementService(
+		config,
+		settings,
+		automation,
+		market,
+		publisher,
+		postBuilder,
+		locks,
+		automationRuns,
+	);
 
 	return {
 		env: runtimeEnv,
@@ -71,6 +84,7 @@ export function createServices(env) {
 		secretCrypto,
 		cache,
 		locks,
+		automationRuns,
 		statuses,
 		sourceSettings,
 		assets,
@@ -89,5 +103,6 @@ export function createServices(env) {
 		postBuilder,
 		publisher,
 		automation,
+		automationManagement,
 	};
 }

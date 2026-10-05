@@ -109,6 +109,22 @@ export class Database {
 				lock_key TEXT PRIMARY KEY, token TEXT NOT NULL, expires_at INTEGER NOT NULL,
 				updated_at INTEGER NOT NULL
 			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS automation_runs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				mode TEXT NOT NULL,
+				status TEXT NOT NULL,
+				reason TEXT,
+				slot_at INTEGER NOT NULL DEFAULT 0,
+				started_at INTEGER NOT NULL,
+				finished_at INTEGER NOT NULL,
+				actor_type TEXT NOT NULL DEFAULT 'system',
+				actor_id TEXT,
+				message_id INTEGER,
+				partial INTEGER NOT NULL DEFAULT 0,
+				error TEXT,
+				details TEXT
+			)`),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_automation_runs_finished_at ON automation_runs(finished_at)"),
 		]);
 
 		await this.#ensureColumn("settings", "created_at", "INTEGER NOT NULL DEFAULT 0");
