@@ -21,7 +21,7 @@ import { normalizePublishInterval } from "../src/utils/automation.js";
 
 test("application constants preserve v0.13.0 behavior", () => {
 	assert.equal(APP.version, "0.13.0");
-	assert.equal(APP.schemaVersion, 10);
+	assert.equal(APP.schemaVersion, 11);
 	assert.deepEqual(APP.publishIntervals, [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
 	assert.deepEqual(USDT_SOURCE_PRIORITY, ["wallex", "tabdeal", "exir"]);
 });
