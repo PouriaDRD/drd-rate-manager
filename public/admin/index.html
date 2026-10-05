@@ -180,50 +180,133 @@
             <div>
               <span class="eyebrow" data-i18n="controlCenter">Control Center</span>
               <h2 data-i18n="dashboardHeadline">مرکز کنترل DRD Rate Manager</h2>
-              <p data-i18n="dashboardIntro">اسکلت پنل آماده است. مدیریت بازار و سرویس‌ها در فازهای بعدی روی همین ساختار فعال می‌شود.</p>
+              <p data-i18n="dashboardIntro">نمای زنده از وضعیت بازار، انتشار خودکار و سلامت منابع.</p>
             </div>
-            <span class="phase-badge">Phase 6</span>
+            <span class="phase-badge">Phase 7</span>
           </div>
 
           <div class="metric-grid">
             <article class="metric-card">
-              <span class="metric-label" data-i18n="sessionStatus">وضعیت نشست</span>
-              <strong data-i18n="authenticated">Authenticated</strong>
-              <span class="metric-detail" data-i18n="secureSession">HttpOnly + CSRF protected</span>
+              <span class="metric-label" data-i18n="botStatus">وضعیت ربات</span>
+              <strong id="dashboard-bot-status">—</strong>
+              <span id="dashboard-market-health" class="metric-detail">—</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span>
+              <strong id="dashboard-usdt" dir="ltr">—</strong>
+              <span id="dashboard-usdt-source" class="metric-detail">—</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="sourceHealth">سلامت منابع</span>
+              <strong id="dashboard-sources" dir="ltr">—</strong>
+              <span class="metric-detail">Wallex · Tabdeal · Exir · CoinGecko · WallGold</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="activeAssets">دارایی‌های فعال</span>
+              <strong id="dashboard-assets" dir="ltr">—</strong>
+              <span class="metric-detail">CoinGecko</span>
+            </article>
+          </div>
+
+          <div class="metric-grid compact-metrics">
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="cacheState">وضعیت کش</span>
+              <strong id="dashboard-cache">—</strong>
+              <span id="dashboard-cache-detail" class="metric-detail">—</span>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="lastPublish">آخرین انتشار</span>
+              <strong id="dashboard-last-publish" dir="ltr">—</strong>
+            </article>
+            <article class="metric-card">
+              <span class="metric-label" data-i18n="nextPublish">انتشار بعدی</span>
+              <strong id="dashboard-next-publish" dir="ltr">—</strong>
             </article>
             <article class="metric-card">
               <span class="metric-label" data-i18n="adminRoute">مسیر مدیریت</span>
               <strong id="admin-route-value" dir="ltr">/admin</strong>
-              <span class="metric-detail" data-i18n="dynamicRoute">Dynamic admin route</span>
             </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="interfaceTheme">تم رابط</span>
-              <strong id="theme-value">System</strong>
-              <span class="metric-detail" data-i18n="themeModes">Dark / Light / System</span>
+          </div>
+        </section>
+
+        <section id="market-view" class="view-section" hidden>
+          <div class="section-heading-row">
+            <div>
+              <span class="eyebrow">DRD / 02</span>
+              <h2 data-i18n="market">بازار</h2>
+            </div>
+            <div class="action-row">
+              <button id="market-refresh" class="secondary-button" type="button" data-i18n="refreshMarket">بروزرسانی بازار</button>
+              <button id="market-preview" class="secondary-button" type="button" data-i18n="previewPost">پیش‌نمایش پست</button>
+              <button id="market-publish" class="primary-button compact-button" type="button" data-i18n="publishNow">انتشار اکنون</button>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <article class="metric-card"><span class="metric-label" data-i18n="usdtPrice">قیمت تتر</span><strong id="market-usdt" dir="ltr">—</strong><span id="market-usdt-source" class="metric-detail">—</span></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="gram18">طلای ۱۸ عیار</span><strong id="market-gram18" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="mazaneh">مظنه</span><strong id="market-mazaneh" dir="ltr">—</strong></article>
+            <article class="metric-card"><span class="metric-label" data-i18n="cacheState">وضعیت کش</span><strong id="market-cache">—</strong><span id="market-cache-time" class="metric-detail">—</span></article>
+          </div>
+
+          <div class="section-grid market-grid">
+            <article class="panel-card data-card">
+              <div class="card-heading"><div><h3 data-i18n="cryptoAssets">رمزارزها</h3><p id="crypto-count">—</p></div></div>
+              <div id="crypto-list" class="data-list"></div>
             </article>
-            <article class="metric-card">
-              <span class="metric-label" data-i18n="interfaceLanguage">زبان رابط</span>
-              <strong id="language-value">فارسی</strong>
-              <span class="metric-detail">RTL / LTR</span>
+            <article class="panel-card data-card">
+              <div class="card-heading"><div><h3 data-i18n="metals">طلا و فلزات</h3></div></div>
+              <dl class="detail-list">
+                <div><dt data-i18n="goldOunce">انس طلا</dt><dd id="market-gold" dir="ltr">—</dd></div>
+                <div><dt data-i18n="silver">نقره</dt><dd id="market-silver" dir="ltr">—</dd></div>
+              </dl>
             </article>
           </div>
 
-          <div class="section-grid">
-            <article class="panel-card shell-card">
-              <span class="shell-index">01</span>
-              <div>
-                <h3 data-i18n="nextMarket">Market management</h3>
-                <p data-i18n="nextMarketHelp">Refresh, preview and publishing controls will appear here.</p>
-              </div>
-            </article>
-            <article class="panel-card shell-card">
-              <span class="shell-index">02</span>
-              <div>
-                <h3 data-i18n="nextSources">Source health</h3>
-                <p data-i18n="nextSourcesHelp">Provider status and latency will use this shell.</p>
-              </div>
-            </article>
+          <article id="preview-panel" class="panel-card preview-panel" hidden>
+            <div class="section-heading-row">
+              <h3 data-i18n="previewTitle">پیش‌نمایش پیام تلگرام</h3>
+              <button id="preview-close" class="secondary-button" type="button" data-i18n="closePreview">بستن پیش‌نمایش</button>
+            </div>
+            <pre id="preview-content" class="preview-content" dir="auto"></pre>
+          </article>
+        </section>
+
+        <section id="settings-view" class="view-section" hidden>
+          <div class="hero-panel compact-hero">
+            <div>
+              <span class="eyebrow">DRD / 08</span>
+              <h2 data-i18n="appearance">ظاهر و زبان</h2>
+              <p data-i18n="viewSettings">تنظیمات عمومی، Telegram، Providerها، امنیت و ظاهر در این بخش قرار می‌گیرد.</p>
+            </div>
           </div>
+          <form id="preferences-form" class="panel-card preferences-card">
+            <div class="settings-grid">
+              <label class="field">
+                <span data-i18n="adminLanguage">زبان پنل</span>
+                <select id="admin-language-select">
+                  <option value="fa">فارسی</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="adminTheme">تم پنل</span>
+                <select id="admin-theme-select">
+                  <option value="system" data-i18n="themeSystem">سیستم</option>
+                  <option value="dark" data-i18n="themeDark">تیره</option>
+                  <option value="light" data-i18n="themeLight">روشن</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="telegramLanguage">زبان تلگرام</span>
+                <select id="telegram-language-select">
+                  <option value="fa">فارسی</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+            </div>
+            <button class="primary-button compact-button" type="submit" data-i18n="savePreferences">ذخیره تنظیمات</button>
+          </form>
         </section>
 
         <section id="placeholder-view" class="view-section" hidden>
@@ -231,7 +314,6 @@
             <span id="placeholder-index" class="empty-index">—</span>
             <h2 id="placeholder-title"></h2>
             <p id="placeholder-description"></p>
-            <span class="phase-badge" data-i18n="shellReady">UI Shell آماده است</span>
           </div>
         </section>
       </main>

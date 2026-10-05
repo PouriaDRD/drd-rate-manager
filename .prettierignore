@@ -1,0 +1,9 @@
+node_modules/
+.wrangler/
+.dev.vars
+.env
+.env.*
+coverage/
+dist/
+build/
+*.zip

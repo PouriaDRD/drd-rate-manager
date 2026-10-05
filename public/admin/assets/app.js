@@ -20,6 +20,7 @@ const state = {
   user: null,
   language: normalizeLanguage(readPreference(LANG_KEY, "fa")),
   theme: normalizeTheme(readPreference(THEME_KEY, "system")),
+  telegramLanguage: "fa",
   activeView: "dashboard",
 };
 
@@ -37,11 +38,11 @@ const els = {
   userName: document.querySelector("#user-name"),
   userAvatar: document.querySelector("#user-avatar"),
   adminRoute: document.querySelector("#admin-route-value"),
-  themeValue: document.querySelector("#theme-value"),
-  languageValue: document.querySelector("#language-value"),
   pageTitle: document.querySelector("#page-title"),
   pageEyebrow: document.querySelector("#page-eyebrow"),
   dashboardView: document.querySelector("#dashboard-view"),
+  marketView: document.querySelector("#market-view"),
+  settingsView: document.querySelector("#settings-view"),
   placeholderView: document.querySelector("#placeholder-view"),
   placeholderIndex: document.querySelector("#placeholder-index"),
   placeholderTitle: document.querySelector("#placeholder-title"),
@@ -50,6 +51,12 @@ const els = {
   sidebarOverlay: document.querySelector("#sidebar-overlay"),
   toast: document.querySelector("#toast"),
   logout: document.querySelector("#logout-button"),
+  preferencesForm: document.querySelector("#preferences-form"),
+  adminLanguage: document.querySelector("#admin-language-select"),
+  adminTheme: document.querySelector("#admin-theme-select"),
+  telegramLanguage: document.querySelector("#telegram-language-select"),
+  previewPanel: document.querySelector("#preview-panel"),
+  previewContent: document.querySelector("#preview-content"),
 };
 
 initialize();
@@ -78,7 +85,14 @@ function bindEvents() {
   els.sidebarOverlay?.addEventListener("click", closeSidebar);
   els.loginForm?.addEventListener("submit", submitLogin);
   els.bootstrapForm?.addEventListener("submit", submitBootstrap);
+  els.preferencesForm?.addEventListener("submit", savePreferencesForm);
   els.logout?.addEventListener("click", submitLogout);
+  document.querySelector("#market-refresh")?.addEventListener("click", refreshMarket);
+  document.querySelector("#market-preview")?.addEventListener("click", showMarketPreview);
+  document.querySelector("#market-publish")?.addEventListener("click", publishMarket);
+  document.querySelector("#preview-close")?.addEventListener("click", () => {
+    els.previewPanel.hidden = true;
+  });
   media.addEventListener?.("change", () => {
     if (state.theme === "system") applyTheme();
   });
@@ -89,8 +103,12 @@ async function restoreSession() {
     const payload = await api.session();
     state.user = payload.user;
     state.csrfToken = payload.csrf_token || "";
-    if (payload.user?.mustCompleteBootstrap) showBootstrap();
-    else showApp();
+    if (payload.user?.mustCompleteBootstrap) {
+      showBootstrap();
+      return;
+    }
+    await hydratePreferences();
+    showApp();
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {
       showLogin();
@@ -99,6 +117,28 @@ async function restoreSession() {
     showLogin();
     showToast(t(state.language, "networkError"), "error");
   }
+}
+
+async function hydratePreferences() {
+  const payload = await api.preferences();
+  applyServerPreferences(payload.data || {});
+}
+
+function applyServerPreferences(data) {
+  state.language = normalizeLanguage(data.admin_ui_language);
+  state.theme = normalizeTheme(data.admin_ui_theme);
+  state.telegramLanguage = normalizeLanguage(data.telegram_language);
+  writePreference(LANG_KEY, state.language);
+  writePreference(THEME_KEY, state.theme);
+  applyPreferences();
+  syncPreferencesForm();
+}
+
+async function persistPreferences(values) {
+  if (!state.csrfToken) return;
+  const payload = await api.updatePreferences(values, state.csrfToken);
+  applyServerPreferences(payload.data || {});
+  showToast(t(state.language, "preferencesSaved"), "success");
 }
 
 async function submitLogin(event) {
@@ -114,7 +154,10 @@ async function submitLogin(event) {
     state.user = payload.user;
     state.csrfToken = payload.csrf_token || "";
     if (payload.bootstrap_required) showBootstrap();
-    else showApp();
+    else {
+      await hydratePreferences();
+      showApp();
+    }
   } catch (error) {
     showFormError(els.loginError, error.message || t(state.language, "loginFailed"));
   } finally {
@@ -128,11 +171,14 @@ async function submitBootstrap(event) {
   const submit = event.submitter;
   setBusy(submit, true);
   try {
-    const payload = await api.bootstrap({
-      username: document.querySelector("#bootstrap-username").value,
-      password: document.querySelector("#bootstrap-password").value,
-      admin_path: document.querySelector("#bootstrap-path").value,
-    }, state.csrfToken);
+    const payload = await api.bootstrap(
+      {
+        username: document.querySelector("#bootstrap-username").value,
+        password: document.querySelector("#bootstrap-password").value,
+        admin_path: document.querySelector("#bootstrap-path").value,
+      },
+      state.csrfToken,
+    );
     showToast(t(state.language, "bootstrapDone"), "success");
     const nextPath = String(payload.admin_path || "").replace(/\/$/, "");
     location.replace(`${location.origin}${nextPath}/`);
@@ -161,6 +207,23 @@ async function submitLogout() {
   setBusy(els.logout, false);
 }
 
+async function savePreferencesForm(event) {
+  event.preventDefault();
+  const submit = event.submitter;
+  setBusy(submit, true);
+  try {
+    await persistPreferences({
+      admin_ui_language: els.adminLanguage.value,
+      admin_ui_theme: els.adminTheme.value,
+      telegram_language: els.telegramLanguage.value,
+    });
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally {
+    setBusy(submit, false);
+  }
+}
+
 function showLogin() {
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
@@ -187,50 +250,169 @@ function showApp() {
   els.userAvatar.textContent = username.slice(0, 1).toUpperCase();
   els.adminRoute.textContent = `${basePath}/`;
   activateView(state.activeView);
-  refreshPreferenceLabels();
 }
 
-function activateView(view) {
+async function activateView(view) {
   if (!VIEWS[view]) return;
   state.activeView = view;
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
-
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const dashboard = view === "dashboard";
-  els.dashboardView.hidden = !dashboard;
-  els.placeholderView.hidden = dashboard;
-  if (!dashboard) {
+  els.dashboardView.hidden = view !== "dashboard";
+  els.marketView.hidden = view !== "market";
+  els.settingsView.hidden = view !== "settings";
+  const placeholder = !["dashboard", "market", "settings"].includes(view);
+  els.placeholderView.hidden = !placeholder;
+  if (placeholder) {
     els.placeholderIndex.textContent = VIEWS[view].index;
     els.placeholderTitle.textContent = t(state.language, view);
     els.placeholderDescription.textContent = t(state.language, VIEWS[view].description);
   }
   closeSidebar();
+
+  try {
+    if (view === "dashboard") await loadDashboard();
+    if (view === "market") await loadMarket();
+    if (view === "settings") syncPreferencesForm();
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  }
 }
 
-function toggleLanguage() {
+async function loadDashboard() {
+  const { data } = await api.dashboard();
+  setText("dashboard-bot-status", t(state.language, data.bot_enabled ? "enabled" : "disabled"));
+  setText("dashboard-market-health", t(state.language, data.market?.partial ? "partialData" : "liveData"));
+  setText("dashboard-usdt", formatToman(data.market?.usdt?.price_toman));
+  setText("dashboard-usdt-source", data.market?.usdt?.source || "—");
+  setText("dashboard-sources", `${data.sources?.healthy ?? 0} / ${data.sources?.total ?? 0}`);
+  setText("dashboard-assets", `${data.assets?.enabled ?? 0} / ${data.assets?.total ?? 0}`);
+  setText("dashboard-cache", t(state.language, data.market?.cache?.from_cache ? "fromCache" : "refreshed"));
+  setText("dashboard-cache-detail", `${data.market?.cache?.ttl_seconds ?? "—"}s`);
+  setText("dashboard-last-publish", formatDateTime(data.automation?.last_success_at));
+  setText("dashboard-next-publish", formatDateTime(data.automation?.next_publish_at));
+}
+
+async function loadMarket() {
+  const { data } = await api.market();
+  renderMarket(data);
+}
+
+async function refreshMarket(event) {
+  setBusy(event.currentTarget, true);
+  try {
+    const { data } = await api.refreshMarket(state.csrfToken);
+    renderMarket(data);
+    showToast(t(state.language, "marketUpdated"), "success");
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally {
+    setBusy(event.currentTarget, false);
+  }
+}
+
+async function showMarketPreview(event) {
+  setBusy(event.currentTarget, true);
+  try {
+    const { data } = await api.marketPreview();
+    els.previewContent.textContent = data.fallback_html || data.rich?.html || "—";
+    els.previewPanel.hidden = false;
+    els.previewPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally {
+    setBusy(event.currentTarget, false);
+  }
+}
+
+async function publishMarket(event) {
+  if (!confirm(t(state.language, "publishConfirm"))) return;
+  setBusy(event.currentTarget, true);
+  try {
+    await api.publishMarket(state.csrfToken);
+    showToast(t(state.language, "marketPublished"), "success");
+    await loadDashboard();
+  } catch (error) {
+    showToast(error.message || t(state.language, "networkError"), "error");
+  } finally {
+    setBusy(event.currentTarget, false);
+  }
+}
+
+function renderMarket(data) {
+  setText("market-usdt", formatToman(data.usdt?.price_toman));
+  setText("market-usdt-source", data.usdt?.source || "—");
+  setText("market-gram18", formatToman(data.metals?.gram_18_toman));
+  setText("market-mazaneh", formatToman(data.metals?.mazaneh_toman));
+  setText("market-gold", formatUsd(data.metals?.gold_usd));
+  setText("market-silver", formatUsd(data.metals?.silver_usd));
+  setText("market-cache", t(state.language, data.cache?.from_cache ? "fromCache" : "refreshed"));
+  setText("market-cache-time", data.time ? `${data.date || ""} · ${data.time}` : "—");
+  setText("crypto-count", String(data.crypto?.length || 0));
+
+  const list = document.querySelector("#crypto-list");
+  list.replaceChildren();
+  for (const coin of data.crypto || []) {
+    const row = document.createElement("div");
+    row.className = "data-row";
+    const name = document.createElement("strong");
+    name.textContent = state.language === "fa" ? coin.name_fa || coin.name : coin.name || coin.symbol;
+    const price = document.createElement("span");
+    price.textContent = formatUsd(coin.price_usd);
+    price.dir = "ltr";
+    const change = document.createElement("span");
+    const value = Number(coin.change_24h_percent);
+    change.textContent = Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "—";
+    change.className = value > 0 ? "change-positive" : value < 0 ? "change-negative" : "";
+    change.dir = "ltr";
+    row.append(name, price, change);
+    list.append(row);
+  }
+}
+
+async function toggleLanguage() {
+  const previous = state.language;
   state.language = state.language === "fa" ? "en" : "fa";
   writePreference(LANG_KEY, state.language);
   applyLanguage(state.language);
   refreshLanguageButtons();
-  refreshPreferenceLabels();
   activateView(state.activeView);
+  if (state.user && !state.user.mustCompleteBootstrap) {
+    try {
+      await persistPreferences({ admin_ui_language: state.language });
+    } catch (error) {
+      state.language = previous;
+      applyPreferences();
+      showToast(error.message || t(state.language, "networkError"), "error");
+    }
+  }
 }
 
-function cycleTheme() {
+async function cycleTheme() {
+  const previous = state.theme;
   const index = THEME_ORDER.indexOf(state.theme);
   state.theme = THEME_ORDER[(index + 1) % THEME_ORDER.length];
   writePreference(THEME_KEY, state.theme);
   applyTheme();
+  if (state.user && !state.user.mustCompleteBootstrap) {
+    try {
+      await persistPreferences({ admin_ui_theme: state.theme });
+    } catch (error) {
+      state.theme = previous;
+      applyTheme();
+      showToast(error.message || t(state.language, "networkError"), "error");
+    }
+  }
 }
 
 function applyPreferences() {
   applyLanguage(state.language);
   applyTheme();
   refreshLanguageButtons();
+  syncPreferencesForm();
 }
 
 function applyTheme() {
@@ -239,7 +421,12 @@ function applyTheme() {
   document.querySelectorAll("[data-theme-icon]").forEach((node) => {
     node.textContent = state.theme === "system" ? "◐" : state.theme === "dark" ? "●" : "○";
   });
-  refreshPreferenceLabels();
+}
+
+function syncPreferencesForm() {
+  if (els.adminLanguage) els.adminLanguage.value = state.language;
+  if (els.adminTheme) els.adminTheme.value = state.theme;
+  if (els.telegramLanguage) els.telegramLanguage.value = state.telegramLanguage;
 }
 
 function refreshLanguageButtons() {
@@ -248,15 +435,9 @@ function refreshLanguageButtons() {
   });
 }
 
-function refreshPreferenceLabels() {
-  if (els.themeValue) els.themeValue.textContent = t(state.language, `theme${capitalize(state.theme)}`);
-  if (els.languageValue) els.languageValue.textContent = state.language === "fa" ? "فارسی" : "English";
-}
-
 function togglePassword(id) {
   const input = document.getElementById(id);
-  if (!input) return;
-  input.type = input.type === "password" ? "text" : "password";
+  if (input) input.type = input.type === "password" ? "text" : "password";
 }
 
 function openSidebar() {
@@ -273,6 +454,39 @@ function setBusy(button, busy) {
   if (!button) return;
   button.disabled = busy;
   button.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function setText(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = value == null || value === "" ? "—" : String(value);
+}
+
+function formatToman(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const locale = state.language === "fa" ? "fa-IR" : "en-US";
+  const unit = state.language === "fa" ? "تومان" : "Toman";
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(number)} ${unit}`;
+}
+
+function formatUsd(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: number >= 100 ? 2 : 4,
+  }).format(number);
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat(state.language === "fa" ? "fa-IR" : "en-GB", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
 }
 
 function showFormError(node, message) {
@@ -293,21 +507,27 @@ function showToast(message, kind = "") {
   els.toast.textContent = String(message || "");
   els.toast.className = `toast${kind ? ` is-${kind}` : ""}`;
   els.toast.hidden = false;
-  toastTimer = setTimeout(() => { els.toast.hidden = true; }, 4200);
+  toastTimer = setTimeout(() => {
+    els.toast.hidden = true;
+  }, 4200);
 }
 
 function readPreference(key, fallback) {
-  try { return localStorage.getItem(key) || fallback; } catch { return fallback; }
+  try {
+    return localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function writePreference(key, value) {
-  try { localStorage.setItem(key, value); } catch { /* non-critical */ }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Local cache is optional. D1 remains the authenticated source of truth.
+  }
 }
 
 function normalizeTheme(value) {
   return THEME_ORDER.includes(value) ? value : "system";
-}
-
-function capitalize(value) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
 }

@@ -1,0 +1,17 @@
+{
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": true,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "bracketSpacing": true,
+  "arrowParens": "always",
+  "endOfLine": "lf",
+  "overrides": [
+    {
+      "files": ["public/admin/**/*.{js,css,html}", "*.{json,jsonc}"],
+      "options": { "useTabs": false, "tabWidth": 2 }
+    }
+  ]
+}

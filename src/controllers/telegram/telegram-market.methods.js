@@ -1,38 +1,6 @@
-import { APP } from "../../config/app.js";
-import { runtimeIntegrity } from "../../app/runtime-integrity.js";
-import { jsonResponse } from "../../http/responses.js";
-import { databaseStatus } from "../../system/database-status.js";
-import {
-	backKeyboard,
-	normalizeCommand,
-	resolveUsdtFromStatuses,
-	sourceStatusText,
-} from "../../telegram/ui.js";
-import { calculateNextPublishAt } from "../../utils/automation.js";
-import {
-	chunk,
-	coinNameFa,
-	errorMessage,
-	escapeHtml,
-	normalizeDigits,
-	pad2,
-	parseBoolean,
-} from "../../utils/core.js";
-import {
-	formatIranDate,
-	formatIranTime,
-	formatOptionalSystemDateTime,
-	formatSystemDate,
-	formatSystemTime,
-} from "../../utils/datetime.js";
-import {
-	changeIcon,
-	formatFaChangeValue,
-	formatFaInteger,
-	formatOptionalToman,
-	formatOptionalUsd,
-	roundToNearest,
-} from "../../utils/formatters.js";
+import { backKeyboard } from "../../telegram/ui.js";
+import { errorMessage, escapeHtml } from "../../utils/core.js";
+import { formatIranDate, formatIranTime } from "../../utils/datetime.js";
 
 export const telegram_marketMethods = {
 async _sendStart(chatId, admin) {
@@ -41,11 +9,11 @@ async _sendStart(chatId, admin) {
 		[
 			`<b>⚡️ ${escapeHtml(this.s.config.displayName)}</b>`,
 			"",
-			`نقش شما: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`,
+			`${this._tgLanguage() === "fa" ? "نقش شما" : "Your role"}: <b>${this._tg(admin.role === "owner" ? "owner" : "admin")}</b>`,
 			"",
-			"مدیریت بازار، منابع، انتشار خودکار و وضعیت سیستم از همین ربات انجام می‌شود.",
+			this._tg("startDescription"),
 		].join("\n"),
-		{ inline_keyboard: [[{ text: "📋 پنل مدیریت", callback_data: "menu:home" }]] },
+		{ inline_keyboard: [[{ text: `📋 ${this._tg("managementPanel")}`, callback_data: "menu:home" }]] },
 	);
 },
 
@@ -54,24 +22,20 @@ async _sendMenu(chatId, admin) {
 },
 
 async _showMenu(message, admin) {
-	return this.s.telegram.editMessage(
-		message.chat.id,
-		message.message_id,
-		this._menuText(admin),
-		this._menuKeyboard(),
-	);
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, this._menuText(admin), this._menuKeyboard());
 },
 
 _menuText(admin) {
 	const now = Date.now();
+	const roleLabel = this._tg(admin.role === "owner" ? "owner" : "admin");
 	return [
 		`<b>⚡️ ${escapeHtml(this.s.config.displayName)}</b>`,
 		"",
-		`نقش: <b>${admin.role === "owner" ? "مالک" : "ادمین"}</b>`,
+		`${this._tgLanguage() === "fa" ? "نقش" : "Role"}: <b>${roleLabel}</b>`,
 		`📅 ${formatIranDate(this.s.config, now)}  ·  🕒 ${formatIranTime(this.s.config, now)}`,
 		`Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`,
 		"",
-		"<blockquote>ℹ️ از دکمه‌های زیر برای مدیریت بازار و سیستم استفاده کنید.</blockquote>",
+		`<blockquote>ℹ️ ${this._tg("selectAction")}</blockquote>`,
 		"",
 		`Version: <code>${escapeHtml(this.s.config.version)}</code>`,
 	].join("\n");
@@ -80,14 +44,14 @@ _menuText(admin) {
 _menuKeyboard() {
 	return {
 		inline_keyboard: [
-			[{ text: "📈 مدیریت بازار", callback_data: "market:home" }],
+			[{ text: `📈 ${this._tg("market")}`, callback_data: "market:home" }],
 			[
-				{ text: "📡 مدیریت منابع", callback_data: "sources:home" },
-				{ text: "👥 مدیریت ادمین‌ها", callback_data: "admins:home" },
+				{ text: `📡 ${this._tg("sources")}`, callback_data: "sources:home" },
+				{ text: `👥 ${this._tg("admins")}`, callback_data: "admins:home" },
 			],
 			[
-				{ text: "⚙️ تنظیمات", callback_data: "settings:home" },
-				{ text: "❓ راهنما", callback_data: "help:home" },
+				{ text: `⚙️ ${this._tg("settings")}`, callback_data: "settings:home" },
+				{ text: `❓ ${this._tg("help")}`, callback_data: "help:home" },
 			],
 		],
 	};
@@ -102,100 +66,51 @@ async _showHelp(message, admin) {
 		message.chat.id,
 		message.message_id,
 		this._helpText(admin),
-		backKeyboard("پنل مدیریت", "menu:home"),
+		backKeyboard(this._tg("managementPanel"), "menu:home"),
 	);
 },
 
 _helpText(admin) {
+	if (this._tgLanguage() === "en") {
+		return [
+			`<b>${this._tg("helpTitle")}</b>`, "", `<b>${this._tg("commands")}</b>`,
+			`<code>/start</code> ${this._tg("start")}`,
+			`<code>/menu</code> ${this._tg("menu")}`,
+			`<code>/help</code> ${this._tg("help")}`,
+			`<code>/id</code> ${this._tg("telegramId")}`,
+			"", "<b>📈 Market</b>", "Cached data, preview, manual publish and forced refresh.",
+			"", "<b>📡 Sources</b>", "USDT: Wallex → Tabdeal → Exir", "Crypto + Global Metals: CoinGecko", "Iran Gold: WallGold",
+			"", "<b>🗃 Market cache</b>", "Bot/API/Cron share one D1 market snapshot.",
+			"", "<b>🤖 Automation</b>", "Cron checks every minute and publishes only on aligned slots outside quiet hours.",
+			"", `Role: <code>${admin.role}</code>`, `Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`, `Version: <code>${escapeHtml(this.s.config.version)}</code>`,
+		].join("\n");
+	}
 	return [
-		"<b>❓ راهنمای DRD RATE MANAGER</b>",
-		"",
-		"<b>دستورات</b>",
-		"<code>/start</code> شروع",
-		"<code>/menu</code> پنل مدیریت",
-		"<code>/help</code> راهنما",
-		"<code>/id</code> شناسه تلگرام",
-		"",
-		"<b>📈 مدیریت بازار</b>",
-		"نمایش داده کش‌شده، پیش‌نمایش، انتشار دستی و بروزرسانی اجباری.",
-		"",
-		"<b>📡 منابع</b>",
-		"USDT: Wallex → Tabdeal → Exir",
-		"Crypto + Global Metals: CoinGecko",
-		"Iran Gold: WallGold",
-		"",
-		"<b>🗃 کش بازار</b>",
-		"تمام Bot/API/Cron از یک Snapshot مرکزی D1 استفاده می‌کنند. مدت اعتبار از تنظیمات قابل تغییر است.",
-		"",
-		"<b>🤖 انتشار خودکار</b>",
-		"Cron هر دقیقه وضعیت را بررسی می‌کند؛ انتشار فقط در موعد و خارج Quiet Hours انجام می‌شود.",
-		"",
-		`Role: <code>${admin.role}</code>`,
-		`Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`,
-		`Version: <code>${escapeHtml(this.s.config.version)}</code>`,
+		"<b>❓ راهنمای DRD RATE MANAGER</b>", "", "<b>دستورات</b>",
+		"<code>/start</code> شروع", "<code>/menu</code> پنل مدیریت", "<code>/help</code> راهنما", "<code>/id</code> شناسه تلگرام",
+		"", "<b>📈 مدیریت بازار</b>", "نمایش داده کش‌شده، پیش‌نمایش، انتشار دستی و بروزرسانی اجباری.",
+		"", "<b>📡 منابع</b>", "USDT: Wallex → Tabdeal → Exir", "Crypto + Global Metals: CoinGecko", "Iran Gold: WallGold",
+		"", "<b>🗃 کش بازار</b>", "تمام Bot/API/Cron از یک Snapshot مرکزی D1 استفاده می‌کنند.",
+		"", "<b>🤖 انتشار خودکار</b>", "Cron هر دقیقه وضعیت را بررسی می‌کند؛ انتشار فقط در موعد و خارج Quiet Hours انجام می‌شود.",
+		"", `Role: <code>${admin.role}</code>`, `Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`, `Version: <code>${escapeHtml(this.s.config.version)}</code>`,
 	].join("\n");
 },
 
 async _showMarket(message, force = false) {
-	await this.s.telegram.editMessage(
-		message.chat.id,
-		message.message_id,
-		"<b>📈 مدیریت بازار</b>\n\n⏳ در حال خواندن کش بازار...",
-		backKeyboard("پنل مدیریت", "menu:home"),
-	);
-	const [snapshot, automation] = await Promise.all([
-		this.s.market.getSnapshot({ forceRefresh: force }),
-		this.s.automation.getSettings(),
-	]);
-	const lines = [
-		"<b>📈 مدیریت بازار</b>",
-		"",
-		snapshot.partial
-			? "<blockquote>🟡 بخشی از اطلاعات از آخرین کش سالم تکمیل شده است</blockquote>"
-			: "<blockquote>🟢 همه‌چیز آماده انتشار است</blockquote>",
-		"",
-		`🗃 کش: <b>${snapshot.cache.fromCache ? "استفاده شد" : "بروزرسانی شد"}</b> · ${snapshot.cache.ttlSeconds} ثانیه`,
-		`🕒 داده: <b>${formatIranTime(this.s.config, snapshot.createdAt)}</b>`,
-		"",
-		"💵 <b>تتر</b>",
-		formatOptionalToman(snapshot.usdt.price),
-		"",
-		"",
-		`🪙 <b>رمزارزها</b> · <b>${snapshot.crypto.length} فعال</b>`,
-		"",
-	];
-	for (const coin of snapshot.crypto) {
-		lines.push(
-			`${escapeHtml(coinNameFa(coin.id, coin.name))} · ${formatOptionalUsd(coin.price)}`,
-			coin.change24h == null
-				? "⚪ 24 ساعته: <b>نامشخص</b>"
-				: `${changeIcon(coin.change24h)} 24 ساعته: ${formatFaChangeValue(coin.change24h)}`,
-			"",
-		);
-	}
-	lines.push(
-		"",
-		"🥇 <b>طلا و فلزات</b>",
-		"",
-		`طلای ۱۸ عیار · ${formatOptionalToman(snapshot.metals.gram18)}`,
-		`مظنه طلا · ${formatOptionalToman(roundToNearest(snapshot.metals.mazaneh, 1000))}`,
-		`انس طلا · ${formatOptionalUsd(snapshot.metals.gold)}`,
-		`نقره · ${formatOptionalUsd(snapshot.metals.silver)}`,
-		"",
-		"━━━━━━━━━━━━",
-		"",
-		`🤖 انتشار خودکار: ${automation.enabled ? "🟢 فعال" : "⚪ غیرفعال"}`,
-		`⏱ بازه: <b>${automation.intervalMinutes} دقیقه</b>`,
-	);
-	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), {
+	const loading = this._tgLanguage() === "en" ? "⏳ Reading market snapshot..." : "⏳ در حال خواندن کش بازار...";
+	await this.s.telegram.editMessage(message.chat.id, message.message_id, `<b>📈 ${this._tg("market")}</b>\n\n${loading}`, backKeyboard(this._tg("managementPanel"), "menu:home"));
+	const snapshot = await this.s.market.getSnapshot({ forceRefresh: force });
+	const text = this._tgLanguage() === "en"
+		? `<b>📈 Market management</b>\n\n<blockquote>${snapshot.partial ? "🟡 Partial snapshot" : "🟢 Market snapshot is healthy"}</blockquote>\n\nUSDT: <b>${snapshot.usdt?.price ?? "—"}</b>\nCrypto assets: <b>${snapshot.crypto?.length || 0}</b>\nCache: <b>${snapshot.cache?.fromCache ? "HIT" : "REFRESHED"}</b>`
+		: `<b>📈 مدیریت بازار</b>\n\n<blockquote>${snapshot.partial ? "🟡 بخشی از اطلاعات از آخرین کش سالم تکمیل شده است" : "🟢 همه‌چیز آماده انتشار است"}</blockquote>\n\nتتر: <b>${snapshot.usdt?.price ?? "—"}</b>\nرمزارزهای فعال: <b>${snapshot.crypto?.length || 0}</b>\nکش: <b>${snapshot.cache?.fromCache ? "استفاده شد" : "بروزرسانی شد"}</b>`;
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
 		inline_keyboard: [
 			[
-				{ text: "🚀 انتشار اکنون", callback_data: "market:publish" },
-				{ text: "📄 پیش‌نمایش", callback_data: "market:preview" },
+				{ text: this._tgLanguage() === "en" ? "🚀 Publish now" : "🚀 انتشار اکنون", callback_data: "market:publish" },
+				{ text: this._tgLanguage() === "en" ? "📄 Preview" : "📄 پیش‌نمایش", callback_data: "market:preview" },
 			],
-			[{ text: "🤖 زمان‌بندی انتشار", callback_data: "automation:home" }],
-			[{ text: "🔄 بروزرسانی", callback_data: "market:refresh" }],
-			[{ text: "⬅️ پنل مدیریت", callback_data: "menu:home" }],
+			[{ text: this._tgLanguage() === "en" ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "market:refresh" }],
+			[{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }],
 		],
 	});
 },
@@ -203,50 +118,31 @@ async _showMarket(message, force = false) {
 async _showPreview(message) {
 	const snapshot = await this.s.market.getSnapshot();
 	const rich = this.s.postBuilder.buildRichMessage(snapshot);
-	return this.s.telegram.editRichMessage(
-		message.chat.id,
-		message.message_id,
-		rich,
-		this.s.postBuilder.buildFallbackHtml(snapshot),
-		{
-			inline_keyboard: [
-				[{ text: "🚀 انتشار اکنون", callback_data: "market:publish" }],
-				[{ text: "🔄 پیش‌نمایش جدید", callback_data: "market:preview" }],
-				[{ text: "⬅️ مدیریت بازار", callback_data: "market:home" }],
-			],
-		},
-	);
+	return this.s.telegram.editRichMessage(message.chat.id, message.message_id, rich, this.s.postBuilder.buildFallbackHtml(snapshot), {
+		inline_keyboard: [
+			[{ text: this._tgLanguage() === "en" ? "🚀 Publish now" : "🚀 انتشار اکنون", callback_data: "market:publish" }],
+			[{ text: `⬅️ ${this._tg("market")}`, callback_data: "market:home" }],
+		],
+	});
 },
 
 async _publish(message, user) {
-	await this.s.telegram.editMessage(
-		message.chat.id,
-		message.message_id,
-		"<b>🚀 انتشار بازار</b>\n\n⏳ در حال آماده‌سازی داده کش‌شده...",
-		backKeyboard("مدیریت بازار", "market:home"),
-	);
 	try {
 		const snapshot = await this.s.market.getSnapshot();
 		const result = await this.s.publisher.publish(snapshot);
-		await this.s.audit.add(user.id, "market.manual_published", {
-			messageId: result?.message_id ?? null,
-			partial: snapshot.partial,
-		});
+		await this.s.audit.add(user.id, "market.manual_published", { messageId: result?.message_id ?? null, partial: snapshot.partial });
 		return this.s.telegram.editMessage(
 			message.chat.id,
 			message.message_id,
-			"<b>🚀 انتشار بازار</b>\n\n<blockquote>✅ پست با موفقیت منتشر شد</blockquote>\n\n" +
-				(snapshot.partial
-					? "🟡 بعضی داده‌ها از آخرین کش سالم تکمیل شدند."
-					: "🟢 تمام اطلاعات بازار آماده بود."),
-			backKeyboard("مدیریت بازار", "market:home"),
+			this._tgLanguage() === "en" ? "<b>🚀 Market publish</b>\n\n<blockquote>✅ Published successfully</blockquote>" : "<b>🚀 انتشار بازار</b>\n\n<blockquote>✅ پست با موفقیت منتشر شد</blockquote>",
+			backKeyboard(this._tg("market"), "market:home"),
 		);
 	} catch (error) {
 		return this.s.telegram.editMessage(
 			message.chat.id,
 			message.message_id,
-			`<b>🚀 انتشار بازار</b>\n\n🔴 ارسال پیام به کانال ناموفق بود.\n\n<code>${escapeHtml(errorMessage(error))}</code>`,
-			backKeyboard("مدیریت بازار", "market:home"),
+			`<b>🚀 ${this._tg("market")}</b>\n\n🔴 ${this._tgLanguage() === "en" ? "Publishing failed." : "ارسال پیام به کانال ناموفق بود."}\n\n<code>${escapeHtml(errorMessage(error))}</code>`,
+			backKeyboard(this._tg("market"), "market:home"),
 		);
 	}
 }

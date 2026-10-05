@@ -12,28 +12,53 @@ export class AdminApi {
     this.basePath = String(basePath || "").replace(/\/$/, "");
   }
 
-  async session() {
+  session() {
     return this.#request("/api/v1/auth/session");
   }
 
-  async login(username, password) {
+  login(username, password) {
     return this.#request("/api/v1/auth/login", {
       method: "POST",
       body: { username, password },
     });
   }
 
-  async bootstrap(payload, csrfToken) {
-    return this.#request("/api/v1/bootstrap", {
-      method: "POST",
-      body: payload,
-      csrfToken,
-    });
+  bootstrap(payload, csrfToken) {
+    return this.#request("/api/v1/bootstrap", { method: "POST", body: payload, csrfToken });
   }
 
-  async logout(csrfToken) {
-    return this.#request("/api/v1/auth/logout", {
-      method: "POST",
+  logout(csrfToken) {
+    return this.#request("/api/v1/auth/logout", { method: "POST", csrfToken });
+  }
+
+  dashboard() {
+    return this.#request("/api/v1/dashboard");
+  }
+
+  market() {
+    return this.#request("/api/v1/market");
+  }
+
+  refreshMarket(csrfToken) {
+    return this.#request("/api/v1/market/refresh", { method: "POST", csrfToken });
+  }
+
+  marketPreview() {
+    return this.#request("/api/v1/market/preview");
+  }
+
+  publishMarket(csrfToken) {
+    return this.#request("/api/v1/market/publish", { method: "POST", csrfToken });
+  }
+
+  preferences() {
+    return this.#request("/api/v1/preferences");
+  }
+
+  updatePreferences(payload, csrfToken) {
+    return this.#request("/api/v1/preferences", {
+      method: "PATCH",
+      body: payload,
       csrfToken,
     });
   }

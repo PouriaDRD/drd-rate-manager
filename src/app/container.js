@@ -21,6 +21,7 @@ import { WebSessionRepository } from "../repositories/web-session.repository.js"
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
+import { PreferencesService } from "../services/preferences.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
 import { WebAuthService } from "../services/web-auth.service.js";
@@ -34,6 +35,7 @@ export function createServices(env) {
 
 	const settings = new SettingsRepository(runtimeEnv);
 	const settingsService = new SettingsService(runtimeEnv, settings);
+	const preferences = new PreferencesService(settings);
 	const config = new Config(runtimeEnv, settingsService);
 	const cache = new MarketCacheRepository(runtimeEnv);
 	const locks = new LockRepository(runtimeEnv);
@@ -49,17 +51,7 @@ export function createServices(env) {
 	const http = new HttpClient();
 	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http);
 	const sources = new MarketSources(runtimeEnv, http, statuses, config);
-	const market = new MarketService(
-		runtimeEnv,
-		config,
-		settings,
-		cache,
-		locks,
-		assets,
-		statuses,
-		sources,
-		coinGecko,
-	);
+	const market = new MarketService(runtimeEnv, config, settings, cache, locks, assets, statuses, sources, coinGecko);
 	const telegram = new TelegramClient(runtimeEnv, http);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
@@ -71,6 +63,7 @@ export function createServices(env) {
 		config,
 		settings,
 		settingsService,
+		preferences,
 		secureSettings,
 		secureSettingsService,
 		secretCrypto,

@@ -1,54 +1,28 @@
 import { APP } from "../../config/app.js";
-import { runtimeIntegrity } from "../../app/runtime-integrity.js";
 import { jsonResponse } from "../../http/responses.js";
-import { databaseStatus } from "../../system/database-status.js";
-import {
-	backKeyboard,
-	normalizeCommand,
-	resolveUsdtFromStatuses,
-	sourceStatusText,
-} from "../../telegram/ui.js";
-import { calculateNextPublishAt } from "../../utils/automation.js";
-import {
-	chunk,
-	coinNameFa,
-	errorMessage,
-	escapeHtml,
-	normalizeDigits,
-	pad2,
-	parseBoolean,
-} from "../../utils/core.js";
-import {
-	formatIranDate,
-	formatIranTime,
-	formatOptionalSystemDateTime,
-	formatSystemDate,
-	formatSystemTime,
-} from "../../utils/datetime.js";
-import {
-	changeIcon,
-	formatFaChangeValue,
-	formatFaInteger,
-	formatOptionalToman,
-	formatOptionalUsd,
-	roundToNearest,
-} from "../../utils/formatters.js";
+import { backKeyboard, normalizeCommand } from "../../telegram/ui.js";
+import { telegramT } from "../../telegram/i18n.js";
+import { errorMessage, escapeHtml, pad2, parseBoolean } from "../../utils/core.js";
 
 export const telegram_coreMethods = {
 async handleWebhook(request) {
-	if (!this._verifyWebhook(request)) {
-		return jsonResponse({ success: false, message: "Unauthorized" }, 401);
-	}
+	if (!this._verifyWebhook(request)) return jsonResponse({ success: false, message: "Unauthorized" }, 401);
+	await this.s.preferences?.refresh?.();
 	const update = await request.json();
 	try {
 		await this._process(update);
 	} catch (error) {
-		console.error("telegram.update_failed", {
-			message: errorMessage(error),
-			stack: error?.stack || null,
-		});
+		console.error("telegram.update_failed", { message: errorMessage(error), stack: error?.stack || null });
 	}
 	return jsonResponse({ success: true });
+},
+
+_tgLanguage() {
+	return this.s.preferences?.telegramLanguage || "fa";
+},
+
+_tg(key) {
+	return telegramT(this._tgLanguage(), key);
 },
 
 _verifyWebhook(request) {
@@ -69,7 +43,7 @@ async _message(message) {
 	if (command === "/id") {
 		return this.s.telegram.sendMessage(
 			message.chat.id,
-			`<b>🆔 شناسه شما</b>\n\n<code>${escapeHtml(String(user?.id || ""))}</code>`,
+			`<b>🆔 ${this._tg("telegramId")}</b>\n\n<code>${escapeHtml(String(user?.id || ""))}</code>`,
 		);
 	}
 
@@ -77,15 +51,13 @@ async _message(message) {
 	if (!admin) {
 		return this.s.telegram.sendMessage(
 			message.chat.id,
-			"<b>⛔️ دسترسی غیرمجاز</b>\n\nشما اجازه استفاده از این ربات را ندارید.",
+			`<b>${this._tg("unauthorizedTitle")}</b>\n\n${this._tg("unauthorizedBody")}`,
 		);
 	}
 	await this.s.admins.touchProfile(user);
 
 	const input = await this.s.adminInput.get(user.id);
-	if (input?.action === "add_admin" && !command) {
-		return this._handleAddAdminInput(message, admin);
-	}
+	if (input?.action === "add_admin" && !command) return this._handleAddAdminInput(message, admin);
 
 	const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
 	if (!enabled && admin.role !== "owner") {
@@ -93,14 +65,10 @@ async _message(message) {
 	}
 
 	switch (command) {
-		case "/start":
-			return this._sendStart(message.chat.id, admin);
-		case "/menu":
-			return this._sendMenu(message.chat.id, admin);
-		case "/help":
-			return this._sendHelp(message.chat.id, admin);
-		default:
-			return this._sendMenu(message.chat.id, admin);
+		case "/start": return this._sendStart(message.chat.id, admin);
+		case "/menu": return this._sendMenu(message.chat.id, admin);
+		case "/help": return this._sendHelp(message.chat.id, admin);
+		default: return this._sendMenu(message.chat.id, admin);
 	}
 },
 
@@ -110,20 +78,12 @@ async _callback(query) {
 	const message = query.message;
 	const admin = await this.s.admins.resolve(user);
 	if (!admin) {
-		return this.s.telegram.editMessage(
-			message.chat.id,
-			message.message_id,
-			"<b>⛔️ دسترسی غیرمجاز</b>",
-		);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, `<b>${this._tg("unauthorizedTitle")}</b>`);
 	}
 	const data = String(query.data || "");
 	const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
 	if (!enabled && admin.role !== "owner" && data !== "global:enable") {
-		return this.s.telegram.editMessage(
-			message.chat.id,
-			message.message_id,
-			this._disabledText(admin),
-		);
+		return this.s.telegram.editMessage(message.chat.id, message.message_id, this._disabledText(admin));
 	}
 
 	if (data === "menu:home") return this._showMenu(message, admin);
@@ -142,12 +102,14 @@ async _callback(query) {
 		return this._showCoinGecko(message);
 	}
 	if (data === "settings:home") return this._showSettings(message, admin);
+	if (data === "settings:language:toggle") {
+		await this.s.preferences.toggleTelegramLanguage();
+		return this._showSettings(message, admin);
+	}
 	if (data === "cache:home") return this._showCacheSettings(message);
 	if (data.startsWith("cache:set:")) {
 		const seconds = Number(data.slice("cache:set:".length));
-		if (APP.cacheTtlOptions.includes(seconds)) {
-			await this.s.settings.set("market_cache_ttl_seconds", seconds);
-		}
+		if (APP.cacheTtlOptions.includes(seconds)) await this.s.settings.set("market_cache_ttl_seconds", seconds);
 		return this._showCacheSettings(message);
 	}
 	if (data === "automation:home") return this._showAutomation(message);
@@ -159,9 +121,7 @@ async _callback(query) {
 	if (data === "automation:interval") return this._showIntervals(message);
 	if (data.startsWith("automation:interval:set:")) {
 		const minutes = Number(data.slice("automation:interval:set:".length));
-		if (APP.publishIntervals.includes(minutes)) {
-			await this.s.settings.set("publish_interval_minutes", minutes);
-		}
+		if (APP.publishIntervals.includes(minutes)) await this.s.settings.set("publish_interval_minutes", minutes);
 		return this._showAutomation(message);
 	}
 	if (data === "automation:quiet:toggle") {
@@ -170,21 +130,14 @@ async _callback(query) {
 		return this._showAutomation(message);
 	}
 	if (data === "automation:quiet:edit") return this._quietStartHour(message);
-	if (data.startsWith("quiet:start_hour:")) {
-		return this._quietStartMinute(message, Number(data.split(":")[2]));
-	}
+	if (data.startsWith("quiet:start_hour:")) return this._quietStartMinute(message, Number(data.split(":")[2]));
 	if (data.startsWith("quiet:start_minute:")) {
 		const [, , hour, minute] = data.split(":");
 		return this._quietEndHour(message, Number(hour), Number(minute));
 	}
 	if (data.startsWith("quiet:end_hour:")) {
 		const [, , startHour, startMinute, endHour] = data.split(":");
-		return this._quietEndMinute(
-			message,
-			Number(startHour),
-			Number(startMinute),
-			Number(endHour),
-		);
+		return this._quietEndMinute(message, Number(startHour), Number(startMinute), Number(endHour));
 	}
 	if (data.startsWith("quiet:end_minute:")) {
 		const [, , sh, sm, eh, em] = data.split(":");
@@ -204,12 +157,10 @@ async _callback(query) {
 			message.chat.id,
 			message.message_id,
 			"<b>➕ افزودن ادمین</b>\n\nآیدی عددی Telegram کاربر را ارسال کنید.\n\n<blockquote>ℹ️ فقط مالک می‌تواند ادمین اضافه یا حذف کند.</blockquote>",
-			backKeyboard("مدیریت ادمین‌ها", "admins:home"),
+			backKeyboard(this._tg("admins"), "admins:home"),
 		);
 	}
-	if (data.startsWith("admins:view:")) {
-		return this._showAdminDetail(message, admin, data.slice("admins:view:".length));
-	}
+	if (data.startsWith("admins:view:")) return this._showAdminDetail(message, admin, data.slice("admins:view:".length));
 	if (data.startsWith("admins:toggle:") && admin.role === "owner") {
 		const targetId = data.slice("admins:toggle:".length);
 		await this.s.admins.toggle(targetId);
