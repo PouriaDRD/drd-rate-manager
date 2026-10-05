@@ -28,6 +28,7 @@ import { PreferencesService } from "../services/preferences.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
 import { SourceSettingsService } from "../services/source-settings.service.js";
+import { SystemManagementService } from "../services/system-management.service.js";
 import { WebAuthService } from "../services/web-auth.service.js";
 
 /** Dependency composition root. */
@@ -73,6 +74,17 @@ export function createServices(env) {
 		locks,
 		automationRuns,
 	);
+	const systemManagement = new SystemManagementService({
+		env: runtimeEnv,
+		config,
+		settings,
+		settingsService,
+		secureSettingsService,
+		cache,
+		sourceSettings,
+		automationManagement,
+		adminManagement,
+	});
 
 	return {
 		env: runtimeEnv,
@@ -107,5 +119,6 @@ export function createServices(env) {
 		publisher,
 		automation,
 		automationManagement,
+		systemManagement,
 	};
 }
