@@ -26,7 +26,7 @@ const APP = Object.freeze({
 	defaultCacheTtlSeconds: 30,
 	defaultPublishIntervalMinutes: 10,
 	cacheTtlOptions: [5, 10, 15, 30, 60, 120, 300, 600],
-	publishIntervals: [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
+	publishIntervals: [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60],
 	quietMinuteOptions: [0, 15, 30, 45],
 	defaultQuietHours: { enabled: false, start: "01:00", end: "10:30" },
 	adminInputTtlMs: 10 * 60 * 1000,
