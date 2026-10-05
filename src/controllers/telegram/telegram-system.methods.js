@@ -1,63 +1,178 @@
-import { APP } from "../../config/app.js";
-import { runtimeIntegrity } from "../../app/runtime-integrity.js";
-import { databaseStatus } from "../../system/database-status.js";
 import { backKeyboard } from "../../telegram/ui.js";
-import { escapeHtml, parseBoolean } from "../../utils/core.js";
-import {
-	formatOptionalSystemDateTime,
-	formatSystemDate,
-	formatSystemTime,
-} from "../../utils/datetime.js";
+import { escapeHtml } from "../../utils/core.js";
+import { formatOptionalSystemDateTime } from "../../utils/datetime.js";
 
 export const telegram_systemMethods = {
 async _showSystem(message) {
-	const [enabled, ttl, automation] = await Promise.all([
-		this.s.settings.get("bot_enabled", "1"),
-		this.s.market.cacheTtlSeconds(),
-		this.s.automation.getSettings(),
-	]);
+	const snapshot = await this.s.systemManagement.snapshot();
 	const en = this._tgLanguage() === "en";
+	const health = snapshot.health || {};
+	const runtime = snapshot.runtime || {};
+	const database = snapshot.database || {};
+	const cache = snapshot.cache || {};
+	const automation = snapshot.automation || {};
+	const sources = snapshot.sources || {};
+	const admins = snapshot.admins || {};
+	const runtimeSettings = snapshot.settings?.runtime || {};
+	const secureSettings = snapshot.settings?.secure || {};
+
+	const lines = [
+		`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`,
+		"",
+		`<blockquote>${this._systemHealthIcon(health.status)} ${escapeHtml(this._systemHealthLabel(health.status, en))}</blockquote>`,
+		"",
+		`🤖 ${en ? "Bot" : "ربات"}: <b>${runtime.botEnabled ? (en ? "Enabled" : "فعال") : (en ? "Disabled" : "غیرفعال")}</b>`,
+		`🧩 Runtime: <code>v${escapeHtml(runtime.version || "—")} · schema ${escapeHtml(runtime.schemaVersion ?? "—")}</code>`,
+		`🌐 Timezone: <code>${escapeHtml(runtime.timezone || "—")}</code>`,
+		`🛡 Integrity: <code>${runtime.integrity ? "OK" : "FAILED"}</code>`,
+		"",
+		`🗄 D1: <b>${database.connected ? (en ? "Connected" : "متصل") : (en ? "Unavailable" : "در دسترس نیست")}</b> · <code>${Number(database.latency_ms || 0)}ms</code>`,
+		`🧊 ${en ? "Cache" : "کش"}: <b>${escapeHtml(this._systemCacheLabel(cache, en))}</b>`,
+		`🕒 ${en ? "Automation" : "اتوماسیون"}: <b>${automation.enabled ? "ON" : "OFF"}</b> · <code>${escapeHtml(this._systemAutomationReason(automation.reason, en))}</code>`,
+		`⏭ ${en ? "Next publish" : "انتشار بعدی"}: <code>${escapeHtml(formatOptionalSystemDateTime(this.s.config, automation.nextPublishAt))}</code>`,
+		"",
+		`📡 ${en ? "Sources" : "منابع"}: <b>${Number(sources.healthy || 0)}/${Number(sources.enabled || 0)}</b> ${en ? "healthy" : "سالم"} · ${Number(sources.failed || 0)} ${en ? "failed" : "ناموفق"} · ${Number(sources.unchecked || 0)} ${en ? "unchecked" : "بررسی‌نشده"}`,
+		`👥 ${en ? "Admins" : "ادمین‌ها"}: <b>${Number(admins.activeAdmins || 0)}</b> ${en ? "active" : "فعال"} · ${Number(admins.inactiveAdmins || 0)} ${en ? "inactive" : "غیرفعال"}`,
+		"",
+		`⚙️ Runtime settings: <code>${Number(runtimeSettings.d1Count || 0)}/${Number(runtimeSettings.total || 0)} D1</code>`,
+		`🔐 Secure settings: <code>${Number(secureSettings.encryptedCount || 0)}/${Number(secureSettings.managedCount || 0)} encrypted</code>`,
+	];
+
+	if (health.reasonCodes?.length) {
+		lines.push("", `<b>⚠️ ${en ? "Health reasons" : "دلایل وضعیت"}</b>`);
+		for (const reason of health.reasonCodes.slice(0, 6)) {
+			lines.push(`• ${escapeHtml(this._systemReasonLabel(reason, en))} <code>${escapeHtml(reason)}</code>`);
+		}
+	}
+
+	lines.push(
+		"",
+		`<blockquote>ℹ️ ${en ? "Telegram and Web Admin use the same system health snapshot. No providers are refreshed from this screen." : "تلگرام و Web Admin از یک snapshot مشترک سلامت سیستم استفاده می‌کنند. از این صفحه هیچ Providerای Refresh نمی‌شود."}</blockquote>`,
+	);
+
 	return this.s.telegram.editMessage(
 		message.chat.id,
 		message.message_id,
-		[
-			`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`, "",
-			`<blockquote>${parseBoolean(enabled, true) ? (en ? "🟢 Worker is enabled" : "🟢 Worker فعال است") : (en ? "🔴 Worker is disabled" : "🔴 Worker غیرفعال است")}</blockquote>`, "",
-			`Version: <code>${escapeHtml(this.s.config.version)}</code>`,
-			`Schema: <code>${APP.schemaVersion}</code>`,
-			`Timezone: <code>${escapeHtml(this.s.config.timezone)}</code>`,
-			`Cache: <code>${ttl}s</code>`,
-			`Automation: <code>${automation.enabled ? "ON" : "OFF"}</code>`,
-			`Integrity: <code>${runtimeIntegrity() ? "OK" : "FAILED"}</code>`, "",
-			`📅 ${formatSystemDate(this.s.config, Date.now())} · 🕒 ${formatSystemTime(this.s.config, Date.now())}`,
-		].join("\n"),
-		{ inline_keyboard: [
-			[{ text: en ? "🗄 Database status" : "🗄 وضعیت دیتابیس", callback_data: "database:home" }],
-			[{ text: `⬅️ ${this._tg("settings")}`, callback_data: "settings:home" }],
-		] },
+		lines.join("\n").slice(0, 3900),
+		{
+			inline_keyboard: [
+				[
+					{ text: en ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "system:home" },
+					{ text: en ? "🗄 Database" : "🗄 دیتابیس", callback_data: "database:home" },
+				],
+				[{ text: `⬅️ ${this._tg("settings")}`, callback_data: "settings:home" }],
+			],
+		},
 	);
 },
 
 async _showDatabase(message) {
-	const status = await databaseStatus(this.s);
-	const storage = status.storage;
+	const snapshot = await this.s.systemManagement.snapshot();
+	const status = snapshot.database || {};
+	const storage = status.storage || {};
 	const en = this._tgLanguage() === "en";
 	const lines = [
-		`<b>🗄 ${en ? "Database status" : "وضعیت دیتابیس"}</b>`, "",
-		`<blockquote>${status.connected ? (en ? "🟢 Cloudflare D1 connected" : "🟢 Cloudflare D1 متصل است") : (en ? "🔴 D1 connection failed" : "🔴 اتصال D1 ناموفق است")}</blockquote>`, "",
-		`Provider: <code>${escapeHtml(status.provider)}</code>`, `Latency: <code>${status.latency_ms}ms</code>`, "",
-		`<b>💾 ${en ? "Database storage" : "فضای دیتابیس"}</b>`, "",
+		`<b>🗄 ${en ? "Database status" : "وضعیت دیتابیس"}</b>`,
+		"",
+		`<blockquote>${status.connected ? (en ? "🟢 Cloudflare D1 connected" : "🟢 Cloudflare D1 متصل است") : (en ? "🔴 D1 connection failed" : "🔴 اتصال D1 ناموفق است")}</blockquote>`,
+		"",
+		`Provider: <code>${escapeHtml(status.provider || "—")}</code>`,
+		`Latency: <code>${Number(status.latency_ms || 0)}ms</code>`,
+		`Schema: <code>${escapeHtml(snapshot.runtime?.schemaVersion ?? status.schema_version ?? "—")}</code>`,
+		"",
+		`<b>💾 ${en ? "Database storage" : "فضای دیتابیس"}</b>`,
+		"",
 	];
+
 	if (storage.available) {
 		lines.push(
-			`${storage.bar}  ${storage.percent.toFixed(2)}%`, "",
-			`${en ? "Used" : "مصرف‌شده"}: ${storage.used_mb.toFixed(2)} MB`,
-			`${en ? "Total" : "فضای کل"}: ${storage.total_mb.toFixed(2)} MB`,
-			`${en ? "Remaining" : "باقی‌مانده"}: ${storage.remaining_mb.toFixed(2)} MB`, "",
+			`${escapeHtml(storage.bar || "")}  ${Number(storage.percent || 0).toFixed(2)}%`,
+			"",
+			`${en ? "Used" : "مصرف‌شده"}: ${Number(storage.used_mb || 0).toFixed(2)} MB`,
+			`${en ? "Total" : "فضای کل"}: ${Number(storage.total_mb || 0).toFixed(2)} MB`,
+			`${en ? "Remaining" : "باقی‌مانده"}: ${Number(storage.remaining_mb || 0).toFixed(2)} MB`,
+			"",
 		);
+	} else {
+		lines.push(`<code>${en ? "Storage metrics unavailable" : "اطلاعات فضای دیتابیس در دسترس نیست"}</code>`, "");
 	}
-	lines.push(`<b>📊 ${en ? "Records" : "رکوردها"}</b>`, ...Object.entries(status.records).map(([key, value]) => `${escapeHtml(key)}: <code>${value}</code>`), "", `Schema: <code>${APP.schemaVersion}</code>`);
-	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), backKeyboard(en ? "System status" : "وضعیت سیستم", "system:home"));
+
+	lines.push(
+		`<b>📊 ${en ? "Records" : "رکوردها"}</b>`,
+		...Object.entries(status.records || {}).map(
+			([key, value]) => `${escapeHtml(key)}: <code>${Number(value || 0)}</code>`,
+		),
+		"",
+		`<blockquote>ℹ️ ${en ? "This is the same D1 snapshot used by Web Admin system diagnostics." : "این همان snapshot دیتابیس مورد استفاده Web Admin است."}</blockquote>`,
+	);
+
+	return this.s.telegram.editMessage(
+		message.chat.id,
+		message.message_id,
+		lines.join("\n").slice(0, 3900),
+		{
+			inline_keyboard: [
+				[{ text: en ? "🔄 Refresh database" : "🔄 بروزرسانی دیتابیس", callback_data: "database:home" }],
+				[{ text: en ? "⬅️ System status" : "⬅️ وضعیت سیستم", callback_data: "system:home" }],
+			],
+		},
+	);
+},
+
+_systemHealthIcon(status) {
+	switch (status) {
+		case "healthy": return "🟢";
+		case "degraded": return "🟡";
+		case "disabled": return "⚪";
+		default: return "🔴";
+	}
+},
+
+_systemHealthLabel(status, en) {
+	const labels = {
+		healthy: en ? "Healthy" : "سالم",
+		degraded: en ? "Needs attention" : "نیازمند توجه",
+		critical: en ? "Critical" : "بحرانی",
+		disabled: en ? "Disabled" : "غیرفعال",
+	};
+	return labels[status] || (en ? "Unknown" : "نامشخص");
+},
+
+_systemCacheLabel(cache, en) {
+	if (!cache?.present) return en ? "Empty" : "خالی";
+	if (cache.expired) return en ? "Expired" : "منقضی";
+	return en ? "Fresh" : "تازه";
+},
+
+_systemAutomationReason(reason, en) {
+	const labels = {
+		ready: en ? "Ready" : "آماده انتشار",
+		waiting_for_next_slot: en ? "Waiting for next slot" : "در انتظار بازه بعدی",
+		quiet_hours: en ? "Quiet hours" : "ساعت استراحت",
+		already_published: en ? "Already published" : "قبلاً منتشر شده",
+		retry_pending: en ? "Retry pending" : "تلاش مجدد در انتظار",
+		automation_disabled: en ? "Automation disabled" : "اتوماسیون غیرفعال",
+		bot_disabled: en ? "Bot disabled" : "ربات غیرفعال",
+	};
+	return labels[reason] || String(reason || (en ? "Unknown" : "نامشخص"));
+},
+
+_systemReasonLabel(reason, en) {
+	const labels = {
+		database_unavailable: en ? "Database unavailable" : "دیتابیس در دسترس نیست",
+		runtime_integrity_failed: en ? "Runtime integrity failed" : "Runtime integrity ناموفق است",
+		runtime_settings_invalid: en ? "Invalid D1 runtime settings" : "تنظیم Runtime نامعتبر در D1",
+		no_sources_enabled: en ? "No sources enabled" : "هیچ منبعی فعال نیست",
+		source_failures: en ? "Source failures detected" : "یک یا چند منبع ناموفق هستند",
+		sources_unverified: en ? "Some sources are unchecked" : "برخی منابع بررسی نشده‌اند",
+		cache_empty: en ? "Market cache is empty" : "کش بازار خالی است",
+		cache_expired: en ? "Market cache expired" : "کش بازار منقضی شده",
+		cache_last_error: en ? "Market cache has a last error" : "کش بازار آخرین خطا دارد",
+		bot_disabled: en ? "Bot is disabled" : "ربات غیرفعال است",
+		runtime_settings_legacy_fallback: en ? "Runtime settings use ENV fallback" : "برخی Runtime settingها از ENV خوانده می‌شوند",
+		runtime_settings_default_fallback: en ? "Runtime settings use defaults" : "برخی Runtime settingها از مقدار پیش‌فرض استفاده می‌کنند",
+	};
+	return labels[reason] || String(reason || (en ? "Unknown reason" : "دلیل نامشخص"));
 },
 
 async _showAdmins(message, admin) {
