@@ -125,21 +125,29 @@ async _callback(query) {
 		if (APP.cacheTtlOptions.includes(seconds)) await this.s.settings.set("market_cache_ttl_seconds", seconds);
 		return this._showCacheSettings(message);
 	}
-	if (data === "automation:home") return this._showAutomation(message);
+	if (data === "automation:home" || data === "automation:refresh") return this._showAutomation(message);
+	if (data === "automation:history") return this._showAutomationHistory(message);
+	if (data === "automation:dry-run") return this._showAutomationDryRun(message, user);
+	if (data === "automation:force:confirm") return this._confirmAutomationForceRun(message);
+	if (data === "automation:force:execute") return this._executeAutomationForceRun(message, user);
 	if (data === "automation:toggle") {
-		const automation = await this.s.automation.getSettings();
-		await this.s.settings.set("auto_publish_enabled", automation.enabled ? "0" : "1");
+		const state = await this.s.automationManagement.state();
+		await this.s.automationManagement.updateSettings({ enabled: !state.settings.enabled });
 		return this._showAutomation(message);
 	}
 	if (data === "automation:interval") return this._showIntervals(message);
 	if (data.startsWith("automation:interval:set:")) {
 		const minutes = Number(data.slice("automation:interval:set:".length));
-		if (APP.publishIntervals.includes(minutes)) await this.s.settings.set("publish_interval_minutes", minutes);
+		if (APP.publishIntervals.includes(minutes)) {
+			await this.s.automationManagement.updateSettings({ interval_minutes: minutes });
+		}
 		return this._showAutomation(message);
 	}
 	if (data === "automation:quiet:toggle") {
-		const automation = await this.s.automation.getSettings();
-		await this.s.settings.set("quiet_hours_enabled", automation.quietHours.enabled ? "0" : "1");
+		const state = await this.s.automationManagement.state();
+		await this.s.automationManagement.updateSettings({
+			quiet_hours: { enabled: !state.settings.quietHours.enabled },
+		});
 		return this._showAutomation(message);
 	}
 	if (data === "automation:quiet:edit") return this._quietStartHour(message);
@@ -154,10 +162,12 @@ async _callback(query) {
 	}
 	if (data.startsWith("quiet:end_minute:")) {
 		const [, , sh, sm, eh, em] = data.split(":");
-		await this.s.settings.setMany({
-			quiet_hours_start: `${pad2(sh)}:${pad2(sm)}`,
-			quiet_hours_end: `${pad2(eh)}:${pad2(em)}`,
-			quiet_hours_enabled: "1",
+		await this.s.automationManagement.updateSettings({
+			quiet_hours: {
+				enabled: true,
+				start: `${pad2(sh)}:${pad2(sm)}`,
+				end: `${pad2(eh)}:${pad2(em)}`,
+			},
 		});
 		return this._showAutomation(message);
 	}

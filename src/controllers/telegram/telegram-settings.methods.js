@@ -1,6 +1,5 @@
 import { APP } from "../../config/app.js";
 import { backKeyboard, resolveUsdtFromStatuses, sourceStatusText } from "../../telegram/ui.js";
-import { calculateNextPublishAt } from "../../utils/automation.js";
 import { chunk, escapeHtml, pad2, parseBoolean } from "../../utils/core.js";
 import { formatOptionalSystemDateTime } from "../../utils/datetime.js";
 import { formatFaInteger } from "../../utils/formatters.js";
@@ -128,31 +127,152 @@ async _showCacheSettings(message) {
 },
 
 async _showAutomation(message) {
-	const automation = await this.s.automation.getSettings();
-	const next = calculateNextPublishAt(automation);
+	const state = await this.s.automationManagement.state();
+	const automation = state.settings;
+	const diagnostics = state.diagnostics;
 	const en = this._tgLanguage() === "en";
+	const reason = this._automationReasonText(diagnostics.reason, en);
 	const lines = en ? [
-		"<b>🕒 Publishing schedule</b>", "",
+		"<b>🕒 Publishing automation</b>", "",
 		`<blockquote>${automation.enabled ? "🟢 Automatic publishing enabled" : "⚪ Automatic publishing disabled"}</blockquote>`, "",
+		`🧭 Status: <b>${escapeHtml(reason)}</b>`,
 		`⏱ Interval: <b>${automation.intervalMinutes} min</b>`,
 		`🌙 Quiet hours: <b>${automation.quietHours.enabled ? `${automation.quietHours.start} – ${automation.quietHours.end}` : "Disabled"}</b>`, "",
 		`📤 Last publish: <b>${formatOptionalSystemDateTime(this.s.config, automation.lastSuccessAt)}</b>`,
-		`⏭ Next publish: <b>${formatOptionalSystemDateTime(this.s.config, next)}</b>`,
+		`⏭ Next publish: <b>${formatOptionalSystemDateTime(this.s.config, diagnostics.nextPublishAt)}</b>`,
+		`🔁 Retry: <b>${diagnostics.retryPending ? "Pending" : "None"}</b>`,
 	] : [
-		"<b>🕒 زمان‌بندی انتشار</b>", "",
+		"<b>🕒 اتوماسیون انتشار</b>", "",
 		`<blockquote>${automation.enabled ? "🟢 انتشار خودکار فعال است" : "⚪ انتشار خودکار غیرفعال است"}</blockquote>`, "",
+		`🧭 وضعیت: <b>${escapeHtml(reason)}</b>`,
 		`⏱ بازه انتشار: <b>${automation.intervalMinutes} دقیقه</b>`,
 		`🌙 ساعت استراحت: <b>${automation.quietHours.enabled ? `${automation.quietHours.start} تا ${automation.quietHours.end}` : "غیرفعال"}</b>`, "",
 		`📤 آخرین انتشار: <b>${formatOptionalSystemDateTime(this.s.config, automation.lastSuccessAt)}</b>`,
-		`⏭ انتشار بعدی: <b>${formatOptionalSystemDateTime(this.s.config, next)}</b>`,
+		`⏭ انتشار بعدی: <b>${formatOptionalSystemDateTime(this.s.config, diagnostics.nextPublishAt)}</b>`,
+		`🔁 تلاش مجدد: <b>${diagnostics.retryPending ? "در انتظار" : "ندارد"}</b>`,
 	];
+	if (automation.lastError) {
+		lines.push("", `🔴 ${en ? "Last error" : "آخرین خطا"}: <code>${escapeHtml(automation.lastError.slice(0, 350))}</code>`);
+	}
 	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n"), {
 		inline_keyboard: [
 			[{ text: automation.enabled ? (en ? "⏸ Stop automation" : "⏸ توقف انتشار خودکار") : (en ? "▶️ Enable automation" : "▶️ فعال‌سازی انتشار خودکار"), callback_data: "automation:toggle" }],
-			[{ text: en ? "🌙 Quiet hours" : "🌙 ساعت استراحت", callback_data: "automation:quiet:edit" }, { text: en ? "⏱ Interval" : "⏱ بازه انتشار", callback_data: "automation:interval" }],
+			[
+				{ text: automation.quietHours.enabled ? (en ? "🌙 Disable quiet hours" : "🌙 خاموش کردن استراحت") : (en ? "🌙 Enable quiet hours" : "🌙 فعال کردن استراحت"), callback_data: "automation:quiet:toggle" },
+				{ text: en ? "⏱ Interval" : "⏱ بازه انتشار", callback_data: "automation:interval" },
+			],
+			[{ text: en ? "🕰 Edit quiet hours" : "🕰 تنظیم ساعت استراحت", callback_data: "automation:quiet:edit" }],
+			[
+				{ text: en ? "🧪 Dry run" : "🧪 اجرای آزمایشی", callback_data: "automation:dry-run" },
+				{ text: en ? "🚀 Force run" : "🚀 انتشار اجباری", callback_data: "automation:force:confirm" },
+			],
+			[
+				{ text: en ? "📚 History" : "📚 تاریخچه", callback_data: "automation:history" },
+				{ text: en ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "automation:refresh" },
+			],
 			[{ text: `⬅️ ${this._tg("settings")}`, callback_data: "settings:home" }],
 		],
 	});
+},
+
+async _showAutomationHistory(message) {
+	const history = await this.s.automationManagement.history(10);
+	const en = this._tgLanguage() === "en";
+	const lines = [`<b>📚 ${en ? "Automation history" : "تاریخچه اتوماسیون"}</b>`, ""];
+	if (!history.length) {
+		lines.push(`<blockquote>${en ? "No executions recorded yet." : "هنوز اجرایی ثبت نشده است."}</blockquote>`);
+	} else {
+		for (const run of history) {
+			const icon = run.status === "success" ? "✅" : run.status === "preview" ? "🧪" : "🔴";
+			const mode = this._automationModeText(run.mode, en);
+			const when = formatOptionalSystemDateTime(this.s.config, run.finishedAt);
+			const actor = run.actorType === "telegram"
+				? `Telegram${run.actorId ? ` · ${escapeHtml(run.actorId)}` : ""}`
+				: escapeHtml(run.actorType || "system");
+			lines.push(`${icon} <b>${escapeHtml(mode)}</b> · ${when}`, `<code>${actor}</code>`, "");
+		}
+	}
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, lines.join("\n").slice(0, 3900), {
+		inline_keyboard: [
+			[{ text: en ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "automation:history" }],
+			[{ text: en ? "⬅️ Automation" : "⬅️ اتوماسیون", callback_data: "automation:home" }],
+		],
+	});
+},
+
+async _showAutomationDryRun(message, user) {
+	const en = this._tgLanguage() === "en";
+	const result = await this.s.automationManagement.dryRun({
+		actor: { type: "telegram", id: user?.id },
+		refreshMarket: false,
+	});
+	const preview = String(result.fallbackHtml || result.rich?.html || "—").slice(0, 3000);
+	const text = [
+		`<b>🧪 ${en ? "Automation dry run" : "اجرای آزمایشی اتوماسیون"}</b>`,
+		"",
+		`<blockquote>✅ ${en ? "Nothing was published." : "هیچ پیامی منتشر نشد."}</blockquote>`,
+		"",
+		`<pre>${escapeHtml(preview)}</pre>`,
+	].join("\n");
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
+		inline_keyboard: [[{ text: en ? "⬅️ Automation" : "⬅️ اتوماسیون", callback_data: "automation:home" }]],
+	});
+},
+
+async _confirmAutomationForceRun(message) {
+	const en = this._tgLanguage() === "en";
+	const text = en
+		? "<b>🚀 Force publish</b>\n\n<blockquote>⚠️ This bypasses the scheduler, interval and quiet hours and publishes immediately.</blockquote>\n\nConfirm only if you want a real channel post now."
+		: "<b>🚀 انتشار اجباری</b>\n\n<blockquote>⚠️ این عملیات زمان‌بندی، بازه انتشار و ساعت استراحت را نادیده می‌گیرد و همین حالا یک پست واقعی منتشر می‌کند.</blockquote>\n\nفقط اگر مطمئن هستید تأیید کنید.";
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
+		inline_keyboard: [
+			[{ text: en ? "✅ Confirm publish" : "✅ تأیید انتشار", callback_data: "automation:force:execute" }],
+			[{ text: en ? "❌ Cancel" : "❌ لغو", callback_data: "automation:home" }],
+		],
+	});
+},
+
+async _executeAutomationForceRun(message, user) {
+	const en = this._tgLanguage() === "en";
+	const result = await this.s.automationManagement.forceRun({
+		actor: { type: "telegram", id: user?.id },
+		refreshMarket: false,
+	});
+	const text = en
+		? `<b>✅ Force publish completed</b>\n\nMessage ID: <code>${escapeHtml(result.messageId ?? "—")}</code>\nPartial data: <b>${result.partial ? "Yes" : "No"}</b>`
+		: `<b>✅ انتشار اجباری انجام شد</b>\n\nشناسه پیام: <code>${escapeHtml(result.messageId ?? "—")}</code>\nداده ناقص: <b>${result.partial ? "بله" : "خیر"}</b>`;
+	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
+		inline_keyboard: [
+			[{ text: en ? "📚 History" : "📚 تاریخچه", callback_data: "automation:history" }],
+			[{ text: en ? "⬅️ Automation" : "⬅️ اتوماسیون", callback_data: "automation:home" }],
+		],
+	});
+},
+
+_automationReasonText(reason, en) {
+	const labels = {
+		ready: en ? "Ready" : "آماده انتشار",
+		waiting_for_next_slot: en ? "Waiting for next slot" : "در انتظار بازه بعدی",
+		interval_not_due: en ? "Interval not due" : "هنوز زمان انتشار نرسیده",
+		quiet_hours: en ? "Quiet hours" : "ساعت استراحت",
+		already_published: en ? "Already published in this slot" : "این بازه قبلاً منتشر شده",
+		retry_pending: en ? "Retry pending" : "تلاش مجدد در انتظار",
+		automation_disabled: en ? "Automation disabled" : "اتوماسیون غیرفعال",
+		bot_disabled: en ? "Bot disabled" : "ربات غیرفعال",
+		already_claimed: en ? "Another run owns this slot" : "این بازه توسط اجرای دیگری گرفته شده",
+		success: en ? "Last run succeeded" : "آخرین اجرا موفق بود",
+		error: en ? "Last run failed" : "آخرین اجرا ناموفق بود",
+	};
+	return labels[reason] || String(reason || (en ? "Unknown" : "نامشخص"));
+},
+
+_automationModeText(mode, en) {
+	const labels = {
+		scheduled: en ? "Scheduled" : "زمان‌بندی‌شده",
+		manual: en ? "Manual force run" : "انتشار دستی",
+		dry_run: en ? "Dry run" : "اجرای آزمایشی",
+	};
+	return labels[mode] || String(mode || "—");
 },
 
 async _showIntervals(message) {
@@ -180,7 +300,7 @@ _quietEndHour(message, startHour, startMinute) {
 },
 
 _quietEndMinute(message, startHour, startMinute, endHour) {
-	return this._minutePicker(message, this._tgLanguage() === "en" ? "<b>🌙 End minute</b>" : "<b>🌙 دقیقه پایان</b>", (minute) => `quiet:end_minute:${startHour}:${startMinute}:${endHour}:${minute}`, "automation:home");
+	return this._minutePicker(message, this._tgLanguage() === "en" ? "<b>🌙 End minute</b>" : "<b>🌙 دقیقه پایان استراحت</b>", (minute) => `quiet:end_minute:${startHour}:${startMinute}:${endHour}:${minute}`, "automation:home");
 },
 
 _hourPicker(message, title, callback, back) {
