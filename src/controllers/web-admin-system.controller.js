@@ -4,6 +4,35 @@ function isoOrNull(timestamp) {
 	return timestamp ? new Date(timestamp).toISOString() : null;
 }
 
+function serializeConfiguration(configuration = {}) {
+	const ownership = configuration.ownership || {};
+	const migration = configuration.migration || {};
+	return {
+		ownership: {
+			version: ownership.version ?? null,
+			valid: Boolean(ownership.valid),
+			runtime_owner: ownership.runtime?.owner || null,
+			secure_owner: ownership.secure?.owner || null,
+			legacy_runtime_env_count: ownership.runtime?.legacyEnvKeys?.length || 0,
+			legacy_secure_env_count: ownership.secure?.legacyEnvKeys?.length || 0,
+			infrastructure_bindings: ownership.infrastructure?.bindings || [],
+			infrastructure_secret_env_keys: ownership.infrastructure?.secretEnvKeys || [],
+			deployment_identity_env_keys: ownership.identity?.envKeys || [],
+		},
+		migration: {
+			runtime_ready: Boolean(migration.runtimeReady),
+			secure_ready: Boolean(migration.secureReady),
+			can_remove_legacy_runtime_env: Boolean(migration.canRemoveLegacyRuntimeEnv),
+			can_remove_legacy_secret_env: Boolean(migration.canRemoveLegacySecretEnv),
+			can_remove_all_legacy_env: Boolean(migration.canRemoveAllLegacyEnv),
+			blockers: (migration.blockers || []).map((item) => ({
+				code: String(item.code || ""),
+				keys: Array.isArray(item.keys) ? item.keys.map(String) : [],
+			})),
+		},
+	};
+}
+
 function serializeSystem(snapshot) {
 	return {
 		generated_at: new Date(snapshot.generatedAt).toISOString(),
@@ -90,6 +119,7 @@ function serializeSystem(snapshot) {
 				missing_count: snapshot.settings.secure.missingCount,
 			},
 		},
+		configuration: serializeConfiguration(snapshot.configuration),
 	};
 }
 

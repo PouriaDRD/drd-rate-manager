@@ -1,4 +1,8 @@
 import { APP } from "../config/app.js";
+import {
+	configurationMigrationReadiness,
+	configurationOwnershipSnapshot,
+} from "../config/config-ownership.js";
 import { runtimeIntegrity } from "../app/runtime-integrity.js";
 import { databaseStatus } from "../system/database-status.js";
 import { parseBoolean } from "../utils/core.js";
@@ -151,7 +155,12 @@ export class SystemManagementService {
 		const sources = sourceHealth(sourceSnapshot);
 		const cache = cacheHealth(cacheRow, now);
 		const runtimeSettings = this.s.settingsService.status();
-		const secureSettings = secureStatus(this.s.secureSettingsService.status());
+		const rawSecureSettings = this.s.secureSettingsService.status();
+		const secureSettings = secureStatus(rawSecureSettings);
+		const configuration = {
+			ownership: configurationOwnershipSnapshot(),
+			migration: configurationMigrationReadiness(runtimeSettings, rawSecureSettings),
+		};
 		const health = buildHealth({
 			database,
 			integrity,
@@ -194,6 +203,7 @@ export class SystemManagementService {
 				runtime: runtimeSettings,
 				secure: secureSettings,
 			},
+			configuration,
 		};
 	}
 }

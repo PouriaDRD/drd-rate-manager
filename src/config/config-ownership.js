@@ -75,12 +75,30 @@ export function configurationMigrationReadiness(runtimeStatus = {}, secureStatus
 		...(runtimeStatus.defaultFallbackKeys || []),
 	]);
 	const secureFallbackKeys = unique(secureStatus.legacyFallbackKeys || []);
+	const secureSecrets = secureStatus.secrets || {};
+	const missingSecureKeys = unique(
+		Object.entries(secureSecrets)
+			.filter(([, item]) => !item?.configured)
+			.map(([key]) => key),
+	);
+	const managedCount = Number(secureStatus.managedCount);
+	const encryptedCount = Number(secureStatus.encryptedCount);
+	const hasSecureCoverage =
+		Number.isFinite(managedCount) &&
+		managedCount > 0 &&
+		Number.isFinite(encryptedCount);
+	const secureCoverageIncomplete =
+		hasSecureCoverage &&
+		encryptedCount < managedCount;
 
 	const runtimeReady =
 		Boolean(runtimeStatus.fullyMigrated) &&
 		invalidRuntimeKeys.length === 0 &&
 		runtimeFallbackKeys.length === 0;
-	const secureReady = secureFallbackKeys.length === 0;
+	const secureReady =
+		secureFallbackKeys.length === 0 &&
+		missingSecureKeys.length === 0 &&
+		!secureCoverageIncomplete;
 
 	const blockers = [];
 	if (invalidRuntimeKeys.length) {
@@ -95,10 +113,26 @@ export function configurationMigrationReadiness(runtimeStatus = {}, secureStatus
 			keys: runtimeFallbackKeys,
 		});
 	}
-	if (!secureReady) {
+	if (secureFallbackKeys.length) {
 		blockers.push({
 			code: "secure_settings_legacy_fallback",
 			keys: secureFallbackKeys,
+		});
+	}
+	if (missingSecureKeys.length) {
+		blockers.push({
+			code: "secure_settings_missing",
+			keys: missingSecureKeys,
+		});
+	}
+	if (
+		secureCoverageIncomplete &&
+		secureFallbackKeys.length === 0 &&
+		missingSecureKeys.length === 0
+	) {
+		blockers.push({
+			code: "secure_settings_not_fully_encrypted",
+			keys: [],
 		});
 	}
 

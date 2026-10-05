@@ -83,6 +83,21 @@ const copy = Object.freeze({
     defaultFallback: "Fallback به default",
     secureLegacy: "Secure fallback به ENV",
     secureMissing: "Secretهای تنظیم‌نشده",
+    configOwnership: "مالکیت تنظیمات",
+    ownershipValid: "معتبر",
+    ownershipInvalid: "نامعتبر",
+    legacyEnvCleanup: "پاک‌سازی Legacy ENV",
+    runtimeEnvCleanup: "Runtime ENV",
+    secretEnvCleanup: "Secret ENV",
+    cleanupReady: "آماده حذف",
+    cleanupBlocked: "مسدود",
+    keepEnvKeys: "ENVهای دائمی",
+    migrationBlockers: "موانع مهاجرت",
+    blocker_runtime_settings_invalid: "Runtime setting نامعتبر",
+    blocker_runtime_settings_not_fully_d1: "Runtime settings هنوز کامل در D1 نیست",
+    blocker_secure_settings_legacy_fallback: "Secret هنوز از ENV خوانده می‌شود",
+    blocker_secure_settings_missing: "Secret مدیریت‌شده تنظیم نشده",
+    blocker_secure_settings_not_fully_encrypted: "رمزنگاری Secretها کامل نیست",
     seconds: "ثانیه",
     tables: "جدول",
   },
@@ -170,6 +185,21 @@ const copy = Object.freeze({
     defaultFallback: "Default fallback",
     secureLegacy: "Secure ENV fallback",
     secureMissing: "Missing secrets",
+    configOwnership: "Configuration ownership",
+    ownershipValid: "Valid",
+    ownershipInvalid: "Invalid",
+    legacyEnvCleanup: "Legacy ENV cleanup",
+    runtimeEnvCleanup: "Runtime ENV",
+    secretEnvCleanup: "Secret ENV",
+    cleanupReady: "Ready to remove",
+    cleanupBlocked: "Blocked",
+    keepEnvKeys: "Permanent ENV keys",
+    migrationBlockers: "Migration blockers",
+    blocker_runtime_settings_invalid: "Invalid runtime setting",
+    blocker_runtime_settings_not_fully_d1: "Runtime settings are not fully in D1",
+    blocker_secure_settings_legacy_fallback: "A secret still uses ENV fallback",
+    blocker_secure_settings_missing: "A managed secret is missing",
+    blocker_secure_settings_not_fully_encrypted: "Secret encryption coverage is incomplete",
     seconds: "seconds",
     tables: "tables",
   },
@@ -243,6 +273,7 @@ function render() {
   renderSources(data.sources || {});
   renderAdmins(data.admins || {});
   renderSettings(data.settings || {});
+  renderConfiguration(data.configuration || {});
   renderReasons(data.health?.reason_codes || []);
 }
 
@@ -342,6 +373,33 @@ function renderSettings(settings) {
   );
   setText("system-secure-legacy", secure.legacy_fallback_count ?? 0);
   setText("system-secure-missing", secure.missing_count ?? 0);
+}
+
+function renderConfiguration(configuration) {
+  const ownership = configuration.ownership || {};
+  const migration = configuration.migration || {};
+  const ready = (value) => value ? tr("cleanupReady") : tr("cleanupBlocked");
+
+  setText(
+    "system-config-ownership",
+    ownership.valid ? tr("ownershipValid") : tr("ownershipInvalid"),
+  );
+  setText("system-config-runtime-cleanup", ready(migration.can_remove_legacy_runtime_env));
+  setText("system-config-secret-cleanup", ready(migration.can_remove_legacy_secret_env));
+  setText("system-config-all-cleanup", ready(migration.can_remove_all_legacy_env));
+
+  const keepKeys = [
+    ...(ownership.deployment_identity_env_keys || []),
+    ...(ownership.infrastructure_secret_env_keys || []),
+  ];
+  setText("system-config-keep-env", joinValues(keepKeys));
+
+  const blockers = (migration.blockers || []).map((item) => {
+    const label = tr(`blocker_${item.code}`);
+    const keys = Array.isArray(item.keys) && item.keys.length ? ` [${item.keys.join(", ")}]` : "";
+    return `${label}${keys}`;
+  });
+  setText("system-config-blockers", blockers.length ? blockers.join(" · ") : "—");
 }
 
 function renderReasons(reasons) {

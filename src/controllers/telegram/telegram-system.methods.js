@@ -15,6 +15,7 @@ async _showSystem(message) {
 	const admins = snapshot.admins || {};
 	const runtimeSettings = snapshot.settings?.runtime || {};
 	const secureSettings = snapshot.settings?.secure || {};
+	const migration = snapshot.configuration?.migration || {};
 
 	const lines = [
 		`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`,
@@ -36,7 +37,16 @@ async _showSystem(message) {
 		"",
 		`⚙️ Runtime settings: <code>${Number(runtimeSettings.d1Count || 0)}/${Number(runtimeSettings.total || 0)} D1</code>`,
 		`🔐 Secure settings: <code>${Number(secureSettings.encryptedCount || 0)}/${Number(secureSettings.managedCount || 0)} encrypted</code>`,
+		`🧹 ${en ? "Legacy ENV cleanup" : "پاک‌سازی Legacy ENV"}: <b>${migration.canRemoveAllLegacyEnv ? (en ? "READY" : "آماده") : (en ? "BLOCKED" : "مسدود")}</b>`,
 	];
+
+	if (!migration.canRemoveAllLegacyEnv && migration.blockers?.length) {
+		lines.push("", `<b>🧹 ${en ? "Configuration migration blockers" : "موانع مهاجرت تنظیمات"}</b>`);
+		for (const blocker of migration.blockers.slice(0, 5)) {
+			const keys = blocker.keys?.length ? ` [${blocker.keys.join(", ")}]` : "";
+			lines.push(`• <code>${escapeHtml(blocker.code || "unknown")}</code>${escapeHtml(keys)}`);
+		}
+	}
 
 	if (health.reasonCodes?.length) {
 		lines.push("", `<b>⚠️ ${en ? "Health reasons" : "دلایل وضعیت"}</b>`);
