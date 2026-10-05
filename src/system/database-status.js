@@ -15,6 +15,7 @@ export async function databaseStatus(services) {
 	const tables = [
 		"admins",
 		"settings",
+		"secure_settings",
 		"source_status",
 		"coingecko_assets",
 		"audit_logs",

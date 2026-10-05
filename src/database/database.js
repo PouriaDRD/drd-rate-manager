@@ -1,6 +1,7 @@
 import { APP } from "../config/app.js";
 import { Config } from "../config/config.js";
 import { RUNTIME_SETTINGS_VERSION, runtimeSettingSeedValues } from "../config/runtime-settings.js";
+import { SECURE_SETTINGS_VERSION } from "../config/secure-settings.js";
 import { AssetRepository } from "../repositories/asset.repository.js";
 
 let bootstrapPromise = null;
@@ -31,6 +32,15 @@ export class Database {
 			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS settings (
 				key TEXT PRIMARY KEY, value TEXT NOT NULL,
 				created_at INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS secure_settings (
+				key TEXT PRIMARY KEY,
+				ciphertext TEXT NOT NULL,
+				iv TEXT NOT NULL,
+				algorithm TEXT NOT NULL,
+				key_version INTEGER NOT NULL,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
 			)`),
 			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS admins (
 				user_id TEXT PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT,
@@ -109,6 +119,12 @@ export class Database {
 			VALUES ('runtime_settings_version', ?, ?)
 			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
 			.bind(String(RUNTIME_SETTINGS_VERSION), now)
+			.run();
+
+		await this.env.DB.prepare(`INSERT INTO app_meta (key, value, updated_at)
+			VALUES ('secure_settings_version', ?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
+			.bind(String(SECURE_SETTINGS_VERSION), now)
 			.run();
 
 		await new AssetRepository(this.env, new Config(this.env)).initializeDefaults();

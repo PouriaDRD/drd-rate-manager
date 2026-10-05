@@ -2,6 +2,8 @@ import { CoinGeckoClient } from "../clients/coingecko.client.js";
 import { HttpClient } from "../clients/http.client.js";
 import { TelegramClient } from "../clients/telegram.client.js";
 import { Config } from "../config/config.js";
+import { createRuntimeEnv } from "../config/runtime-env.js";
+import { SecretCrypto } from "../crypto/secret-crypto.js";
 import { MarketPostBuilder } from "../market/market-post.builder.js";
 import { MarketSources } from "../market/market-sources.js";
 import { AdminInputRepository } from "../repositories/admin-input.repository.js";
@@ -10,30 +12,37 @@ import { AssetRepository } from "../repositories/asset.repository.js";
 import { AuditRepository } from "../repositories/audit.repository.js";
 import { LockRepository } from "../repositories/lock.repository.js";
 import { MarketCacheRepository } from "../repositories/market-cache.repository.js";
+import { SecureSettingsRepository } from "../repositories/secure-settings.repository.js";
 import { SettingsRepository } from "../repositories/settings.repository.js";
 import { SourceStatusRepository } from "../repositories/source-status.repository.js";
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
+import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
 
 /** Dependency composition root. */
 export function createServices(env) {
-	const settings = new SettingsRepository(env);
-	const settingsService = new SettingsService(env, settings);
-	const config = new Config(env, settingsService);
-	const cache = new MarketCacheRepository(env);
-	const locks = new LockRepository(env);
-	const statuses = new SourceStatusRepository(env);
-	const assets = new AssetRepository(env, config);
-	const admins = new AdminRepository(env, config);
-	const adminInput = new AdminInputRepository(env);
-	const audit = new AuditRepository(env);
+	const secureSettings = new SecureSettingsRepository(env);
+	const secretCrypto = new SecretCrypto(env.APP_MASTER_KEY);
+	const secureSettingsService = new SecureSettingsService(env, secureSettings, secretCrypto);
+	const runtimeEnv = createRuntimeEnv(env, secureSettingsService);
+
+	const settings = new SettingsRepository(runtimeEnv);
+	const settingsService = new SettingsService(runtimeEnv, settings);
+	const config = new Config(runtimeEnv, settingsService);
+	const cache = new MarketCacheRepository(runtimeEnv);
+	const locks = new LockRepository(runtimeEnv);
+	const statuses = new SourceStatusRepository(runtimeEnv);
+	const assets = new AssetRepository(runtimeEnv, config);
+	const admins = new AdminRepository(runtimeEnv, config);
+	const adminInput = new AdminInputRepository(runtimeEnv);
+	const audit = new AuditRepository(runtimeEnv);
 	const http = new HttpClient();
-	const coinGecko = new CoinGeckoClient(env, config, http);
-	const sources = new MarketSources(env, http, statuses, config);
+	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http);
+	const sources = new MarketSources(runtimeEnv, http, statuses, config);
 	const market = new MarketService(
-		env,
+		runtimeEnv,
 		config,
 		settings,
 		cache,
@@ -43,16 +52,20 @@ export function createServices(env) {
 		sources,
 		coinGecko,
 	);
-	const telegram = new TelegramClient(env, http);
+	const telegram = new TelegramClient(runtimeEnv, http);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
-	const automation = new AutomationService(env, config, settings, market, publisher, locks);
+	const automation = new AutomationService(runtimeEnv, config, settings, market, publisher, locks);
 
 	return {
-		env,
+		env: runtimeEnv,
+		rawEnv: env,
 		config,
 		settings,
 		settingsService,
+		secureSettings,
+		secureSettingsService,
+		secretCrypto,
 		cache,
 		locks,
 		statuses,
