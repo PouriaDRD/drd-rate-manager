@@ -142,7 +142,11 @@ test("market publisher preserves configured Telegram channel", async () => {
 	};
 	const builder = { buildRichMessage: () => ({ html: "test", is_rtl: true }) };
 	const publisher = new MarketPublisher(config, telegram, builder);
-	const result = await publisher.publish({});
+	const result = await publisher.publish({
+		usdt: { price: 60000 },
+		crypto: [{ id: "bitcoin", price: 100000 }],
+		metals: { gram18: null, gold: null, silver: null },
+	});
 
 	assert.equal(calls.length, 1);
 	assert.equal(calls[0].chatId, "@DRDrate");

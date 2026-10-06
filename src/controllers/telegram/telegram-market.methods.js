@@ -100,15 +100,21 @@ async _showMarket(message, force = false) {
 	const loading = this._tgLanguage() === "en" ? "⏳ Reading market snapshot..." : "⏳ در حال خواندن کش بازار...";
 	await this.s.telegram.editMessage(message.chat.id, message.message_id, `<b>📈 ${this._tg("market")}</b>\n\n${loading}`, backKeyboard(this._tg("managementPanel"), "menu:home"));
 	const snapshot = await this.s.market.getSnapshot({ forceRefresh: force });
+	const publishable = snapshot.quality?.publishable !== false;
 	const text = this._tgLanguage() === "en"
 		? `<b>📈 Market management</b>\n\n<blockquote>${snapshot.partial ? "🟡 Partial snapshot" : "🟢 Market snapshot is healthy"}</blockquote>\n\nUSDT: <b>${snapshot.usdt?.price ?? "—"}</b>\nCrypto assets: <b>${snapshot.crypto?.length || 0}</b>\nCache: <b>${snapshot.cache?.fromCache ? "HIT" : "REFRESHED"}</b>`
 		: `<b>📈 مدیریت بازار</b>\n\n<blockquote>${snapshot.partial ? "🟡 بخشی از اطلاعات از آخرین کش سالم تکمیل شده است" : "🟢 همه‌چیز آماده انتشار است"}</blockquote>\n\nتتر: <b>${snapshot.usdt?.price ?? "—"}</b>\nرمزارزهای فعال: <b>${snapshot.crypto?.length || 0}</b>\nکش: <b>${snapshot.cache?.fromCache ? "استفاده شد" : "بروزرسانی شد"}</b>`;
+	const marketActions = publishable
+		? [
+			{ text: this._tgLanguage() === "en" ? "🚀 Publish now" : "🚀 انتشار اکنون", callback_data: "market:publish" },
+			{ text: this._tgLanguage() === "en" ? "📄 Preview" : "📄 پیش‌نمایش", callback_data: "market:preview" },
+		]
+		: [
+			{ text: this._tgLanguage() === "en" ? "📄 Preview" : "📄 پیش‌نمایش", callback_data: "market:preview" },
+		];
 	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
 		inline_keyboard: [
-			[
-				{ text: this._tgLanguage() === "en" ? "🚀 Publish now" : "🚀 انتشار اکنون", callback_data: "market:publish" },
-				{ text: this._tgLanguage() === "en" ? "📄 Preview" : "📄 پیش‌نمایش", callback_data: "market:preview" },
-			],
+			marketActions,
 			[{ text: this._tgLanguage() === "en" ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "market:refresh" }],
 			[{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }],
 		],
@@ -118,12 +124,22 @@ async _showMarket(message, force = false) {
 async _showPreview(message) {
 	const snapshot = await this.s.market.getSnapshot();
 	const rich = this.s.postBuilder.buildRichMessage(snapshot);
-	return this.s.telegram.editRichMessage(message.chat.id, message.message_id, rich, this.s.postBuilder.buildFallbackHtml(snapshot), {
-		inline_keyboard: [
+	const previewKeyboard = snapshot.quality?.publishable === false
+		? [
+			[{ text: this._tgLanguage() === "en" ? "🔄 Refresh" : "🔄 بروزرسانی", callback_data: "market:refresh" }],
+			[{ text: `⬅️ ${this._tg("market")}`, callback_data: "market:home" }],
+		]
+		: [
 			[{ text: this._tgLanguage() === "en" ? "🚀 Publish now" : "🚀 انتشار اکنون", callback_data: "market:publish" }],
 			[{ text: `⬅️ ${this._tg("market")}`, callback_data: "market:home" }],
-		],
-	});
+		];
+	return this.s.telegram.editRichMessage(
+		message.chat.id,
+		message.message_id,
+		rich,
+		this.s.postBuilder.buildFallbackHtml(snapshot),
+		{ inline_keyboard: previewKeyboard },
+	);
 },
 
 async _publish(message, user) {

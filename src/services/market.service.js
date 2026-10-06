@@ -1,7 +1,10 @@
 import { APP } from "../config/app.js";
 import { errorMessage, sleep } from "../utils/core.js";
 import { calculateMazanehFromGram18 } from "../utils/formatters.js";
+import { analyzeMarketSnapshot } from "./market-quality.js";
 import { resolveUsdtChecks } from "./market-support.js";
+
+const PARTIAL_CACHE_TTL_SECONDS = 60;
 
 /** Central market cache/read-through service used by Bot, API and Cron. */
 export class MarketService {
@@ -61,11 +64,14 @@ export class MarketService {
 			const lastError = fresh.partial
 				? fresh.errors.map((item) => `${item.source}: ${item.message}`).join(" | ").slice(0, 1000)
 				: null;
-			const meta = await this.cache.write(merged, ttlSeconds, lastError);
+			const writeTtlSeconds = fresh.partial
+				? Math.min(ttlSeconds, PARTIAL_CACHE_TTL_SECONDS)
+				: ttlSeconds;
+			const meta = await this.cache.write(merged, writeTtlSeconds, lastError);
 			return this.#withCacheMeta(
 				merged,
-				{ ...meta, lastError },
-				ttlSeconds,
+				{ ...meta, lastError, configuredTtlSeconds: ttlSeconds },
+				writeTtlSeconds,
 				false,
 				fresh.partial && Boolean(cached),
 			);
@@ -197,12 +203,20 @@ export class MarketService {
 		const fetchedAt = Number(cached?.fetchedAt || Date.now());
 		return {
 			...snapshot,
+			quality: analyzeMarketSnapshot(snapshot),
 			cache: {
 				fromCache,
 				staleFallback,
 				fetchedAt,
 				expiresAt: Number(cached?.expiresAt || fetchedAt + ttlSeconds * 1000),
-				ttlSeconds,
+				ttlSeconds:
+					cached?.fetchedAt && cached?.expiresAt
+						? Math.max(
+							1,
+							Math.round((Number(cached.expiresAt) - Number(cached.fetchedAt)) / 1000),
+						)
+						: ttlSeconds,
+				configuredTtlSeconds: cached?.configuredTtlSeconds ?? ttlSeconds,
 				lastError: overrideError || cached?.lastError || null,
 			},
 		};
