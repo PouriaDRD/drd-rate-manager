@@ -242,3 +242,48 @@ test("version tool handles HTML and escaped regex version guards", async () => {
 	assert.match(script, /escapedCurrent/);
 	assert.match(script, /replaceAll\("\.", "\\\\\."\)/);
 });
+
+
+test("Web Admin starts behind a neutral session gate instead of flashing login", async () => {
+	const [html, app] = await Promise.all([
+		readFile(new URL("../public/admin/index.html", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8"),
+	]);
+
+	assert.ok(html.includes('id="boot-screen" class="auth-screen"'));
+	assert.ok(
+		html.includes(
+			'id="auth-screen" class="auth-screen" aria-label="Authentication" hidden',
+		),
+	);
+	assert.ok(html.includes('id="app-shell" class="app-shell" hidden'));
+	assert.ok(
+		app.includes("async function restoreSession() {\n  showBoot();"),
+	);
+	assert.ok(
+		app.includes(
+			"if (error instanceof ApiError && error.status === 401) {",
+		),
+	);
+	assert.ok(
+		app.includes(
+			'showBootError(error?.message || t(state.language, "sessionRestoreFailed"));',
+		),
+	);
+});
+
+test("Web Admin preserves the last valid active view across reloads", async () => {
+	const app = await readFile(
+		new URL("../public/admin/assets/app.js", import.meta.url),
+		"utf8",
+	);
+
+	assert.ok(app.includes('const VIEW_KEY = "drd-admin-view";'));
+	assert.ok(
+		app.includes(
+			'const initialActiveView = VIEWS[storedActiveView] ? storedActiveView : "dashboard";',
+		),
+	);
+	assert.ok(app.includes("activeView: initialActiveView"));
+	assert.ok(app.includes("writePreference(VIEW_KEY, view);"));
+});

@@ -16,7 +16,33 @@
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <section id="auth-screen" class="auth-screen" aria-label="Authentication">
+  <section id="boot-screen" class="auth-screen" aria-label="Session initialization" aria-busy="true">
+    <header class="auth-toolbar">
+      <a class="brand brand-compact" href="./"><span class="brand-mark">D</span><span class="brand-copy"><strong>DRD Rate Manager</strong><span data-i18n="adminPanel">پنل مدیریت</span></span></a>
+      <div class="toolbar-actions">
+        <button class="icon-button text-button" type="button" data-action="lang-toggle">EN</button>
+        <button class="icon-button" type="button" data-action="theme-cycle"><span data-theme-icon>◐</span></button>
+      </div>
+    </header>
+    <main class="auth-main">
+      <div class="auth-intro">
+        <span class="eyebrow">DRD Network</span>
+        <h1 data-i18n="authHeadline">کنترل بازار، بدون شلوغی.</h1>
+        <p data-i18n="authIntro">یک پنل سبک و مستقیم برای مدیریت نرخ‌ها، منابع، انتشار و تنظیمات سیستم.</p>
+        <div class="auth-intro-line"></div>
+        <p class="auth-footnote" data-i18n="securityFootnote">ورود امن، نشست HttpOnly و محافظت CSRF فعال است.</p>
+      </div>
+      <div class="auth-card-wrap">
+        <div class="panel-card auth-card">
+          <div class="card-heading"><span class="status-dot"></span><div><h2 data-i18n="sessionChecking">در حال بررسی نشست امن</h2><p id="boot-message" data-i18n="sessionCheckingHelp">وضعیت ورود شما در حال بررسی است.</p></div></div>
+          <p id="boot-error" class="form-error" role="alert" hidden></p>
+          <button id="boot-retry" class="secondary-button" type="button" data-i18n="retry" hidden>تلاش دوباره</button>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <section id="auth-screen" class="auth-screen" aria-label="Authentication" hidden>
     <header class="auth-toolbar">
       <a class="brand brand-compact" href="./"><span class="brand-mark">D</span><span class="brand-copy"><strong>DRD Rate Manager</strong><span data-i18n="adminPanel">پنل مدیریت</span></span></a>
       <div class="toolbar-actions">

@@ -3,6 +3,7 @@ import { applyLanguage, normalizeLanguage, t } from "./i18n.js";
 
 const THEME_KEY = "drd-admin-theme";
 const LANG_KEY = "drd-admin-lang";
+const VIEW_KEY = "drd-admin-view";
 const THEME_ORDER = ["system", "dark", "light"];
 const VIEWS = Object.freeze({
   dashboard: { index: "01", description: "dashboardIntro" },
@@ -17,13 +18,16 @@ const VIEWS = Object.freeze({
   settings: { index: "10", description: "viewSettings" },
 });
 
+const storedActiveView = readPreference(VIEW_KEY, "dashboard");
+const initialActiveView = VIEWS[storedActiveView] ? storedActiveView : "dashboard";
+
 const state = {
   csrfToken: "",
   user: null,
   language: normalizeLanguage(readPreference(LANG_KEY, "fa")),
   theme: normalizeTheme(readPreference(THEME_KEY, "system")),
   telegramLanguage: "fa",
-  activeView: "dashboard",
+  activeView: initialActiveView,
   sourceData: null,
   assets: [],
   automationData: null,
@@ -53,7 +57,7 @@ window.DRDAdminShell = Object.freeze({
 });
 
 const els = Object.fromEntries([
-  "auth-screen","app-shell","login-form","bootstrap-form","login-error","bootstrap-error",
+  "boot-screen","boot-error","boot-retry","auth-screen","app-shell","login-form","bootstrap-form","login-error","bootstrap-error",
   "user-name","user-avatar","admin-route-value","page-title","page-eyebrow","dashboard-view",
   "market-view","sources-view","assets-view","automation-view","api-management-view","settings-view","placeholder-view",
   "placeholder-index","placeholder-title","placeholder-description","sidebar","sidebar-overlay","toast",
@@ -92,6 +96,7 @@ function bindEvents() {
   els.bootstrapForm?.addEventListener("submit", submitBootstrap);
   els.preferencesForm?.addEventListener("submit", savePreferencesForm);
   els.logoutButton?.addEventListener("click", submitLogout);
+  els.bootRetry?.addEventListener("click", restoreSession);
 
   document.querySelector("#market-refresh")?.addEventListener("click", refreshMarket);
   document.querySelector("#market-preview")?.addEventListener("click", showMarketPreview);
@@ -115,6 +120,7 @@ function bindEvents() {
 }
 
 async function restoreSession() {
+  showBoot();
   try {
     const payload = await api.session();
     state.user = payload.user;
@@ -123,10 +129,13 @@ async function restoreSession() {
     await hydratePreferences();
     showApp();
   } catch (error) {
-    showLogin();
-    if (!(error instanceof ApiError && error.status === 401)) {
-      showToast(t(state.language, "networkError"), "error");
+    if (error instanceof ApiError && error.status === 401) {
+      state.user = null;
+      state.csrfToken = "";
+      showLogin();
+      return;
     }
+    showBootError(error?.message || t(state.language, "sessionRestoreFailed"));
   }
 }
 
@@ -234,7 +243,38 @@ async function savePreferencesForm(event) {
   }
 }
 
+function showBoot() {
+  stopAutomationCountdown();
+  els.bootScreen.hidden = false;
+  els.bootScreen.setAttribute("aria-busy", "true");
+  els.authScreen.hidden = true;
+  els.appShell.hidden = true;
+  if (els.bootError) {
+    els.bootError.hidden = true;
+    els.bootError.textContent = "";
+  }
+  if (els.bootRetry) els.bootRetry.hidden = true;
+}
+
+function showBootError(message) {
+  els.bootScreen.hidden = false;
+  els.bootScreen.setAttribute("aria-busy", "false");
+  els.authScreen.hidden = true;
+  els.appShell.hidden = true;
+  if (els.bootError) {
+    els.bootError.textContent = message || t(state.language, "sessionRestoreFailed");
+    els.bootError.hidden = false;
+  }
+  if (els.bootRetry) els.bootRetry.hidden = false;
+}
+
+function hideBoot() {
+  els.bootScreen.hidden = true;
+  els.bootScreen.setAttribute("aria-busy", "false");
+}
+
 function showLogin() {
+  hideBoot();
   stopAutomationCountdown();
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
@@ -243,6 +283,7 @@ function showLogin() {
   document.querySelector("#login-password").value = "";
 }
 function showBootstrap() {
+  hideBoot();
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
   els.loginForm.hidden = true;
@@ -250,6 +291,7 @@ function showBootstrap() {
   document.querySelector("#bootstrap-password").value = "";
 }
 function showApp() {
+  hideBoot();
   els.authScreen.hidden = true;
   els.appShell.hidden = false;
   const username = String(state.user?.username || "admin");
@@ -262,6 +304,7 @@ function showApp() {
 async function activateView(view) {
   if (!VIEWS[view]) return;
   state.activeView = view;
+  writePreference(VIEW_KEY, view);
   document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
