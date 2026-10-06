@@ -87,6 +87,7 @@ export function createServices(env) {
 		cache,
 		sourceSettings,
 		providerHealth,
+		automationRuns,
 		automationManagement,
 		adminManagement,
 	});

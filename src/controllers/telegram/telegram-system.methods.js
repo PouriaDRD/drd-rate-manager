@@ -16,6 +16,8 @@ async _showSystem(message) {
 	const runtimeSettings = snapshot.settings?.runtime || {};
 	const secureSettings = snapshot.settings?.secure || {};
 	const migration = snapshot.configuration?.migration || {};
+	const metrics = snapshot.metrics || {};
+	const automationMetrics = metrics.automation || {};
 
 	const lines = [
 		`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`,
@@ -34,6 +36,7 @@ async _showSystem(message) {
 		"",
 		`📡 ${en ? "Sources" : "منابع"}: <b>${Number(sources.healthy || 0)}/${Number(sources.enabled || 0)}</b> ${en ? "healthy" : "سالم"} · ${Number(sources.failed || 0)} ${en ? "failed" : "ناموفق"} · ${Number(sources.unchecked || 0)} ${en ? "unchecked" : "بررسی‌نشده"}`,
 		`🩺 ${en ? "Provider health" : "سلامت Providerها"}: <b>${sources.healthScore == null ? "—" : `${Number(sources.healthScore)}/100`}</b> · ${Number(sources.openCircuits || 0)} ${en ? "open" : "باز"} · ${Number(sources.probes || 0)} ${en ? "probe" : "پروب"}`,
+		`📊 Automation 24h: <b>${automationMetrics.available ? Number(automationMetrics.totalRuns || 0) : "—"}</b> ${en ? "runs" : "اجرا"} · ${automationMetrics.successRate == null ? "—" : `${Number(automationMetrics.successRate).toFixed(1)}%`} ${en ? "success" : "موفق"} · ${Number(automationMetrics.errorCount || 0)} ${en ? "errors" : "خطا"}`,
 		`👥 ${en ? "Admins" : "ادمین‌ها"}: <b>${Number(admins.activeAdmins || 0)}</b> ${en ? "active" : "فعال"} · ${Number(admins.inactiveAdmins || 0)} ${en ? "inactive" : "غیرفعال"}`,
 		"",
 		`⚙️ Runtime settings: <code>${Number(runtimeSettings.d1Count || 0)}/${Number(runtimeSettings.total || 0)} D1</code>`,
@@ -180,6 +183,7 @@ _systemReasonLabel(reason, en) {
 		cache_empty: en ? "Market cache is empty" : "کش بازار خالی است",
 		cache_expired: en ? "Market cache expired" : "کش بازار منقضی شده",
 		cache_last_error: en ? "Market cache has a last error" : "کش بازار آخرین خطا دارد",
+		operational_metrics_unavailable: en ? "Operational metrics unavailable" : "متریک‌های عملیاتی در دسترس نیستند",
 		bot_disabled: en ? "Bot is disabled" : "ربات غیرفعال است",
 		runtime_settings_legacy_fallback: en ? "Runtime settings use ENV fallback" : "برخی Runtime settingها از ENV خوانده می‌شوند",
 		runtime_settings_default_fallback: en ? "Runtime settings use defaults" : "برخی Runtime settingها از مقدار پیش‌فرض استفاده می‌کنند",

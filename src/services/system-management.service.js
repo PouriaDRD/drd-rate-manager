@@ -5,7 +5,11 @@ import {
 } from "../config/config-ownership.js";
 import { runtimeIntegrity } from "../app/runtime-integrity.js";
 import { databaseStatus } from "../system/database-status.js";
-import { parseBoolean } from "../utils/core.js";
+import { errorMessage, parseBoolean } from "../utils/core.js";
+import {
+	buildOperationalMetrics,
+	OPERATIONAL_METRICS_WINDOW_MS,
+} from "./operational-metrics.js";
 
 function sourceHealth(snapshot = {}) {
 	const items = Object.values(snapshot.sources || {});
@@ -82,6 +86,30 @@ function cacheHealth(row, now) {
 	};
 }
 
+async function automationMetricStats(repository, now) {
+	if (!repository?.stats) {
+		return {
+			supported: false,
+			available: false,
+			error: null,
+		};
+	}
+	try {
+		return {
+			supported: true,
+			available: true,
+			...(await repository.stats(now - OPERATIONAL_METRICS_WINDOW_MS, now)),
+			error: null,
+		};
+	} catch (error) {
+		return {
+			supported: true,
+			available: false,
+			error: errorMessage(error).slice(0, 500),
+		};
+	}
+}
+
 function secureStatus(status = {}) {
 	return {
 		version: status.version ?? null,
@@ -104,6 +132,7 @@ function buildHealth({
 	sources,
 	cache,
 	runtimeSettings,
+	operationalMetrics,
 }) {
 	const critical = [];
 	const warnings = [];
@@ -121,6 +150,9 @@ function buildHealth({
 	if (!cache.present) warnings.push("cache_empty");
 	if (cache.expired) warnings.push("cache_expired");
 	if (cache.lastError) warnings.push("cache_last_error");
+	if (operationalMetrics?.supported && !operationalMetrics.available) {
+		warnings.push("operational_metrics_unavailable");
+	}
 	if (runtimeSettings.legacyFallbackKeys?.length) notices.push("runtime_settings_legacy_fallback");
 	if (runtimeSettings.defaultFallbackKeys?.length) notices.push("runtime_settings_default_fallback");
 
@@ -159,6 +191,7 @@ export class SystemManagementService {
 			adminSnapshot,
 			cacheRow,
 			botEnabledRaw,
+			automationMetrics,
 		] = await Promise.all([
 			this.databaseStatusFn(this.s),
 			this.s.providerHealth
@@ -168,6 +201,7 @@ export class SystemManagementService {
 			this.s.adminManagement.snapshot({ type: "system", role: "owner", id: "system" }),
 			this.s.cache.read(),
 			this.s.settings.get("bot_enabled", "1"),
+			automationMetricStats(this.s.automationRuns, now),
 		]);
 
 		const integrity = Boolean(this.runtimeIntegrityFn());
@@ -188,6 +222,15 @@ export class SystemManagementService {
 			sources,
 			cache,
 			runtimeSettings,
+			operationalMetrics: automationMetrics,
+		});
+		const metrics = buildOperationalMetrics({
+			now,
+			automation: automationMetrics,
+			database,
+			cache,
+			sources,
+			health,
 		});
 
 		return {
@@ -223,6 +266,7 @@ export class SystemManagementService {
 				runtime: runtimeSettings,
 				secure: secureSettings,
 			},
+			metrics,
 			configuration,
 		};
 	}
@@ -242,6 +286,7 @@ export const SYSTEM_HEALTH_REASONS = Object.freeze({
 		"cache_empty",
 		"cache_expired",
 		"cache_last_error",
+		"operational_metrics_unavailable",
 	]),
 	notices: Object.freeze([
 		"bot_disabled",

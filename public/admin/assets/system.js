@@ -110,6 +110,15 @@ const copy = Object.freeze({
     blocker_secure_settings_missing: "Secret مدیریت‌شده تنظیم نشده",
     blocker_secure_settings_not_fully_encrypted: "رمزنگاری Secretها کامل نیست",
     seconds: "ثانیه",
+    operationalMetrics: "متریک‌های عملیاتی",
+    metricsWindow: "پنجره ۲۴ ساعته",
+    totalRuns: "اجراها",
+    successRate: "نرخ موفقیت",
+    errorRuns: "خطاها",
+    partialRuns: "Partial",
+    averageDuration: "میانگین زمان اجرا",
+    lastMetricError: "آخرین خطای اجرا",
+    status_operational_metrics_unavailable: "متریک‌های عملیاتی در دسترس نیستند",
     tables: "جدول",
   },
   en: {
@@ -223,6 +232,15 @@ const copy = Object.freeze({
     blocker_secure_settings_missing: "A managed secret is missing",
     blocker_secure_settings_not_fully_encrypted: "Secret encryption coverage is incomplete",
     seconds: "seconds",
+    operationalMetrics: "Operational metrics",
+    metricsWindow: "24-hour window",
+    totalRuns: "Runs",
+    successRate: "Success rate",
+    errorRuns: "Errors",
+    partialRuns: "Partial",
+    averageDuration: "Average duration",
+    lastMetricError: "Last run error",
+    status_operational_metrics_unavailable: "Operational metrics are unavailable",
     tables: "tables",
   },
 });
@@ -292,11 +310,44 @@ function render() {
   setText("system-automation-last", formatDateTime(automation.last_success_at));
   setText("system-automation-can-publish", automation.can_publish_now ? tr("yes") : tr("no"));
 
+  renderMetrics(data.metrics || {});
   renderSources(data.sources || {});
   renderAdmins(data.admins || {});
   renderSettings(data.settings || {});
   renderConfiguration(data.configuration || {});
   renderReasons(data.health?.reason_codes || []);
+}
+
+function renderMetrics(metrics) {
+  const automation = metrics.automation || {};
+  const providers = metrics.providers || {};
+  const cache = metrics.cache || {};
+  const database = metrics.database || {};
+
+  setText("system-metrics-total-runs", automation.available ? automation.total_runs ?? 0 : "—");
+  setText(
+    "system-metrics-success-rate",
+    automation.available && automation.success_rate != null
+      ? `${Number(automation.success_rate).toFixed(1)}%`
+      : "—",
+  );
+  setText("system-metrics-errors", automation.available ? automation.error_count ?? 0 : "—");
+  setText("system-metrics-partial", automation.available ? automation.partial_count ?? 0 : "—");
+  setText(
+    "system-metrics-average-duration",
+    automation.available && automation.average_duration_ms != null
+      ? formatMs(automation.average_duration_ms)
+      : "—",
+  );
+  setText("system-metrics-last-error", formatDateTime(automation.last_error_at));
+  setText(
+    "system-metrics-provider-health",
+    providers.health_score == null
+      ? "—"
+      : `${Number(providers.health_score)}/100 · ${Number(providers.open_circuits || 0)} open`,
+  );
+  setText("system-metrics-cache-age", formatSeconds(cache.age_seconds));
+  setText("system-metrics-db-latency", formatMs(database.latency_ms));
 }
 
 function renderStorage(storage) {
