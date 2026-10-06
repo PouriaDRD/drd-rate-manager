@@ -523,5 +523,5 @@ test("Phase 15.3 keeps application version 0.13.0 and schema 12", async () => {
 		"utf8",
 	);
 	assert.match(source, /version:\s*"0\.13\.0"/);
-	assert.match(source, /schemaVersion:\s*12/);
+	assert.match(source, /schemaVersion:\s*13/);
 });

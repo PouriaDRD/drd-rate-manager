@@ -200,14 +200,14 @@ test("web admin exposes automation settings, diagnostics, dry-run, force-run and
 	assert.match(source, /serializeAutomationDiagnostics/);
 });
 
-test("schema 12 preserves bounded automation execution history storage", async () => {
+test("schema 13 preserves bounded automation execution history storage", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	const database = await readFile(new URL("../src/database/database.js", import.meta.url), "utf8");
 	const repository = await readFile(
 		new URL("../src/repositories/automation-run.repository.js", import.meta.url),
 		"utf8",
 	);
-	assert.match(app, /schemaVersion: 12/);
+	assert.match(app, /schemaVersion: 13/);
 	assert.match(database, /CREATE TABLE IF NOT EXISTS automation_runs/);
 	assert.match(database, /idx_automation_runs_finished_at/);
 	assert.match(repository, /RETAIN_ROWS = 200/);

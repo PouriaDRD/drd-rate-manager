@@ -25,6 +25,7 @@ export async function databaseStatus(services, { details = true } = {}) {
 		"web_admin_users",
 		"web_admin_sessions",
 		"web_auth_attempts",
+		"web_admin_login_history",
 		"settings",
 		"secure_settings",
 		"source_status",

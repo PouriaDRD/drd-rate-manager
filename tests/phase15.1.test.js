@@ -251,7 +251,7 @@ test("schema 12 creates api_tokens with scoped type hash and lifecycle metadata"
 		readFile(new URL("../src/database/database.js", import.meta.url), "utf8"),
 		readFile(new URL("../src/system/database-status.js", import.meta.url), "utf8"),
 	]);
-	assert.match(app, /schemaVersion:\s*12/);
+	assert.match(app, /schemaVersion:\s*13/);
 	assert.match(database, /CREATE TABLE IF NOT EXISTS api_tokens/);
 	assert.match(database, /token_type TEXT NOT NULL CHECK\(token_type IN \('market', 'core'\)\)/);
 	assert.match(database, /token_hash TEXT NOT NULL UNIQUE/);
@@ -279,5 +279,5 @@ test("Phase 15.1 deliberately does not enforce tokens on public API routes yet",
 test("application version remains 0.13.0 while storage schema advances to 12", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(source, /version:\s*"0\.13\.0"/);
-	assert.match(source, /schemaVersion:\s*12/);
+	assert.match(source, /schemaVersion:\s*13/);
 });

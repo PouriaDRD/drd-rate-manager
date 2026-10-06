@@ -45,12 +45,20 @@ function randomToken(bytes = 32) {
 }
 
 export class WebAuthService {
-	constructor(env, users, sessions, attempts, passwordHasher = new PasswordHasher()) {
+	constructor(
+		env,
+		users,
+		sessions,
+		attempts,
+		passwordHasher = new PasswordHasher(),
+		loginHistory = null,
+	) {
 		this.env = env;
 		this.users = users;
 		this.sessions = sessions;
 		this.attempts = attempts;
 		this.passwordHasher = passwordHasher;
+		this.loginHistory = loginHistory;
 	}
 
 	async ensureBootstrapAdmin() {
@@ -80,6 +88,12 @@ export class WebAuthService {
 		]);
 		const attempt = await this.attempts.get(attemptKey);
 		if (attempt && Number(attempt.locked_until || 0) > now) {
+			await this.#recordLoginHistory(request, {
+				username,
+				result: "locked",
+				reason: "rate_limited",
+				createdAt: now,
+			});
 			return {
 				ok: false,
 				status: 429,
@@ -96,6 +110,14 @@ export class WebAuthService {
 				maxFailures: WEB_AUTH.maxLoginFailures,
 				lockMs: WEB_AUTH.loginLockMs,
 			});
+			const lockedNow = failure.lockedUntil > now;
+			await this.#recordLoginHistory(request, {
+				userId: user?.id ?? null,
+				username,
+				result: lockedNow ? "locked" : "failure",
+				reason: lockedNow ? "invalid_credentials_lockout" : "invalid_credentials",
+				createdAt: now,
+			});
 			return {
 				ok: false,
 				status: failure.lockedUntil > now ? 429 : 401,
@@ -109,6 +131,14 @@ export class WebAuthService {
 		await this.attempts.clear(attemptKey);
 		await this.users.touchLogin(user.id, now);
 		const session = await this.#createSession(request, user, now);
+		await this.#recordLoginHistory(request, {
+			userId: user.id,
+			username,
+			result: "success",
+			reason: "authenticated",
+			sessionRef: session.sessionRef,
+			createdAt: now,
+		});
 		return {
 			ok: true,
 			status: 200,
@@ -212,8 +242,9 @@ export class WebAuthService {
 	async #createSession(request, user, now) {
 		const token = randomToken();
 		const csrfToken = randomToken();
+		const tokenHash = await sha256(token);
 		await this.sessions.create({
-			tokenHash: await sha256(token),
+			tokenHash,
 			userId: user.id,
 			csrfHash: await sha256(csrfToken),
 			credentialVersion: Number(user.credential_version || 0),
@@ -223,7 +254,22 @@ export class WebAuthService {
 			ipHash: await sha256(requestIp(request)),
 			userAgent: requestUserAgent(request),
 		});
-		return { token, csrfToken };
+		return { token, csrfToken, sessionRef: tokenHash.slice(0, 16) };
+	}
+
+	async #recordLoginHistory(request, details) {
+		if (!this.loginHistory?.record) return;
+		try {
+			await this.loginHistory.record(request, details);
+		} catch (error) {
+			console.warn({
+				timestamp: new Date().toISOString(),
+				level: "warn",
+				event: "web_auth.login_history_write_failed",
+				result: String(details?.result || "unknown"),
+				message: String(error?.message || error).slice(0, 300),
+			});
+		}
 	}
 
 	async #attemptKey(request, username) {

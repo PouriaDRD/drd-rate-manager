@@ -275,7 +275,7 @@ test("database seeds public market mode without changing schema 12", async () =>
 		readFile(new URL("../src/config/app.js", import.meta.url), "utf8"),
 	]);
 	assert.match(database, /market_api_mode: "public"/);
-	assert.match(app, /schemaVersion:\s*12/);
+	assert.match(app, /schemaVersion:\s*13/);
 });
 
 test("composition root shares one access policy service with settings and token service", async () => {
@@ -302,5 +302,5 @@ test("API enforcement is centralized before endpoint switch work", async () => {
 test("Phase 15.2 keeps app version 0.13.0 and schema 12", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(source, /version:\s*"0\.13\.0"/);
-	assert.match(source, /schemaVersion:\s*12/);
+	assert.match(source, /schemaVersion:\s*13/);
 });

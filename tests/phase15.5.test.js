@@ -342,5 +342,5 @@ test("controller switch API endpoints and shared catalog remain in sync", async 
 test("Phase 15.5 changes neither schema 12 nor application version 0.13.0", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(source, /version:\s*"0\.13\.0"/);
-	assert.match(source, /schemaVersion:\s*12/);
+	assert.match(source, /schemaVersion:\s*13/);
 });

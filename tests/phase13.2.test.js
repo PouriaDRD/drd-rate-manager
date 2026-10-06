@@ -202,5 +202,5 @@ test("Phase 13.2 performs no provider network call from diagnostics services", a
 test("Phase 13.2 keeps app version 0.13.0 and schema 11", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(app, /version:\s*"0\.13\.0"/);
-	assert.match(app, /schemaVersion:\s*12/);
+	assert.match(app, /schemaVersion:\s*13/);
 });

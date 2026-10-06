@@ -201,5 +201,5 @@ test("Phase 12.1 keeps schema migration independent from configuration catalog v
 	const database = await readFile(new URL("../src/database/database.js", import.meta.url), "utf8");
 	assert.match(database, /RUNTIME_SETTINGS_VERSION/);
 	assert.match(database, /runtimeSettingSeedValues/);
-	assert.doesNotMatch(database, /schemaVersion:\s*12/);
+	assert.doesNotMatch(database, /schemaVersion:\s*13/);
 });

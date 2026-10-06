@@ -20,6 +20,7 @@ import { SettingsRepository } from "../repositories/settings.repository.js";
 import { SourceStatusRepository } from "../repositories/source-status.repository.js";
 import { WebAdminRepository } from "../repositories/web-admin.repository.js";
 import { WebAuthAttemptRepository } from "../repositories/web-auth-attempt.repository.js";
+import { WebLoginHistoryRepository } from "../repositories/web-login-history.repository.js";
 import { WebSessionRepository } from "../repositories/web-session.repository.js";
 import { AdminManagementService } from "../services/admin-management.service.js";
 import { ApiAccessService } from "../services/api-access.service.js";
@@ -27,6 +28,7 @@ import { ApiManagementService } from "../services/api-management.service.js";
 import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
 import { ApiTokenService } from "../services/api-token.service.js";
+import { LoginHistoryService } from "../services/login-history.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
 import { OperationalAlertService } from "../services/operational-alert.service.js";
@@ -70,7 +72,9 @@ export function createServices(env) {
 	const webAdmins = new WebAdminRepository(runtimeEnv);
 	const webSessions = new WebSessionRepository(runtimeEnv);
 	const webAuthAttempts = new WebAuthAttemptRepository(runtimeEnv);
-	const webAuth = new WebAuthService(runtimeEnv, webAdmins, webSessions, webAuthAttempts);
+	const webLoginHistoryRepository = new WebLoginHistoryRepository(runtimeEnv);
+	const loginHistory = new LoginHistoryService(webLoginHistoryRepository);
+	const webAuth = new WebAuthService(runtimeEnv, webAdmins, webSessions, webAuthAttempts, undefined, loginHistory);
 	const http = new HttpClient();
 	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http, resilience);
 	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings, resilience);
@@ -140,6 +144,8 @@ export function createServices(env) {
 		webAdmins,
 		webSessions,
 		webAuthAttempts,
+		webLoginHistoryRepository,
+		loginHistory,
 		webAuth,
 		http,
 		coinGecko,
