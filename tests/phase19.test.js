@@ -633,3 +633,16 @@ test("Phase 19.6C exposes seven USDT providers and consensus metadata across con
 	assert.ok(serializer.includes("contributors: snapshot.usdt?.contributors"));
 	assert.ok(serializer.includes("rejected: snapshot.usdt?.rejected"));
 });
+
+
+test("Phase 19.6D keeps MelliGold opt-in after redirect-loop verification", async () => {
+	const sourceSettings = await readFile(
+		new URL("../src/services/source-settings.service.js", import.meta.url),
+		"utf8",
+	);
+	assert.ok(
+		sourceSettings.includes(
+			'melligold: Object.freeze({ key: "source.melligold.enabled", label: "MelliGold", kind: "gold", defaultEnabled: false })',
+		),
+	);
+});

@@ -11,7 +11,7 @@ const SOURCE_DEFINITIONS = Object.freeze({
 	coingecko: Object.freeze({ key: "source.coingecko.enabled", label: "CoinGecko", kind: "market", defaultEnabled: true }),
 	wallgold: Object.freeze({ key: "source.wallgold.enabled", label: "WallGold", kind: "gold", defaultEnabled: true }),
 	technogold: Object.freeze({ key: "source.technogold.enabled", label: "TechnoGold", kind: "gold", defaultEnabled: true }),
-	melligold: Object.freeze({ key: "source.melligold.enabled", label: "MelliGold", kind: "gold", defaultEnabled: true }),
+	melligold: Object.freeze({ key: "source.melligold.enabled", label: "MelliGold", kind: "gold", defaultEnabled: false }),
 	talasea: Object.freeze({ key: "source.talasea.enabled", label: "Talasea", kind: "gold", defaultEnabled: true }),
 	milli: Object.freeze({ key: "source.milli.enabled", label: "Milli", kind: "gold", defaultEnabled: true }),
 	gerami: Object.freeze({ key: "source.gerami.enabled", label: "Gerami", kind: "gold", defaultEnabled: true }),

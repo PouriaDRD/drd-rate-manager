@@ -64,7 +64,7 @@ test("source settings default to production providers enabled with Nobitex opt-i
 	assert.equal(snapshot.sources.coingecko.enabled, true);
 	assert.equal(snapshot.sources.wallgold.enabled, true);
 	assert.equal(snapshot.sources.technogold.enabled, true);
-	assert.equal(snapshot.sources.melligold.enabled, true);
+	assert.equal(snapshot.sources.melligold.enabled, false);
 	assert.equal(snapshot.sources.talasea.enabled, true);
 	assert.equal(snapshot.sources.milli.enabled, true);
 	assert.equal(snapshot.sources.gerami.enabled, true);
