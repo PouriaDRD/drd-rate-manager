@@ -506,8 +506,8 @@ test("Web API management view is real, bilingual, safe-rendered and never persis
 	assert.match(html, /id="api-management-view"/);
 	assert.match(html, /id="api-secret-panel"/);
 	assert.match(html, /data-view="apiManagement"/);
-	assert.match(app, /DRDApiManagement\?\.load/);
-	assert.match(app, /DRDApiManagement\?\.reset/);
+	assert.match(app, /apiManagementView\.load/);
+	assert.match(app, /apiManagementView\.reset/);
 	assert.match(i18n, /apiManagement: "مدیریت API"/);
 	assert.match(i18n, /apiManagement: "API Management"/);
 	assert.match(feature, /Secret فقط همین یک بار نمایش داده می‌شود/);

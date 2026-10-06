@@ -3,6 +3,8 @@ const copy = Object.freeze({
     title: "امنیت ورود",
     intro: "تاریخچه‌ی ورود Web Admin و رویدادهای امنیتی ثبت‌شده را بررسی کنید.",
     reload: "بروزرسانی",
+    loading: "در حال بارگذاری تاریخچه ورود…",
+    loadError: "بارگذاری تاریخچه ورود ناموفق بود.",
     total: "کل رویدادها",
     success: "ورود موفق",
     failure: "ناموفق",
@@ -36,6 +38,8 @@ const copy = Object.freeze({
     title: "Login security",
     intro: "Review persistent Web Admin login history and recorded security events.",
     reload: "Refresh",
+    loading: "Loading login history…",
+    loadError: "Login history could not be loaded.",
     total: "Total events",
     success: "Successful",
     failure: "Failed",
@@ -100,25 +104,68 @@ next?.addEventListener("click", () => {
   withBusy(next, () => load()).catch(() => {});
 });
 
-window.DRDLoginHistory = Object.freeze({ load, render, reset });
+export const loginHistoryView = Object.freeze({ load, render, reset });
+
+window.DRDLoginHistory = loginHistoryView;
 
 async function load() {
-  const payload = await bridge().loginHistory({
-    limit: state.limit,
-    offset: state.offset,
-    result: state.result,
-  });
-  state.data = payload.data || {
-    items: [],
-    stats: { total: 0, success: 0, failure: 0, locked: 0 },
-    pagination: { limit: state.limit, offset: state.offset, total: 0, has_more: false },
-    filter: { result: state.result },
-  };
-  const serverResult = String(state.data.filter?.result || state.result).toLowerCase();
-  state.result = VALID_RESULTS.has(serverResult) ? serverResult : "all";
-  state.offset = Number(state.data.pagination?.offset ?? state.offset) || 0;
-  state.limit = Number(state.data.pagination?.limit ?? state.limit) || PAGE_SIZE;
-  render();
+  renderLoading();
+  try {
+    const payload = await bridge().loginHistory({
+      limit: state.limit,
+      offset: state.offset,
+      result: state.result,
+    });
+    state.data = payload.data || {
+      items: [],
+      stats: { total: 0, success: 0, failure: 0, locked: 0 },
+      pagination: { limit: state.limit, offset: state.offset, total: 0, has_more: false },
+      filter: { result: state.result },
+    };
+    const serverResult = String(state.data.filter?.result || state.result).toLowerCase();
+    state.result = VALID_RESULTS.has(serverResult) ? serverResult : "all";
+    state.offset = Number(state.data.pagination?.offset ?? state.offset) || 0;
+    state.limit = Number(state.data.pagination?.limit ?? state.limit) || PAGE_SIZE;
+    render();
+  } catch (error) {
+    state.data = null;
+    renderLoadError(error);
+    throw error;
+  }
+}
+
+function renderLoading() {
+  applyCopy();
+  for (const id of [
+    "login-history-total",
+    "login-history-success",
+    "login-history-failure",
+    "login-history-locked",
+  ]) {
+    setText(id, "…");
+  }
+  setText("login-history-page", "—");
+  list?.replaceChildren(textNode("p", tr("loading"), "login-history-empty"));
+  if (previous) previous.disabled = true;
+  if (next) next.disabled = true;
+}
+
+function renderLoadError(error) {
+  applyCopy();
+  for (const id of [
+    "login-history-total",
+    "login-history-success",
+    "login-history-failure",
+    "login-history-locked",
+  ]) {
+    setText(id, "—");
+  }
+  setText("login-history-page", "—");
+  const message = String(error?.message || "").trim();
+  const text = message ? `${tr("loadError")} ${message}` : tr("loadError");
+  list?.replaceChildren(textNode("p", text, "login-history-empty"));
+  if (previous) previous.disabled = true;
+  if (next) next.disabled = true;
 }
 
 function reset() {

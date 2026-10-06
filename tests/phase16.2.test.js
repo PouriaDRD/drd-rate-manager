@@ -116,10 +116,9 @@ test("Web Admin shell exposes Login History as a real first-class view", async (
 	assert.match(html, /data-view="loginHistory"/);
 	assert.match(html, /id="login-history-view"/);
 	assert.match(html, /assets\/login-history\.css/);
-	assert.match(html, /assets\/login-history\.js/);
 	assert.match(app, /loginHistory:\s*\{\s*index:\s*"08"/);
-	assert.match(app, /window\.DRDLoginHistory\?\.load/);
-	assert.match(app, /window\.DRDLoginHistory\?\.render/);
+	assert.match(app, /loginHistoryView\.load/);
+	assert.match(app, /loginHistoryView\.render/);
 	assert.match(api, /loginHistory\(\{ limit = 25, offset = 0, result = "all" \} = \{\}\)/);
 	assert.match(i18n, /loginHistory:\s*"امنیت ورود"/);
 	assert.match(i18n, /loginHistory:\s*"Login Security"/);

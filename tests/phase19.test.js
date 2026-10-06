@@ -287,3 +287,48 @@ test("Web Admin preserves the last valid active view across reloads", async () =
 	assert.ok(app.includes("activeView: initialActiveView"));
 	assert.ok(app.includes("writePreference(VIEW_KEY, view);"));
 });
+
+
+test("Phase 19.4 feature modules are deterministic app dependencies", async () => {
+	const [html, app, apiManagement, loginHistory] = await Promise.all([
+		readFile(new URL("../public/admin/index.html", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/api-management.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/login-history.js", import.meta.url), "utf8"),
+	]);
+
+	assert.ok(app.includes('import { apiManagementView } from "./api-management.js";'));
+	assert.ok(app.includes('import { loginHistoryView } from "./login-history.js";'));
+	assert.ok(app.includes('await apiManagementView.load();'));
+	assert.ok(app.includes('await loginHistoryView.load();'));
+	assert.ok(app.includes('apiManagementView.reset();'));
+	assert.ok(app.includes('loginHistoryView.reset();'));
+	assert.equal(app.includes("window.DRDApiManagement?.load"), false);
+	assert.equal(app.includes("window.DRDLoginHistory?.load"), false);
+	assert.equal(
+		html.includes('<script type="module" src="assets/api-management.js"></script>'),
+		false,
+	);
+	assert.equal(
+		html.includes('<script type="module" src="assets/login-history.js"></script>'),
+		false,
+	);
+	assert.ok(apiManagement.includes("export const apiManagementView"));
+	assert.ok(loginHistory.includes("export const loginHistoryView"));
+});
+
+test("Phase 19.4 feature views expose loading empty and visible error states", async () => {
+	const [apiManagement, loginHistory] = await Promise.all([
+		readFile(new URL("../public/admin/assets/api-management.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/login-history.js", import.meta.url), "utf8"),
+	]);
+
+	for (const source of [apiManagement, loginHistory]) {
+		assert.ok(source.includes("function renderLoading()"));
+		assert.ok(source.includes("function renderLoadError(error)"));
+		assert.ok(source.includes("throw error;"));
+		assert.equal(source.includes(".innerHTML"), false);
+	}
+	assert.ok(apiManagement.includes('tr("noTokens")'));
+	assert.ok(loginHistory.includes('tr("noHistory")'));
+});

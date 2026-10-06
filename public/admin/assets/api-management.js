@@ -3,6 +3,8 @@ const copy = Object.freeze({
     title: "مدیریت API",
     intro: "توکن‌های Market و Core و وضعیت دسترسی عمومی/خصوصی بازار را مدیریت کنید.",
     reload: "بروزرسانی",
+    loading: "در حال بارگذاری مدیریت API…",
+    loadError: "بارگذاری مدیریت API ناموفق بود.",
     marketMode: "حالت Market API",
     public: "عمومی",
     private: "خصوصی",
@@ -56,6 +58,8 @@ const copy = Object.freeze({
     title: "API management",
     intro: "Manage Market/Core tokens and the public/private Market API access policy.",
     reload: "Refresh",
+    loading: "Loading API management…",
+    loadError: "API management could not be loaded.",
     marketMode: "Market API mode",
     public: "Public",
     private: "Private",
@@ -134,22 +138,61 @@ copySecretButton?.addEventListener("click", copySecret);
 dismissSecretButton?.addEventListener("click", clearSecret);
 modeSelect?.addEventListener("change", renderModeHelp);
 
-window.DRDApiManagement = Object.freeze({
+export const apiManagementView = Object.freeze({
   load,
   render,
   reset,
 });
 
+window.DRDApiManagement = apiManagementView;
+
 async function load() {
   clearSecret();
-  const payload = await bridge().apiManagementSnapshot();
-  state.data = payload.data || {
-    market_mode: "public",
-    tokens: [],
-    stats: {},
-    capabilities: {},
-  };
-  render();
+  renderLoading();
+  try {
+    const payload = await bridge().apiManagementSnapshot();
+    state.data = payload.data || {
+      market_mode: "public",
+      tokens: [],
+      stats: {},
+      capabilities: {},
+    };
+    render();
+  } catch (error) {
+    state.data = null;
+    renderLoadError(error);
+    throw error;
+  }
+}
+
+function renderLoading() {
+  applyCopy();
+  for (const id of [
+    "api-stat-total",
+    "api-stat-active",
+    "api-stat-market",
+    "api-stat-core",
+    "api-stat-revoked",
+  ]) {
+    setText(id, "…");
+  }
+  list?.replaceChildren(textNode("p", tr("loading"), "api-empty"));
+}
+
+function renderLoadError(error) {
+  applyCopy();
+  for (const id of [
+    "api-stat-total",
+    "api-stat-active",
+    "api-stat-market",
+    "api-stat-core",
+    "api-stat-revoked",
+  ]) {
+    setText(id, "—");
+  }
+  const message = String(error?.message || "").trim();
+  const text = message ? `${tr("loadError")} ${message}` : tr("loadError");
+  list?.replaceChildren(textNode("p", text, "api-empty"));
 }
 
 function reset() {

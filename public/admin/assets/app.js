@@ -1,5 +1,7 @@
 import { AdminApi, ApiError } from "./api.js";
 import { applyLanguage, normalizeLanguage, t } from "./i18n.js";
+import { apiManagementView } from "./api-management.js";
+import { loginHistoryView } from "./login-history.js";
 
 const THEME_KEY = "drd-admin-theme";
 const LANG_KEY = "drd-admin-lang";
@@ -217,8 +219,8 @@ async function submitLogout() {
     }
   }
   stopAutomationCountdown();
-  window.DRDApiManagement?.reset?.();
-  window.DRDLoginHistory?.reset?.();
+  apiManagementView.reset();
+  loginHistoryView.reset();
   state.user = null;
   state.csrfToken = "";
   showLogin();
@@ -332,8 +334,8 @@ async function activateView(view) {
     if (view === "assets") await loadAssets();
     if (view === "automation") await loadAutomation();
     if (view === "admins") await window.DRDAdmins?.load?.();
-    if (view === "apiManagement") await window.DRDApiManagement?.load?.();
-    if (view === "loginHistory") await window.DRDLoginHistory?.load?.();
+    if (view === "apiManagement") await apiManagementView.load();
+    if (view === "loginHistory") await loginHistoryView.load();
     if (view === "system") await window.DRDSystem?.load?.();
     else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
@@ -655,8 +657,8 @@ async function toggleLanguage() {
   if (state.activeView === "sources" && state.sourceData) renderSources();
   if (state.activeView === "assets") renderAssets();
   if (state.activeView === "admins") window.DRDAdmins?.render?.();
-  if (state.activeView === "apiManagement") window.DRDApiManagement?.render?.();
-  if (state.activeView === "loginHistory") window.DRDLoginHistory?.render?.();
+  if (state.activeView === "apiManagement") apiManagementView.render();
+  if (state.activeView === "loginHistory") loginHistoryView.render();
   if (state.activeView === "system") window.DRDSystem?.render?.();
   refreshLanguageButtons();
 }
