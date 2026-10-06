@@ -1,115 +1,106 @@
 # DRD Rate Manager v0.13.0
 
-A class-based Cloudflare Worker for Telegram market management, D1-backed caching, manual/automatic publishing, source monitoring, and public read-only APIs.
+DRD Rate Manager is a modular Cloudflare Worker for Telegram-based market operations, resilient provider aggregation, scheduled publishing, Web Admin management, scoped external APIs, and D1-backed operational/security state.
 
-## Architecture
+Application version: `0.13.0`
+
+Schema version: **13**
+
+## Current architecture
 
 ```text
 Cloudflare Worker
-├── Application
-├── BotController
-├── ApiController
-├── AutomationService
-├── MarketService
-├── MarketPublisher
-├── MarketPostBuilder
-├── CoinGeckoClient
-├── MarketSources
-├── TelegramClient
+├── Application / composition root
+├── Public API + OpenAPI/docs controllers
+├── Private Web Admin controllers + static assets
+├── Telegram administration controller
+│   ├── market/source management
+│   ├── automation
+│   ├── admins
+│   ├── API management
+│   ├── system diagnostics
+│   ├── login security/history
+│   └── required-channel membership
+├── Services
+│   ├── MarketService / MarketPublisher
+│   ├── AutomationService / AutomationManagementService
+│   ├── ProviderResilienceService / ProviderHealthService
+│   ├── ApiTokenService / ApiAccessService / ApiManagementService
+│   ├── WebAuthService / LoginHistoryService / WebLoginAlertService
+│   ├── RequiredMembershipService
+│   └── SystemManagementService / OperationalAlertService
 └── D1 repositories
-    ├── SettingsRepository
-    ├── MarketCacheRepository
-    ├── LockRepository
-    ├── SourceStatusRepository
-    ├── AssetRepository
-    ├── AdminRepository
-    ├── AdminInputRepository
-    └── AuditRepository
 ```
 
-The rewrite keeps deployment as a **single `worker.js`** while separating responsibilities internally with classes and repositories.
+`src/index.js` is the Worker entrypoint. Static Web Admin assets live under `public/admin` and are served through the private `ASSETS` binding with `run_worker_first` enabled.
 
-## Important changes in v0.13.0
+## Major capabilities
 
-- Restored and centralized channel Rich Message rendering through `MarketPostBuilder`.
-- Removed fragile free-function dependency on `buildChannelMarketRichMessage`.
-- One CoinGecko market request per market refresh for:
-  - selected cryptocurrencies
-  - Tether Gold proxy
-  - Kinesis Silver proxy
-- Added centralized D1 market snapshot cache.
-- Default cache TTL: **30 seconds**.
-- Cache TTL is configurable from the Telegram settings UI.
-- Bot, API, preview, manual publish, and Cron all use the same market cache.
-- Added stale-cache fallback.
-- Added D1 distributed refresh lock to reduce duplicate upstream requests across Worker isolates.
-- Added `User-Agent` to CoinGecko requests.
-- CoinGecko Demo/Pro API modes are supported.
-- Public Assets and Sources APIs read persistent cached state instead of calling providers directly.
-- Added fail-fast runtime integrity checks for critical components.
-- Scheduled path does not execute full schema migration on every Cron invocation.
-- Schema version: **8**.
+### Market and providers
 
-## CoinGecko request model
+- CoinGecko global crypto/metal proxy data.
+- USDT/Toman priority: **Wallex → Tabdeal → Exir**.
+- WallGold local gold source.
+- D1-backed market cache with stale-value recovery.
+- Provider cooldown/circuit-breaker behavior.
+- Provider health scoring and diagnostics without implicit refreshes.
+- Publication-quality gate prevents severe partial snapshots from being published.
 
-Regular market refresh:
+### Automation
+
+- Minute Cron (`* * * * *`) with aligned publication slots.
+- Configurable publish interval and quiet hours.
+- Retry semantics after failed publication.
+- Distributed D1 locking to avoid duplicate publication.
+- Dry run, force run, execution history and real-time Web Admin countdown.
+
+### Web Admin security
+
+- Dynamic/private admin path.
+- PBKDF2-HMAC-SHA256 password hashing with 600,000 iterations.
+- HttpOnly + Secure + SameSite=Strict sessions.
+- CSRF protection for mutations.
+- Login rate limiting and lockout.
+- Persistent Login Security history with IP/User-Agent/Cloudflare metadata.
+- Telegram Owner notification on successful Web Admin login and fresh lockout.
+- Login history available in both Web Admin and Owner-only Telegram UI.
+
+Raw passwords, session tokens, CSRF tokens, cookies and Authorization headers must never be persisted in login history or operational logs.
+
+### Scoped external API
+
+Two isolated token namespaces are supported:
 
 ```text
-GET /coins/markets
-ids=<enabled coins>,tether-gold,kinesis-silver
+drd_mkt_*   Market scope
+drd_core_*  Core scope
 ```
 
-That **single request** returns selected crypto prices, 24h changes, and the two global metal proxy prices.
+Market API mode can be `public` or `private`. Core endpoints always require Core scope. Raw API tokens are shown only once and only hashes are stored.
 
-The Top-N asset catalog uses a separate request only when the administrator explicitly refreshes the CoinGecko asset list.
-
-## Cache
-
-The market snapshot is stored in `market_cache`.
-
-Default:
+Public API documentation:
 
 ```text
-30 seconds
+GET /docs
+GET /openapi.json
 ```
 
-Available Telegram settings:
+The OpenAPI document never exposes the private Web Admin path.
+
+### Required Telegram membership
+
+Regular Telegram Admins must be members of every required channel before protected bot operations are available.
+
+Permanent immutable channels:
 
 ```text
-5 / 10 / 15 / 30 / 60 / 120 / 300 / 600 seconds
+@DRDNetwork
+@DRDrate
 ```
 
-Consumers:
+The Owner can add up to the service-defined limit of extra public channels. Before an extra channel is accepted, the bot verifies that the chat is supported and that the bot itself is an Administrator there.
 
-```text
-Telegram Bot
-Public APIs
-Preview
-Manual publishing
-Automatic publishing
-```
-
-All use the same cached snapshot.
-
-If an upstream provider temporarily fails, valid fields from the last healthy snapshot are reused where possible and the response remains marked `partial`.
-
-## USDT source priority
-
-```text
-Wallex → Tabdeal → Exir
-```
-
-Regular market refresh stops after the first healthy provider.
-
-The Source Manager's explicit refresh checks all USDT providers so their cached health status stays current.
-
-## Required Cloudflare Cron
-
-```cron
-* * * * *
-```
-
-The Worker checks every minute, but publishes only when the configured interval is due and Quiet Hours are not active.
+The Owner bypasses membership enforcement to prevent administrative lockout. `/id` remains available for onboarding.
 
 ## Telegram commands
 
@@ -120,107 +111,177 @@ The Worker checks every minute, but publishes only when the configured interval 
 /id
 ```
 
-## Public API
+## External API surface
+
+Service metadata:
 
 ```text
 GET /
+GET /docs
+GET /openapi.json
+```
+
+Market audience:
+
+```text
 GET /api/v1/market
 GET /api/v1/assets
 GET /api/v1/sources
 GET /api/v1/sources/usdt
+```
+
+Core audience:
+
+```text
 GET /api/v1/automation
 GET /api/v1/system
 GET /api/v1/system/database
+```
+
+Telegram webhook:
+
+```text
 POST /telegram/webhook
 ```
 
-## D1 tables
+Private Web Admin APIs intentionally are not listed as public external API contracts.
+
+## D1 storage
+
+Schema 13 bootstraps and maintains the operational tables used by the application, including:
 
 ```text
 app_meta
 settings
+secure_settings
 admins
-source_status
 admin_input_state
 audit_logs
+source_status
 coingecko_assets
 market_cache
 runtime_locks
+automation_runs
+api_tokens
+web_admin_users
+web_admin_sessions
+web_auth_attempts
+web_admin_login_history
 ```
 
-The rewrite is backward-compatible with the existing tables and adds `runtime_locks` for cross-isolate market refresh coordination.
+Required-channel extras reuse the existing `settings` table; Phase 17 introduced no schema migration.
 
-## Environment variables
+## Configuration ownership
 
-Non-secret variables:
+Configuration is split into three categories:
 
-```env
-APP_NAME=DRD RATE MANAGER
-APP_VERSION=0.13.0
-BOT_DISPLAY_NAME=DRD Rate Manager
-TIMEZONE=Asia/Tehran
+1. **Deployment/infrastructure identity** — Worker/D1/assets bindings and permanent deployment values.
+2. **Runtime settings** — managed through D1 after migration, with legacy ENV only as an explicit bootstrap fallback.
+3. **Secure settings** — encrypted in D1 under `APP_MASTER_KEY`, with legacy Worker secrets used only during migration where still required.
 
-TELEGRAM_OWNER_ID=
-TELEGRAM_CHANNEL_ID=@DRDrate
-TELEGRAM_CHANNEL_HANDLE=@DRDrate
+Use `.env.example` as the ownership reference. Never commit real production secrets.
 
-COINGECKO_API_PLAN=demo
-COINGECKO_TOP_LIMIT=20
-COINGECKO_DEFAULT_ASSETS=bitcoin,ethereum,binancecoin,ripple,solana,tron
-COINGECKO_USER_AGENT=DRD-Rate-Manager/0.13.0 (+https://t.me/DRDrate)
-
-WALLEX_API_URL=https://api.wallex.ir/hector/web/v1/markets
-TABDEAL_API_URL=https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1
-EXIR_API_URL=https://api.exir.io/v2/orderbook?symbol=usdt-irt
-WALLGOLD_API_URL=https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN
-
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_D1_DATABASE_ID=
-D1_DATABASE_LIMIT_MB=500
-```
-
-Secrets:
+Important secure values include:
 
 ```text
+APP_MASTER_KEY
 TELEGRAM_BOT_TOKEN
 TELEGRAM_WEBHOOK_SECRET
 COINGECKO_API_KEY
 CLOUDFLARE_API_TOKEN
 ```
 
-Never commit secrets to Git.
+`APP_MASTER_KEY` is permanent infrastructure secret material and must not be rotated casually because existing encrypted secure settings depend on it.
 
-## Validation before deployment
+## Web Admin bootstrap
+
+On a fresh database the Web Admin bootstrap account/path is intentionally temporary. Complete bootstrap immediately, replacing the default username, password and admin path. Completing bootstrap invalidates existing sessions.
+
+Do not publish the resulting private admin path in README, public API docs, logs or support screenshots.
+
+## Local validation
+
+Install dependencies:
 
 ```bash
-node --check worker.js
+npm install
 ```
 
-The production file also includes a runtime component contract that verifies critical class methods exist at module load time.
+Run the complete test suite:
 
-## Upgrade
-
-Set:
-
-```env
-APP_VERSION=0.13.0
+```bash
+npm test
 ```
 
-Deploy the new Worker, then open any HTTP endpoint once to run schema bootstrap/migration. The first request creates the new `runtime_locks` table if it does not already exist.
+Run syntax and text-format stability checks:
 
-After deployment test:
-
-```text
-/api/v1/system
-/api/v1/market
-/api/v1/sources
+```bash
+npm run check
 ```
 
-Then use Telegram:
+Run the complete release candidate gate:
 
-```text
-Settings → Market Cache
-Market Manager → Refresh
-Market Manager → Preview
-Market Manager → Publish Now
+```bash
+npm run release:check
 ```
+
+This command performs **no deployment**.
+
+For repository-only release preflight:
+
+```bash
+npm run release:preflight
+```
+
+For a real production Wrangler file with no template placeholders:
+
+```bash
+npm run release:preflight -- --strict-config --wrangler wrangler.production.jsonc --require-clean
+```
+
+## Configuration migration finalization
+
+Legacy ENV cleanup is proof-driven. Obtain the authenticated System API snapshot and first run:
+
+```bash
+npm run config:finalize -- system-snapshot.json
+```
+
+That command is a dry-run by default. Only after the migration snapshot reports readiness and the plan has been reviewed should `--write` be considered.
+
+It never deploys and never deletes Cloudflare secrets automatically.
+
+## Production release
+
+Production deployment remains an explicit operator action. The repository does not auto-deploy from `release:check`.
+
+Before deployment:
+
+- pass `npm run release:check`;
+- verify a clean candidate commit;
+- validate the actual Cloudflare bindings/configuration;
+- verify the bot is Administrator in `@DRDNetwork`, `@DRDrate`, and every extra required channel;
+- export the remote D1 database;
+- prepare a rollback plan.
+
+Then follow [`docs/release-checklist.md`](docs/release-checklist.md) for manual deployment and post-deploy verification.
+
+## Security invariants
+
+- Never store or log Web Admin plaintext passwords.
+- Never store raw Web Admin session or CSRF tokens.
+- Never persist raw API tokens after the one-time creation/rotation response.
+- Never expose Telegram bot secrets or provider API keys.
+- Never include request Authorization headers/cookies in operational logs.
+- Authentication and access-control decisions fail closed.
+- Observability/history/notification failures must not replace a legitimate successful authentication result where explicitly designed to fail open.
+- Public docs must never disclose the dynamic Web Admin path.
+
+## Release readiness
+
+Candidate validation and production verification are intentionally separate:
+
+- `npm run release:check` validates the candidate locally.
+- `docs/release-checklist.md` covers backup, manual deployment, smoke checks and rollback evidence.
+
+Do not treat a green local test suite alone as production verification.

@@ -10,7 +10,9 @@
     "format:changed": "node scripts/format-changed.mjs",
     "format:check": "node scripts/check-format-stability.mjs",
     "check": "npm run check:syntax && npm run format:check",
-    "config:finalize": "node scripts/finalize-config-cleanup.mjs"
+    "config:finalize": "node scripts/finalize-config-cleanup.mjs",
+    "release:preflight": "node scripts/release-preflight.mjs",
+    "release:check": "npm test && npm run check && npm run release:preflight"
   },
   "devDependencies": {
     "prettier": "3.9.9"
