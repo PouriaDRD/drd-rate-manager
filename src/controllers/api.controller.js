@@ -49,6 +49,8 @@ export class ApiController {
 						automation: "/api/v1/automation",
 						system: "/api/v1/system",
 						database: "/api/v1/system/database",
+						docs: "/docs",
+						openapi: "/openapi.json",
 					},
 				});
 

@@ -1,3 +1,4 @@
+import { ApiDocsController } from "../controllers/api-docs.controller.js";
 import { ApiController } from "../controllers/api.controller.js";
 import { TelegramController } from "../controllers/telegram.controller.js";
 import { WebAdminAdminsController } from "../controllers/web-admin-admins.controller.js";
@@ -18,6 +19,7 @@ export class Application {
 		this.database = new Database(env);
 		this.services = createServices(env);
 		this.api = new ApiController(this.services);
+		this.apiDocs = new ApiDocsController(this.services);
 		this.telegram = new TelegramController(this.services);
 		this.webAdmin = new WebAdminAuthController(this.services);
 		this.webAdminAdmins = new WebAdminAdminsController(this.services);
@@ -32,6 +34,8 @@ export class Application {
 		await this.services.secureSettingsService.refresh();
 		await this.services.config.refresh();
 		const url = new URL(request.url);
+		const apiDocsResponse = await this.apiDocs.route(request, url);
+		if (apiDocsResponse) return apiDocsResponse;
 		if (url.pathname === "/" || url.pathname.startsWith("/api/")) {
 			const apiResponse = await this.api.route(request, url);
 			if (apiResponse) return apiResponse;

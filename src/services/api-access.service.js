@@ -1,25 +1,18 @@
+import {
+	API_AUDIENCES,
+	CORE_API_PATHS,
+	MARKET_API_PATHS,
+	apiEndpoint,
+} from "../api/catalog.js";
+
+export { CORE_API_PATHS, MARKET_API_PATHS };
+
 export const MARKET_API_MODE_KEY = "market_api_mode";
 
 export const MARKET_API_MODES = Object.freeze({
 	PUBLIC: "public",
 	PRIVATE: "private",
 });
-
-export const MARKET_API_PATHS = Object.freeze([
-	"/api/v1/market",
-	"/api/v1/assets",
-	"/api/v1/sources",
-	"/api/v1/sources/usdt",
-]);
-
-export const CORE_API_PATHS = Object.freeze([
-	"/api/v1/automation",
-	"/api/v1/system",
-	"/api/v1/system/database",
-]);
-
-const MARKET_PATH_SET = new Set(MARKET_API_PATHS);
-const CORE_PATH_SET = new Set(CORE_API_PATHS);
 
 export function normalizeMarketApiMode(value, { missing = "public" } = {}) {
 	if (value == null || String(value).trim() === "") return missing;
@@ -54,7 +47,10 @@ export class ApiAccessService {
 	}
 
 	async authorize(request, pathname) {
-		if (MARKET_PATH_SET.has(pathname)) {
+		const endpoint = apiEndpoint(pathname);
+		if (!endpoint) return null;
+
+		if (endpoint.audience === API_AUDIENCES.MARKET) {
 			const mode = await this.marketMode();
 			if (mode === MARKET_API_MODES.PUBLIC) {
 				return {
@@ -75,16 +71,12 @@ export class ApiAccessService {
 			};
 		}
 
-		if (CORE_PATH_SET.has(pathname)) {
-			const auth = await this.apiTokens.authenticate(request, "core");
-			return {
-				...auth,
-				requiredType: "core",
-				mode: "private",
-				anonymous: false,
-			};
-		}
-
-		return null;
+		const auth = await this.apiTokens.authenticate(request, "core");
+		return {
+			...auth,
+			requiredType: "core",
+			mode: "private",
+			anonymous: false,
+		};
 	}
 }
