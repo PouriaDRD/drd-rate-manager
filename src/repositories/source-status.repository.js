@@ -4,6 +4,7 @@ export class SourceStatusRepository {
 	}
 
 	async save(source, status) {
+		if (status?.skipped) return false;
 		await this.env.DB.prepare(`INSERT INTO source_status
 			(source, success, status_code, latency_ms, message, last_price, last_checked_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -24,6 +25,7 @@ export class SourceStatusRepository {
 				Date.now(),
 			)
 			.run();
+		return true;
 	}
 
 	async saveMany(map) {

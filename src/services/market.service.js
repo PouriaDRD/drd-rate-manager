@@ -112,7 +112,7 @@ export class MarketService {
 			wallGoldEnabled ? this.sources.checkWallGold() : disabled("WallGold"),
 		]);
 		const usdt = fullSourceCheck ? resolveUsdtChecks(usdtResult) : usdtResult;
-		if (coinGeckoEnabled) {
+		if (coinGeckoEnabled && !coinGecko.skipped) {
 			await this.statuses.save(
 				"coingecko",
 				coinGecko.success

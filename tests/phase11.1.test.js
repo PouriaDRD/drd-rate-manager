@@ -157,7 +157,7 @@ test("source failure, unchecked source and stale cache make health degraded", as
 				return {
 					usdt_priority: ["wallex", "tabdeal", "exir"],
 					sources: {
-						wallex: { name: "wallex", label: "Wallex", kind: "usdt", enabled: true, status: { success: false, status: 503, latency: 10, message: "down" } },
+						wallex: { name: "wallex", label: "Wallex", kind: "usdt", enabled: true, status: { success: false, status: 503, latency: 10, message: "down", lastCheckedAt: now - 1_000 } },
 						tabdeal: { name: "tabdeal", label: "Tabdeal", kind: "usdt", enabled: true, status: null },
 					},
 				};

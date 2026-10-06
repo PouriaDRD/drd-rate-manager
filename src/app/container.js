@@ -25,6 +25,8 @@ import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
 import { PreferencesService } from "../services/preferences.service.js";
+import { ProviderHealthService } from "../services/provider-health.service.js";
+import { ProviderResilienceService } from "../services/provider-resilience.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
 import { SourceSettingsService } from "../services/source-settings.service.js";
@@ -44,9 +46,11 @@ export function createServices(env) {
 	const config = new Config(runtimeEnv, settingsService);
 	const cache = new MarketCacheRepository(runtimeEnv);
 	const locks = new LockRepository(runtimeEnv);
+	const resilience = new ProviderResilienceService(locks);
 	const automationRuns = new AutomationRunRepository(runtimeEnv);
 	const statuses = new SourceStatusRepository(runtimeEnv);
 	const sourceSettings = new SourceSettingsService(settings, statuses);
+	const providerHealth = new ProviderHealthService(sourceSettings, resilience);
 	const assets = new AssetRepository(runtimeEnv, config);
 	const admins = new AdminRepository(runtimeEnv, config);
 	const adminInput = new AdminInputRepository(runtimeEnv);
@@ -57,8 +61,8 @@ export function createServices(env) {
 	const webAuthAttempts = new WebAuthAttemptRepository(runtimeEnv);
 	const webAuth = new WebAuthService(runtimeEnv, webAdmins, webSessions, webAuthAttempts);
 	const http = new HttpClient();
-	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http);
-	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings);
+	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http, resilience);
+	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings, resilience);
 	const market = new MarketService(runtimeEnv, config, settings, cache, locks, assets, statuses, sources, coinGecko, sourceSettings);
 	const telegram = new TelegramClient(runtimeEnv, http);
 	const postBuilder = new MarketPostBuilder(config);
@@ -82,6 +86,7 @@ export function createServices(env) {
 		secureSettingsService,
 		cache,
 		sourceSettings,
+		providerHealth,
 		automationManagement,
 		adminManagement,
 	});
@@ -98,9 +103,11 @@ export function createServices(env) {
 		secretCrypto,
 		cache,
 		locks,
+		resilience,
 		automationRuns,
 		statuses,
 		sourceSettings,
+		providerHealth,
 		assets,
 		admins,
 		adminInput,

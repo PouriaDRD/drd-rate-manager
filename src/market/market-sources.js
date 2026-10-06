@@ -10,12 +10,13 @@ import {
 
 /** Market source clients for USDT and Iranian gold. */
 export class MarketSources {
-	constructor(env, http, statuses, config = null, sourceSettings = null) {
+	constructor(env, http, statuses, config = null, sourceSettings = null, resilience = null) {
 		this.env = env;
 		this.http = http;
 		this.statuses = statuses;
 		this.config = config;
 		this.sourceSettings = sourceSettings;
+		this.resilience = resilience;
 	}
 
 	async resolveUsdt() {
@@ -28,7 +29,7 @@ export class MarketSources {
 			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) continue;
 			enabledCount += 1;
 			const result = await this[`check${capitalize(source)}`]();
-			await this.statuses.save(source, result);
+			if (!result.skipped) await this.statuses.save(source, result);
 			if (result.success) {
 				return { ...result, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
 			}
@@ -50,7 +51,7 @@ export class MarketSources {
 	}
 
 	async checkWallex() {
-		return this.#timed("wallex", async () => {
+		return this.#resilient("wallex", () => this.#timed("wallex", async () => {
 			const url = this.config?.wallexApiUrl || this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
 			const response = await this.http.fetch(
 				url,
@@ -67,11 +68,11 @@ export class MarketSources {
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Wallex response", response.status);
-		});
+		}));
 	}
 
 	async checkTabdeal() {
-		return this.#timed("tabdeal", async () => {
+		return this.#resilient("tabdeal", () => this.#timed("tabdeal", async () => {
 			const url = this.config?.tabdealApiUrl || this.env.TABDEAL_API_URL || "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1";
 			const response = await this.http.fetch(
 				url,
@@ -84,11 +85,11 @@ export class MarketSources {
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Tabdeal response", response.status);
-		});
+		}));
 	}
 
 	async checkExir() {
-		return this.#timed("exir", async () => {
+		return this.#resilient("exir", () => this.#timed("exir", async () => {
 			const url = this.config?.exirApiUrl || this.env.EXIR_API_URL || "https://api.exir.io/v2/orderbook?symbol=usdt-irt";
 			const response = await this.http.fetch(
 				url,
@@ -101,11 +102,11 @@ export class MarketSources {
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Exir response", response.status);
-		});
+		}));
 	}
 
 	async checkWallGold() {
-		const result = await this.#timed("wallgold", async () => {
+		const result = await this.#resilient("wallgold", () => this.#timed("wallgold", async () => {
 			const url = this.config?.wallGoldApiUrl || this.env.WALLGOLD_API_URL || "https://api.wallgold.ir/api/v1/price?side=buy&symbol=GLD_18C_750TMN";
 			const response = await this.http.fetch(
 				url,
@@ -118,9 +119,13 @@ export class MarketSources {
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid WallGold response", response.status);
-		});
-		await this.statuses.save("wallgold", result);
+		}));
+		if (!result.skipped) await this.statuses.save("wallgold", result);
 		return result;
+	}
+
+	async #resilient(source, operation) {
+		return this.resilience ? this.resilience.execute(source, operation) : operation();
 	}
 
 	async #timed(_source, operation) {

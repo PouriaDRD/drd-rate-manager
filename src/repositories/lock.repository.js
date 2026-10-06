@@ -31,6 +31,37 @@ export class LockRepository {
 		}
 	}
 
+	async peek(key) {
+		try {
+			const row = await this.env.DB.prepare(
+				"SELECT expires_at, updated_at FROM runtime_locks WHERE lock_key = ?",
+			)
+				.bind(key)
+				.first();
+			if (!row) return null;
+			const expiresAt = Number(row.expires_at || 0);
+			const updatedAt = Number(row.updated_at || 0);
+			return {
+				expiresAt,
+				updatedAt,
+				leaseMs: Math.max(0, expiresAt - updatedAt),
+			};
+		} catch (error) {
+			if (!errorMessage(error).toLowerCase().includes("no such table")) throw error;
+			return null;
+		}
+	}
+
+	async extend(key, token, ttlMs) {
+		const now = Date.now();
+		const result = await this.env.DB.prepare(
+			"UPDATE runtime_locks SET expires_at = ?, updated_at = ? WHERE lock_key = ? AND token = ?",
+		)
+			.bind(now + Math.max(1, Number(ttlMs) || 1), now, key, token)
+			.run();
+		return Number(result?.meta?.changes || 0) > 0;
+	}
+
 	async release(key, token) {
 		try {
 			await this.env.DB.prepare("DELETE FROM runtime_locks WHERE lock_key = ? AND token = ?")

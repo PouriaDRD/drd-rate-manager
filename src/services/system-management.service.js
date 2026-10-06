@@ -10,9 +10,15 @@ import { parseBoolean } from "../utils/core.js";
 function sourceHealth(snapshot = {}) {
 	const items = Object.values(snapshot.sources || {});
 	const enabled = items.filter((item) => item.enabled);
-	const healthy = enabled.filter((item) => item.status?.success === true);
-	const failed = enabled.filter((item) => item.status && item.status.success === false);
-	const unchecked = enabled.filter((item) => !item.status);
+	const checkedAt = (item) =>
+		Number(item.status?.lastCheckedAt || item.status?.last_checked_at || 0);
+	const healthy = enabled.filter(
+		(item) => checkedAt(item) > 0 && item.status?.success === true,
+	);
+	const failed = enabled.filter(
+		(item) => checkedAt(item) > 0 && item.status?.success === false,
+	);
+	const unchecked = enabled.filter((item) => checkedAt(item) <= 0);
 
 	return {
 		total: items.length,
@@ -21,17 +27,28 @@ function sourceHealth(snapshot = {}) {
 		failed: failed.length,
 		unchecked: unchecked.length,
 		usdtPriority: snapshot.usdt_priority || [],
+		healthScore: snapshot.provider_health?.score ?? null,
+		healthGrade: snapshot.provider_health?.grade || "unknown",
+		openCircuits: Number(snapshot.provider_health?.openCircuits || 0),
+		probes: Number(snapshot.provider_health?.probes || 0),
+		unknownCircuits: Number(snapshot.provider_health?.unknownCircuits || 0),
 		items: items.map((item) => ({
 			name: item.name,
 			label: item.label,
 			kind: item.kind,
 			enabled: Boolean(item.enabled),
-			healthy: item.status?.success === true,
-			checked: Boolean(item.status),
+			healthy: checkedAt(item) > 0 && item.status?.success === true,
+			checked: checkedAt(item) > 0,
 			status: item.status?.status ?? null,
 			latency: item.status?.latency ?? null,
-			lastCheckedAt: Number(item.status?.lastCheckedAt || item.status?.last_checked_at || 0),
+			lastCheckedAt: checkedAt(item),
 			message: item.status?.message || null,
+			healthScore: item.health?.score ?? null,
+			healthGrade: item.health?.grade || (item.enabled ? "unknown" : "disabled"),
+			circuitState: item.health?.circuit?.state || "unknown",
+			circuitRetryAt: Number(item.health?.circuit?.retryAt || 0),
+			circuitRemainingMs: Number(item.health?.circuit?.remainingMs || 0),
+			circuitError: item.health?.circuit?.error || null,
 		})),
 	};
 }
@@ -100,6 +117,7 @@ function buildHealth({
 	if (!sources.enabled) warnings.push("no_sources_enabled");
 	if (sources.failed) warnings.push("source_failures");
 	if (sources.unchecked) warnings.push("sources_unverified");
+	if (sources.openCircuits) warnings.push("provider_circuit_open");
 	if (!cache.present) warnings.push("cache_empty");
 	if (cache.expired) warnings.push("cache_expired");
 	if (cache.lastError) warnings.push("cache_last_error");
@@ -143,7 +161,9 @@ export class SystemManagementService {
 			botEnabledRaw,
 		] = await Promise.all([
 			this.databaseStatusFn(this.s),
-			this.s.sourceSettings.snapshot(),
+			this.s.providerHealth
+				? this.s.providerHealth.snapshot(now)
+				: this.s.sourceSettings.snapshot(),
 			this.s.automationManagement.state(now, 5),
 			this.s.adminManagement.snapshot({ type: "system", role: "owner", id: "system" }),
 			this.s.cache.read(),
@@ -218,6 +238,7 @@ export const SYSTEM_HEALTH_REASONS = Object.freeze({
 		"no_sources_enabled",
 		"source_failures",
 		"sources_unverified",
+		"provider_circuit_open",
 		"cache_empty",
 		"cache_expired",
 		"cache_last_error",

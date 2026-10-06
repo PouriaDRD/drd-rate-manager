@@ -175,7 +175,7 @@ test("Telegram source management reads the same D1 settings and exposes toggles"
 test("composition root shares one SourceSettingsService with market runtime", async () => {
 	const source = await readFile(new URL("../src/app/container.js", import.meta.url), "utf8");
 	assert.match(source, /new SourceSettingsService\(settings, statuses\)/);
-	assert.match(source, /new MarketSources\(runtimeEnv, http, statuses, config, sourceSettings\)/);
+	assert.match(source, /new MarketSources\(runtimeEnv, http, statuses, config, sourceSettings, resilience\)/);
 	assert.match(source, /coinGecko, sourceSettings\)/);
 });
 

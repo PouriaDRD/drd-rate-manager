@@ -51,6 +51,16 @@ const copy = Object.freeze({
     uncheckedSources: "بررسی‌نشده",
     usdtPriority: "اولویت USDT",
     sourceDetails: "جزئیات منابع",
+    excellent: "عالی",
+    unhealthy: "ناسالم",
+    providerHealth: "سلامت Providerها",
+    circuit: "Circuit",
+    score: "امتیاز",
+    circuit_closed: "بسته",
+    circuit_open: "باز",
+    circuit_probe_in_progress: "Probe در حال اجرا",
+    circuit_half_open_ready: "آماده Probe",
+    circuit_unknown: "نامشخص",
     neverChecked: "هنوز بررسی نشده",
     activeAdmins: "ادمین فعال",
     inactiveAdmins: "ادمین غیرفعال",
@@ -72,6 +82,7 @@ const copy = Object.freeze({
     status_no_sources_enabled: "هیچ منبعی فعال نیست",
     status_source_failures: "یک یا چند منبع ناموفق هستند",
     status_sources_unverified: "برخی منابع هنوز بررسی نشده‌اند",
+    status_provider_circuit_open: "Circuit یک یا چند Provider باز است",
     status_cache_empty: "کش بازار خالی است",
     status_cache_expired: "کش بازار منقضی شده",
     status_cache_last_error: "کش آخرین خطا دارد",
@@ -153,6 +164,16 @@ const copy = Object.freeze({
     uncheckedSources: "Unchecked",
     usdtPriority: "USDT priority",
     sourceDetails: "Source details",
+    excellent: "Excellent",
+    unhealthy: "Unhealthy",
+    providerHealth: "Provider health",
+    circuit: "Circuit",
+    score: "Score",
+    circuit_closed: "Closed",
+    circuit_open: "Open",
+    circuit_probe_in_progress: "Probe in progress",
+    circuit_half_open_ready: "Ready to probe",
+    circuit_unknown: "Unknown",
     neverChecked: "Never checked",
     activeAdmins: "Active admins",
     inactiveAdmins: "Inactive admins",
@@ -174,6 +195,7 @@ const copy = Object.freeze({
     status_no_sources_enabled: "No sources are enabled",
     status_source_failures: "One or more enabled sources are failing",
     status_sources_unverified: "Some enabled sources have not been checked",
+    status_provider_circuit_open: "One or more provider circuits are open",
     status_cache_empty: "Market cache is empty",
     status_cache_expired: "Market cache has expired",
     status_cache_last_error: "Market cache reports a last error",
@@ -312,9 +334,28 @@ function renderSources(sources) {
   setText("system-sources-unchecked", sources.unchecked ?? 0);
   setText("system-usdt-priority", (sources.usdt_priority || []).join(" → ") || "—");
 
+  const healthSummary = sources.health_score == null
+    ? "—"
+    : `${sources.health_score}/100 · ${tr(sources.health_grade || "unhealthy")} · ${Number(sources.open_circuits || 0)} open`;
+
   const target = document.querySelector("#system-source-list");
   if (!target) return;
   target.replaceChildren();
+
+  const summaryRow = node("div", "system-source-row");
+  const summaryIdentity = node("div", "system-source-identity");
+  summaryIdentity.append(textNode("strong", tr("providerHealth")));
+  const summaryDetails = node("div", "system-source-detail");
+  summaryDetails.append(
+    textNode("span", healthSummary, "system-code"),
+    textNode(
+      "span",
+      `${Number(sources.probes || 0)} probe · ${Number(sources.unknown_circuits || 0)} unknown`,
+      "system-muted",
+    ),
+  );
+  summaryRow.append(summaryIdentity, summaryDetails);
+  target.append(summaryRow);
 
   for (const item of sources.items || []) {
     const row = node("div", "system-source-row");
@@ -332,6 +373,18 @@ function renderSources(sources) {
       textNode("span", item.checked ? `HTTP ${item.http_status ?? "—"}` : tr("neverChecked"), "system-code"),
       textNode("span", formatMs(item.latency_ms), "system-muted"),
       textNode("span", formatDateTime(item.last_checked_at), "system-muted"),
+      textNode(
+        "span",
+        item.health_score == null
+          ? `${tr("score")}: —`
+          : `${tr("score")}: ${item.health_score}/100 · ${tr(item.health_grade || "unhealthy")}`,
+        "system-muted",
+      ),
+      textNode(
+        "span",
+        `${tr("circuit")}: ${tr(`circuit_${item.circuit_state || "unknown"}`)}`,
+        "system-muted",
+      ),
     );
     if (item.message) details.title = String(item.message);
     row.append(identity, details);
@@ -449,7 +502,7 @@ function sourceTone(item) {
 
 function reasonIcon(reason) {
   if (["database_unavailable", "runtime_integrity_failed", "runtime_settings_invalid"].includes(reason)) return "●";
-  if (["source_failures", "sources_unverified", "cache_empty", "cache_expired", "cache_last_error", "no_sources_enabled"].includes(reason)) return "▲";
+  if (["source_failures", "sources_unverified", "provider_circuit_open", "cache_empty", "cache_expired", "cache_last_error", "no_sources_enabled"].includes(reason)) return "▲";
   return "•";
 }
 
