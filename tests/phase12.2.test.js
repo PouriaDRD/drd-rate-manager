@@ -101,7 +101,7 @@ test("Web Admin serializer exposes readiness metadata without secret values", ()
 	const data = serializeSystem({
 		generatedAt: 1,
 		health: { status: "healthy", reasonCodes: [], critical: [], warnings: [], notices: [] },
-		runtime: { version: "0.13.0", schemaVersion: 11, timezone: "UTC", integrity: true, botEnabled: true },
+		runtime: { version: "0.2.0", schemaVersion: 11, timezone: "UTC", integrity: true, botEnabled: true },
 		database: {},
 		cache: { present: false, fresh: false, expired: false, fetchedAt: 0, expiresAt: 0, ageSeconds: null, ttlRemainingSeconds: null, lastError: null },
 		automation: { enabled: false, reason: "automation_disabled", canPublishNow: false, nextPublishAt: 0, lastSuccessAt: 0, lastAttemptAt: 0, lastErrorAt: 0, lastError: null },
@@ -158,7 +158,7 @@ test("wrangler keeps permanent identity and legacy bootstrap variables until rea
 	const wrangler = JSON.parse(wranglerText);
 	assert.equal(wrangler.assets?.run_worker_first, true);
 	assert.equal(wrangler.vars?.APP_NAME, "DRD RATE MANAGER");
-	assert.equal(wrangler.vars?.APP_VERSION, "0.13.0");
+	assert.equal(wrangler.vars?.APP_VERSION, "0.2.0");
 	assert.ok(Object.hasOwn(wrangler.vars || {}, "TELEGRAM_OWNER_ID"));
 	assert.ok(Object.hasOwn(wrangler.vars || {}, "COINGECKO_USER_AGENT"));
 	assert.ok(Object.hasOwn(wrangler.vars || {}, "CLOUDFLARE_D1_DATABASE_ID"));
@@ -176,7 +176,7 @@ test(".env.example separates permanent configuration from migration-only inputs"
 
 test("Phase 12.2 does not change schema or application version", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(app, /version:\s*"0\.13\.0"/);
+	assert.match(app, /version:\s*"0\.2\.0"/);
 	assert.match(app, /schemaVersion:\s*13/);
 });
 

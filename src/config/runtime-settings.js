@@ -98,7 +98,7 @@ export function resolveRuntimeSettingFallback(env, definition) {
 }
 
 /**
- * Preserves the v0.13.0 Config behavior during bootstrap before
+ * Preserves the v0.2.0 Config behavior during bootstrap before
  * SettingsService has loaded D1. This is intentionally more permissive than
  * managed D1 writes while still deriving all ENV keys/defaults/rules from the
  * central runtime-setting catalog.

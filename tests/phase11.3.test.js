@@ -10,7 +10,7 @@ function systemSnapshot(overrides = {}) {
 	const base = {
 		health: { status: "healthy", reasonCodes: [], critical: [], warnings: [], notices: [] },
 		runtime: {
-			version: "0.13.0",
+			version: "0.2.0",
 			schemaVersion: 11,
 			timezone: "Asia/Tehran",
 			integrity: true,

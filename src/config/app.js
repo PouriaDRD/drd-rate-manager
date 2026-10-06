@@ -1,7 +1,7 @@
 export const APP = Object.freeze({
 	name: "DRD RATE MANAGER",
 	displayName: "DRD Rate Manager",
-	version: "0.13.0",
+	version: "0.2.0",
 	schemaVersion: 13,
 	apiVersion: "v1",
 	defaultCacheTtlSeconds: 30,

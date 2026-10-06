@@ -276,8 +276,8 @@ test("Phase 15.1 deliberately does not enforce tokens on public API routes yet",
 	assert.doesNotMatch(source, /apiTokens\.authenticate/);
 });
 
-test("application version remains 0.13.0 while storage schema advances to 12", async () => {
+test("application version remains 0.2.0 while storage schema advances to 12", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.13\.0"/);
+	assert.match(source, /version:\s*"0\.2\.0"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

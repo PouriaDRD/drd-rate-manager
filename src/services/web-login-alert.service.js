@@ -1,4 +1,5 @@
 import { escapeHtml, errorMessage } from "../utils/core.js";
+import { formatOptionalSystemDateTime } from "../utils/datetime.js";
 import {
 	WEB_LOGIN_RESULTS,
 	webLoginRequestMetadata,
@@ -10,36 +11,26 @@ const COPY = Object.freeze({
 	fa: Object.freeze({
 		successTitle: "ورود موفق به Web Admin",
 		lockedTitle: "هشدار امنیتی Web Admin",
-		username: "کاربر",
-		status: "وضعیت",
-		reason: "دلیل",
-		ip: "IP",
-		location: "موقعیت",
-		time: "زمان",
-		userAgent: "User-Agent",
-		sessionRef: "Session ref",
 		securityContext: "جزئیات امنیتی",
-		authenticated: "احراز هویت موفق",
-		invalid_credentials_lockout: "تعداد تلاش ناموفق به حد قفل رسید",
-		successWarning: "اگر این ورود متعلق به شما نیست، دسترسی Web Admin را فوراً بررسی کنید.",
-		lockedWarning: "تلاش‌های ورود این IP و نام کاربری به‌صورت موقت قفل شدند.",
+		authenticated: "احراز هویت با موفقیت انجام شد.",
+		invalid_credentials_lockout: "تعداد تلاش‌های ناموفق به حد قفل رسید.",
+		successWarning: "اگر این ورود برای شما نیست، دسترسی Web Admin را فوراً بررسی کنید.",
+		lockedWarning: "دسترسی این IP و نام کاربری موقتاً قفل شده است.",
+		session: "Session",
+		cfRay: "CF-Ray",
+		asn: "ASN",
 	}),
 	en: Object.freeze({
 		successTitle: "Web Admin login",
 		lockedTitle: "Web Admin security alert",
-		username: "Username",
-		status: "Status",
-		reason: "Reason",
-		ip: "IP",
-		location: "Location",
-		time: "Time",
-		userAgent: "User-Agent",
-		sessionRef: "Session ref",
-		securityContext: "Security context",
-		authenticated: "Authentication succeeded",
-		invalid_credentials_lockout: "Failed-attempt threshold reached",
+		securityContext: "Security details",
+		authenticated: "Authentication completed successfully.",
+		invalid_credentials_lockout: "The failed-attempt threshold was reached.",
 		successWarning: "If this login was not yours, review Web Admin access immediately.",
-		lockedWarning: "Login attempts for this IP and username are temporarily locked.",
+		lockedWarning: "Access for this IP and username is temporarily locked.",
+		session: "Session",
+		cfRay: "CF-Ray",
+		asn: "ASN",
 	}),
 });
 
@@ -98,18 +89,41 @@ function reasonLabel(reason, language) {
 }
 
 function locationLabel(metadata) {
-	const values = [metadata.city, metadata.region, metadata.country]
-		.map((value) => boundedText(value, 128))
-		.filter(Boolean);
-	return values.length ? values.join(", ") : "—";
+	const city = boundedText(metadata.city, 96);
+	const country = boundedText(metadata.country, 32);
+	const region = boundedText(metadata.region, 96);
+	const values = city && country ? [city, country] : [city, region, country].filter(Boolean);
+	return values.length ? values.join(" · ") : "—";
 }
 
-function securityContext(metadata) {
-	const parts = [];
-	if (metadata.cfRay) parts.push(`CF-Ray ${metadata.cfRay}`);
-	if (metadata.asn != null) parts.push(`ASN ${metadata.asn}`);
-	if (metadata.timezone) parts.push(metadata.timezone);
-	return parts.length ? parts.join(" · ") : "—";
+function userAgentLabel(value) {
+	const ua = boundedText(value, 512);
+	if (!ua) return "—";
+
+	let os = "";
+	if (/Windows NT/i.test(ua)) os = "Windows";
+	else if (/Android/i.test(ua)) os = "Android";
+	else if (/iPhone|iPad|iOS/i.test(ua)) os = "iOS";
+	else if (/Macintosh|Mac OS X/i.test(ua)) os = "macOS";
+	else if (/Linux/i.test(ua)) os = "Linux";
+
+	let client = "";
+	const powershell = ua.match(/WindowsPowerShell\/([\d.]+)/i);
+	const edge = ua.match(/Edg\/([\d.]+)/i);
+	const chrome = ua.match(/Chrome\/([\d.]+)/i);
+	const firefox = ua.match(/Firefox\/([\d.]+)/i);
+	const safari = ua.match(/Version\/([\d.]+).*Safari/i);
+	const curl = ua.match(/curl\/([\d.]+)/i);
+
+	if (powershell) client = `PowerShell ${powershell[1].split(".").slice(0, 2).join(".")}`;
+	else if (edge) client = `Edge ${edge[1].split(".")[0]}`;
+	else if (chrome) client = `Chrome ${chrome[1].split(".")[0]}`;
+	else if (firefox) client = `Firefox ${firefox[1].split(".")[0]}`;
+	else if (safari) client = `Safari ${safari[1].split(".")[0]}`;
+	else if (curl) client = `curl ${curl[1]}`;
+
+	const summary = [os, client].filter(Boolean);
+	return summary.length ? summary.join(" · ") : boundedText(ua, 110, "Unknown client");
 }
 
 export class WebLoginAlertService {
@@ -167,35 +181,47 @@ export class WebLoginAlertService {
 		const success = kind === "success";
 		const title = success ? copy.successTitle : copy.lockedTitle;
 		const icon = success ? "🟢" : "🔴";
+		const summary = success ? copy.authenticated : reasonLabel(event.reason, language);
+
 		const lines = [
 			`<b>${icon} ${title}</b>`,
 			"",
-			`${copy.username}: <code>${escapeHtml(event.username)}</code>`,
-			`${copy.status}: <b>${escapeHtml(event.result.toUpperCase())}</b>`,
-			`${copy.reason}: ${escapeHtml(reasonLabel(event.reason, language))} <code>${escapeHtml(event.reason)}</code>`,
-			`${copy.ip}: <code>${escapeHtml(metadata.ipAddress || "unknown")}</code>`,
-			`${copy.location}: <code>${escapeHtml(locationLabel(metadata))}</code>`,
-			`${copy.time}: <code>${escapeHtml(new Date(event.createdAt).toISOString())}</code>`,
+			`<blockquote>${escapeHtml(summary)}</blockquote>`,
+			"",
+			`👤 <code>${escapeHtml(event.username)}</code>`,
+			`📍 ${escapeHtml(locationLabel(metadata))}`,
+			`🕒 <code>${formatOptionalSystemDateTime(this.config, event.createdAt)}</code>`,
+			`💻 ${escapeHtml(userAgentLabel(metadata.userAgent))}`,
+			`🌐 <code>${escapeHtml(metadata.ipAddress || "unknown")}</code>`,
 		];
 
+		const security = [];
 		if (success && event.sessionRef) {
-			lines.push(
-				`${copy.sessionRef}: <code>${escapeHtml(event.sessionRef)}</code>`,
+			security.push(
+				`${copy.session} · <code>${escapeHtml(event.sessionRef)}</code>`,
 			);
 		}
-
-		if (metadata.userAgent) {
-			lines.push(
-				`${copy.userAgent}: <code>${escapeHtml(boundedText(metadata.userAgent, 512))}</code>`,
+		if (metadata.cfRay) {
+			security.push(
+				`${copy.cfRay} · <code>${escapeHtml(boundedText(metadata.cfRay, 64))}</code>`,
 			);
+		}
+		if (metadata.asn != null) {
+			security.push(`${copy.asn} · <code>${escapeHtml(String(metadata.asn))}</code>`);
+		}
+
+		if (!success) {
+			security.push(`<code>${escapeHtml(event.reason)}</code>`);
+		}
+
+		if (security.length) {
+			lines.push("", `<b>${copy.securityContext}</b>`, ...security);
 		}
 
 		lines.push(
-			`${copy.securityContext}: <code>${escapeHtml(securityContext(metadata))}</code>`,
 			"",
-			`<b>${success ? copy.successWarning : copy.lockedWarning}</b>`,
+			`⚠️ ${escapeHtml(success ? copy.successWarning : copy.lockedWarning)}`,
 		);
-
 
 		return lines.join("\n").slice(0, 3900);
 	}

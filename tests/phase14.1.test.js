@@ -136,6 +136,6 @@ test("Phase 14.1 adds no D1 writes, schema bump or app-version bump", async () =
 		readFile(new URL("../src/config/app.js", import.meta.url), "utf8"),
 	]);
 	assert.doesNotMatch(loggerSource, /\.prepare\(/);
-	assert.match(appSource, /version:\s*"0\.13\.0"/);
+	assert.match(appSource, /version:\s*"0\.2\.0"/);
 	assert.match(appSource, /schemaVersion:\s*13/);
 });

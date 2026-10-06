@@ -1,8 +1,8 @@
-# DRD Rate Manager v0.13.0
+# DRD Rate Manager v0.2.0
 
 DRD Rate Manager is a modular Cloudflare Worker for Telegram-based market operations, resilient provider aggregation, scheduled publishing, Web Admin management, scoped external APIs, and D1-backed operational/security state.
 
-Application version: `0.13.0`
+Application version: `0.2.0`
 
 Schema version: **13**
 

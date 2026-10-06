@@ -19,7 +19,7 @@ import {
 
 function services(mode = "public") {
 	return {
-		config: { version: "0.13.0" },
+		config: { version: "0.2.0" },
 		apiAccess: {
 			async marketMode() {
 				return mode;
@@ -75,7 +75,7 @@ test("ApiAccessService authorization is driven by catalog lookup rather than dup
 test("public Market mode requires no OpenAPI security while Core always requires CoreToken", () => {
 	const document = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "public",
 	});
 	assert.deepEqual(document.paths["/api/v1/market"].get.security, []);
@@ -93,7 +93,7 @@ test("public Market mode requires no OpenAPI security while Core always requires
 test("private Market mode requires only MarketToken and never CoreToken", () => {
 	const document = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "private",
 	});
 	for (const path of MARKET_API_PATHS) {
@@ -111,7 +111,7 @@ test("private Market mode requires only MarketToken and never CoreToken", () => 
 test("OpenAPI 3.1 declares isolated Market/Core bearer schemes", () => {
 	const document = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "private",
 	});
 	assert.equal(document.openapi, "3.1.0");
@@ -132,7 +132,7 @@ test("OpenAPI paths exactly match the shared API catalog", () => {
 	for (const mode of ["public", "private"]) {
 		const document = buildOpenApiDocument({
 			origin: "https://rates.example",
-			version: "0.13.0",
+			version: "0.2.0",
 			marketMode: mode,
 		});
 		assert.deepEqual(
@@ -145,7 +145,7 @@ test("OpenAPI paths exactly match the shared API catalog", () => {
 test("protected OpenAPI operations document 401 and 403 while public Market operations do not lie", () => {
 	const publicDocument = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "public",
 	});
 	assert.equal(
@@ -161,7 +161,7 @@ test("protected OpenAPI operations document 401 and 403 while public Market oper
 
 	const privateDocument = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "private",
 	});
 	assert.ok(privateDocument.paths["/api/v1/market"].get.responses["401"]);
@@ -171,7 +171,7 @@ test("protected OpenAPI operations document 401 and 403 while public Market oper
 test("OpenAPI contains successful response contracts for every external endpoint", () => {
 	const document = buildOpenApiDocument({
 		origin: "https://rates.example",
-		version: "0.13.0",
+		version: "0.2.0",
 		marketMode: "public",
 	});
 	for (const endpoint of API_CATALOG) {
@@ -284,7 +284,7 @@ test("docs OPTIONS is anonymous and non-GET mutations are rejected", async () =>
 test("docs controller yields unrelated paths without touching Market mode", async () => {
 	let calls = 0;
 	const controller = new ApiDocsController({
-		config: { version: "0.13.0" },
+		config: { version: "0.2.0" },
 		apiAccess: {
 			async marketMode() {
 				calls += 1;
@@ -339,8 +339,8 @@ test("controller switch API endpoints and shared catalog remain in sync", async 
 	);
 });
 
-test("Phase 15.5 changes neither schema 12 nor application version 0.13.0", async () => {
+test("Phase 15.5 changes neither schema 12 nor application version 0.2.0", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.13\.0"/);
+	assert.match(source, /version:\s*"0\.2\.0"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

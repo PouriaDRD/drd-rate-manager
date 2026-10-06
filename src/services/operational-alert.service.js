@@ -21,21 +21,21 @@ const LABELS = Object.freeze({
 		database_unavailable: "Database unavailable",
 		runtime_integrity_failed: "Runtime integrity failed",
 		runtime_settings_invalid: "Invalid runtime settings",
-		no_sources_enabled: "No market sources enabled",
-		source_failures: "Provider/source failures detected",
-		provider_circuit_open: "Provider circuit open",
-		cache_empty: "Market cache empty",
-		cache_expired: "Market cache expired",
+		no_sources_enabled: "No market sources are enabled",
+		source_failures: "One or more market providers are failing",
+		provider_circuit_open: "A provider circuit is open",
+		cache_empty: "Market cache is empty",
+		cache_expired: "Market cache is expired",
 		cache_last_error: "Market cache reports an error",
-		operational_metrics_unavailable: "Operational metrics unavailable",
+		operational_metrics_unavailable: "Operational metrics are unavailable",
 	}),
 	fa: Object.freeze({
 		database_unavailable: "دیتابیس در دسترس نیست",
-		runtime_integrity_failed: "Runtime integrity ناموفق است",
-		runtime_settings_invalid: "تنظیم Runtime نامعتبر است",
+		runtime_integrity_failed: "سلامت Runtime تأیید نشد",
+		runtime_settings_invalid: "تنظیمات Runtime نامعتبر است",
 		no_sources_enabled: "هیچ منبع بازار فعالی وجود ندارد",
-		source_failures: "خرابی منبع یا Provider شناسایی شد",
-		provider_circuit_open: "Circuit یک Provider باز است",
+		source_failures: "یک یا چند Provider بازار دچار خطا هستند",
+		provider_circuit_open: "Circuit یکی از Providerها باز است",
 		cache_empty: "کش بازار خالی است",
 		cache_expired: "کش بازار منقضی شده",
 		cache_last_error: "کش بازار خطا گزارش می‌کند",
@@ -98,6 +98,36 @@ function stateSummary(state, configured, available, error = null) {
 		recoveredAt: Number(state?.recoveredAt || 0),
 		error: error || null,
 	};
+}
+
+function bounded(value, limit = 120) {
+	return String(value ?? "").trim().slice(0, limit);
+}
+
+function affectedProviders(snapshot = {}) {
+	const items = Array.isArray(snapshot.sources?.items) ? snapshot.sources.items : [];
+	return items
+		.filter(
+			(item) =>
+				item?.enabled &&
+				(item.healthy === false || String(item.circuitState || "") === "open"),
+		)
+		.slice(0, 5);
+}
+
+function providerLine(item, language) {
+	const en = language === "en";
+	const label = bounded(item.label || item.name || "Provider", 48);
+	const details = [];
+
+	if (item.status != null) details.push(String(item.status));
+	if (item.message) details.push(bounded(item.message, 90));
+	if (String(item.circuitState || "") === "open") {
+		details.push(en ? "circuit open" : "Circuit باز");
+	}
+
+	const detail = details.length ? details.join(" · ") : en ? "Unavailable" : "در دسترس نیست";
+	return `• <b>${escapeHtml(label)}</b>\n  <code>${escapeHtml(detail)}</code>`;
 }
 
 export class OperationalAlertService {
@@ -255,7 +285,8 @@ export class OperationalAlertService {
 
 	#alertMessage(candidate, snapshot, language, reminder) {
 		const en = language === "en";
-		const icon = candidate.severity === "critical" ? "🔴" : "🟡";
+		const critical = candidate.severity === "critical";
+		const icon = critical ? "🔴" : "🟡";
 		const title = reminder
 			? en
 				? "Operational alert reminder"
@@ -263,24 +294,62 @@ export class OperationalAlertService {
 			: en
 				? "Operational alert"
 				: "هشدار عملیاتی";
+
+		const score = snapshot.sources?.healthScore;
+		const openCircuits = Number(snapshot.sources?.openCircuits || 0);
+		const healthy = Number(snapshot.sources?.healthy || 0);
+		const failed = Number(snapshot.sources?.failed || 0);
+		const providers = affectedProviders(snapshot);
+
 		const lines = [
 			`<b>${icon} ${title}</b>`,
 			"",
-			`${en ? "Status" : "وضعیت"}: <b>${escapeHtml(candidate.severity.toUpperCase())}</b>`,
-			`${en ? "System health" : "سلامت سیستم"}: <code>${escapeHtml(snapshot.health?.status || "unknown")}</code>`,
-			"",
-			`<b>${en ? "Reasons" : "دلایل"}</b>`,
-			...candidate.reasons.map(
-				(reason) =>
-					`• ${escapeHtml(reasonLabel(reason, language))} <code>${escapeHtml(reason)}</code>`,
-			),
+			`<b>${escapeHtml(candidate.severity.toUpperCase())}</b>`,
 		];
 
-		const score = snapshot.sources?.healthScore;
-		if (score != null) {
+		const summary = [];
+		if (score != null) summary.push(`Provider <code>${Number(score)}/100</code>`);
+		if (openCircuits) {
+			summary.push(
+				en
+					? `<code>${openCircuits}</code> open circuit`
+					: `<code>${openCircuits}</code> Circuit باز`,
+			);
+		}
+		if (healthy || failed) {
+			summary.push(
+				en
+					? `<code>${healthy}</code> healthy · <code>${failed}</code> failed`
+					: `<code>${healthy}</code> سالم · <code>${failed}</code> خطادار`,
+			);
+		}
+		if (summary.length) lines.push(summary.join(" · "));
+
+		if (providers.length) {
 			lines.push(
 				"",
-				`🩺 Provider: <code>${Number(score)}/100</code> · ${Number(snapshot.sources?.openCircuits || 0)} open`,
+				`<b>${en ? "Affected providers" : "منابع درگیر"}</b>`,
+				...providers.map((item) => providerLine(item, language)),
+			);
+		}
+
+		lines.push(
+			"",
+			`<b>${en ? "Why this alert was sent" : "علت هشدار"}</b>`,
+			...candidate.reasons.map(
+				(reason) => `• ${escapeHtml(reasonLabel(reason, language))}`,
+			),
+		);
+
+		if (snapshot.cache?.expired || snapshot.cache?.lastError) {
+			const cacheDetail = snapshot.cache?.lastError
+				? bounded(snapshot.cache.lastError, 100)
+				: en
+					? "Expired"
+					: "منقضی شده";
+			lines.push(
+				"",
+				`🗄 ${en ? "Cache" : "کش"} · <code>${escapeHtml(cacheDetail)}</code>`,
 			);
 		}
 
@@ -289,28 +358,29 @@ export class OperationalAlertService {
 
 	#recoveryMessage(state, snapshot, language) {
 		const en = language === "en";
-		const previous = state.reasons?.length
-			? state.reasons.map((item) => escapeHtml(item)).join(", ")
-			: "—";
 		const fullyHealthy = String(snapshot.health?.status || "") === "healthy";
 		const title = fullyHealthy
 			? en
 				? "System recovered"
-				: "بازیابی سیستم"
+				: "سیستم به وضعیت عادی برگشت"
 			: en
 				? "Operational alert cleared"
-				: "رفع هشدار عملیاتی";
-		return [
+				: "هشدار عملیاتی رفع شد";
+
+		const score = snapshot.sources?.healthScore;
+		const lines = [
 			`<b>🟢 ${title}</b>`,
 			"",
 			en
-				? "The operational alert condition is no longer active."
-				: "شرایط هشدار عملیاتی دیگر فعال نیست.",
-			`${en ? "Current health" : "سلامت فعلی"}: <code>${escapeHtml(snapshot.health?.status || "healthy")}</code>`,
-			`${en ? "Previous reasons" : "دلایل قبلی"}: <code>${previous}</code>`,
-		]
-			.join("\n")
-			.slice(0, 3900);
+				? "The previous operational condition is no longer active."
+				: "شرایط هشدار قبلی دیگر فعال نیست.",
+		];
+
+		if (score != null) {
+			lines.push(`Provider <code>${Number(score)}/100</code>`);
+		}
+
+		return lines.join("\n").slice(0, 3900);
 	}
 }
 

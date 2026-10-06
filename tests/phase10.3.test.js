@@ -46,7 +46,7 @@ function fixture({ language = "en" } = {}) {
 	};
 	const ctx = {
 		s: {
-			config: { timezone: "UTC", version: "0.13.0", displayName: "DRD Rate Manager" },
+			config: { timezone: "UTC", version: "0.2.0", displayName: "DRD Rate Manager" },
 			adminManagement: {
 				async snapshot(actor) { calls.push(["snapshot", actor]); return data; },
 				async get(id, actor) {

@@ -49,7 +49,7 @@ function reasonLabel(reason, en) {
 		? {
 			authenticated: "Authenticated",
 			invalid_credentials: "Invalid credentials",
-			invalid_credentials_lockout: "Locked after invalid credentials",
+			invalid_credentials_lockout: "Locked after invalid attempts",
 			rate_limited: "Rate limited",
 		}
 		: {
@@ -62,10 +62,41 @@ function reasonLabel(reason, en) {
 }
 
 function locationText(event) {
-	const parts = [event.city, event.region, event.country]
-		.map((item) => String(item || "").trim())
-		.filter(Boolean);
+	const city = String(event.city || "").trim();
+	const country = String(event.country || "").trim();
+	const region = String(event.region || "").trim();
+	const parts = city && country ? [city, country] : [city, region, country].filter(Boolean);
 	return parts.length ? parts.join(" · ") : "—";
+}
+
+function userAgentLabel(value) {
+	const ua = bounded(value, 512, "");
+	if (!ua) return "—";
+
+	let os = "";
+	if (/Windows NT/i.test(ua)) os = "Windows";
+	else if (/Android/i.test(ua)) os = "Android";
+	else if (/iPhone|iPad|iOS/i.test(ua)) os = "iOS";
+	else if (/Macintosh|Mac OS X/i.test(ua)) os = "macOS";
+	else if (/Linux/i.test(ua)) os = "Linux";
+
+	let client = "";
+	const powershell = ua.match(/WindowsPowerShell\/([\d.]+)/i);
+	const edge = ua.match(/Edg\/([\d.]+)/i);
+	const chrome = ua.match(/Chrome\/([\d.]+)/i);
+	const firefox = ua.match(/Firefox\/([\d.]+)/i);
+	const safari = ua.match(/Version\/([\d.]+).*Safari/i);
+	const curl = ua.match(/curl\/([\d.]+)/i);
+
+	if (powershell) client = `PowerShell ${powershell[1].split(".").slice(0, 2).join(".")}`;
+	else if (edge) client = `Edge ${edge[1].split(".")[0]}`;
+	else if (chrome) client = `Chrome ${chrome[1].split(".")[0]}`;
+	else if (firefox) client = `Firefox ${firefox[1].split(".")[0]}`;
+	else if (safari) client = `Safari ${safari[1].split(".")[0]}`;
+	else if (curl) client = `curl ${curl[1]}`;
+
+	const summary = [os, client].filter(Boolean);
+	return summary.length ? summary.join(" · ") : bounded(ua, 100);
 }
 
 function filteredTotal(stats, result) {
@@ -96,22 +127,12 @@ function eventLines(event, en) {
 	const result = String(event.result || "unknown");
 	const username = bounded(event.username, 64);
 	const reason = reasonLabel(String(event.reason || ""), en);
-	const lines = [
-		`${resultIcon(result)} <b>${escapeHtml(resultLabel(result, en))}</b> · <code>${escapeHtml(username)}</code>`,
+	return [
+		`${resultIcon(result)} <b>${escapeHtml(username)}</b> · ${escapeHtml(reason)}`,
 		`🕒 <code>${escapeHtml(formatOptionalSystemDateTime(this.s.config, event.createdAt))}</code>`,
-		`🌐 <code>${escapeHtml(bounded(event.ipAddress, 128))}</code> · ${escapeHtml(bounded(locationText(event), 180))}`,
-		`🧭 ${escapeHtml(reason)} · <code>${escapeHtml(bounded(event.reason, 80))}</code>`,
-		`💻 <code>${escapeHtml(bounded(event.userAgent, 120))}</code>`,
+		`📍 ${escapeHtml(bounded(locationText(event), 140))} · <code>${escapeHtml(bounded(event.ipAddress, 128))}</code>`,
+		`💻 ${escapeHtml(userAgentLabel(event.userAgent))}`,
 	];
-	const security = [];
-	if (event.cfRay) security.push(`Ray ${bounded(event.cfRay, 64)}`);
-	if (event.asn != null) security.push(`ASN ${Number(event.asn)}`);
-	if (event.timezone) security.push(bounded(event.timezone, 64));
-	if (security.length) lines.push(`☁️ <code>${escapeHtml(security.join(" · "))}</code>`);
-	if (event.sessionRef) {
-		lines.push(`🔗 ${en ? "Session ref" : "شناسه سشن"}: <code>${escapeHtml(bounded(event.sessionRef, 32))}</code>`);
-	}
-	return lines;
 }
 
 export const telegram_loginHistoryMethods = {
@@ -128,10 +149,11 @@ export const telegram_loginHistoryMethods = {
 			offset: safePage * LOGIN_HISTORY_PAGE_SIZE,
 			result: filter === "all" ? null : filter,
 		});
+
 		const lines = [
 			`<b>🛡 ${en ? "Web Admin Login Security" : "امنیت ورود Web Admin"}</b>`,
 			"",
-			`${en ? "Total" : "کل"}: <b>${Number(stats.total || 0)}</b> · 🟢 <b>${Number(stats.success || 0)}</b> · 🟠 <b>${Number(stats.failure || 0)}</b> · 🔴 <b>${Number(stats.locked || 0)}</b>`,
+			`🟢 <b>${Number(stats.success || 0)}</b> · 🟠 <b>${Number(stats.failure || 0)}</b> · 🔴 <b>${Number(stats.locked || 0)}</b>`,
 			`${en ? "Filter" : "فیلتر"}: <b>${escapeHtml(filterLabel(filter, en))}</b> · ${en ? "Page" : "صفحه"} <b>${safePage + 1}/${pages}</b>`,
 		];
 

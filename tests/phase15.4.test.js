@@ -327,8 +327,8 @@ test("callback payload prefixes stay comfortably below Telegram 64-byte limit", 
 	}
 });
 
-test("Phase 15.4 reuses schema 12 and application version 0.13.0", async () => {
+test("Phase 15.4 reuses schema 12 and application version 0.2.0", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.13\.0"/);
+	assert.match(source, /version:\s*"0\.2\.0"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

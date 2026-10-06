@@ -341,7 +341,7 @@ test("Phase 16.3 wiring is background-safe and keeps schema and app version stab
 	assert.match(application, /this\.webAdmin\.route\(request, url, ctx\)/);
 	assert.match(auth, /securityEvent/);
 	assert.doesNotMatch(service, /password|Authorization|TELEGRAM_BOT_TOKEN|tokenHash|csrf/i);
-	assert.match(appConfig, /version:\s*"0\.13\.0"/);
+	assert.match(appConfig, /version:\s*"0\.2\.0"/);
 	assert.match(appConfig, /schemaVersion:\s*13/);
 	assert.equal(
 		(database.match(/CREATE TABLE IF NOT EXISTS web_admin_login_history/g) || []).length,

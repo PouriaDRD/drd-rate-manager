@@ -54,7 +54,7 @@ test("Config uses one runtime catalog for fallback when SettingsService is absen
 	assert.equal(config.wallexApiUrl, "https://example.com/wallex");
 });
 
-test("bootstrap Config preserves v0.13.0 permissive ENV compatibility", () => {
+test("bootstrap Config preserves v0.2.0 permissive ENV compatibility", () => {
 	const config = new Config({
 		TELEGRAM_OWNER_ID: "123",
 		COINGECKO_TOP_LIMIT: "99",
@@ -67,10 +67,10 @@ test("bootstrap Config preserves v0.13.0 permissive ENV compatibility", () => {
 
 test("Config derives CoinGecko user-agent when the managed setting is empty", () => {
 	const config = new Config({
-		APP_VERSION: "0.13.0",
+		APP_VERSION: "0.2.0",
 		TELEGRAM_CHANNEL_HANDLE: "@DRDrate",
 	});
-	assert.equal(config.coinGeckoUserAgent, "DRD-Rate-Manager/0.13.0 (+https://t.me/DRDrate)");
+	assert.equal(config.coinGeckoUserAgent, "DRD-Rate-Manager/0.2.0 (+https://t.me/DRDrate)");
 });
 
 test("Config source no longer duplicates managed runtime ENV/default fallback rules", async () => {

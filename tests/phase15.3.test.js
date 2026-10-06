@@ -517,11 +517,11 @@ test("Web API management view is real, bilingual, safe-rendered and never persis
 	assert.match(feature, /clearSecret\(\)/);
 });
 
-test("Phase 15.3 keeps application version 0.13.0 and schema 12", async () => {
+test("Phase 15.3 keeps application version 0.2.0 and schema 12", async () => {
 	const source = await readFile(
 		new URL("../src/config/app.js", import.meta.url),
 		"utf8",
 	);
-	assert.match(source, /version:\s*"0\.13\.0"/);
+	assert.match(source, /version:\s*"0\.2\.0"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

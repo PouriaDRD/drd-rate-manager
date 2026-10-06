@@ -15,7 +15,7 @@ function baseServices(overrides = {}) {
 	const now = 1_800_000_000_000;
 	const services = {
 		env: { DB: {} },
-		config: { version: "0.13.0", timezone: "Asia/Tehran" },
+		config: { version: "0.2.0", timezone: "Asia/Tehran" },
 		settings: { async get() { return "1"; } },
 		settingsService: {
 			status() {
@@ -120,7 +120,7 @@ test("healthy system snapshot aggregates runtime, database, cache, sources and a
 	const snapshot = await manager(services).snapshot(now);
 	assert.equal(snapshot.health.status, "healthy");
 	assert.deepEqual(snapshot.health.reasonCodes, []);
-	assert.equal(snapshot.runtime.version, "0.13.0");
+	assert.equal(snapshot.runtime.version, "0.2.0");
 	assert.equal(snapshot.runtime.schemaVersion, 13);
 	assert.equal(snapshot.cache.fresh, true);
 	assert.equal(snapshot.sources.enabled, 2);

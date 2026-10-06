@@ -202,6 +202,6 @@ test("Phase 16.4 reuses persistent history and keeps schema and app version stab
 	assert.match(moduleSource, /this\.s\.loginHistory\.list/);
 	assert.doesNotMatch(moduleSource, /DB\.prepare|CREATE TABLE|ALTER TABLE/);
 	assert.doesNotMatch(moduleSource, /password|csrf|authorization|cookie|token_hash/i);
-	assert.match(appConfig, /version:\s*"0\.13\.0"/);
+	assert.match(appConfig, /version:\s*"0\.2\.0"/);
 	assert.match(appConfig, /schemaVersion:\s*13/);
 });

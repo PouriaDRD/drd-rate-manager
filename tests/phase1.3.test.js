@@ -55,7 +55,7 @@ test("composition root wires shared services", () => {
 
 test("API root keeps the existing endpoint contract", async () => {
 	const services = {
-		config: { env: {}, version: "0.13.0", timezone: "Asia/Tehran" },
+		config: { env: {}, version: "0.2.0", timezone: "Asia/Tehran" },
 	};
 	const controller = new ApiController(services);
 	const response = await controller.route(
@@ -65,7 +65,7 @@ test("API root keeps the existing endpoint contract", async () => {
 	assert.equal(response.status, 200);
 	const payload = await responseJson(response);
 	assert.equal(payload.success, true);
-	assert.equal(payload.version, "0.13.0");
+	assert.equal(payload.version, "0.2.0");
 	assert.equal(payload.endpoints.market, "/api/v1/market");
 	assert.equal(payload.endpoints.database, "/api/v1/system/database");
 });
@@ -107,7 +107,7 @@ test("worker entrypoint serves the API root through the modular Application", as
 	const env = {
 		DB: fakeDb(),
 		APP_NAME: "DRD RATE MANAGER",
-		APP_VERSION: "0.13.0",
+		APP_VERSION: "0.2.0",
 		TIMEZONE: "Asia/Tehran",
 	};
 	const response = await worker.fetch(new Request("https://example.test/"), env, {});
@@ -115,5 +115,5 @@ test("worker entrypoint serves the API root through the modular Application", as
 	const payload = await responseJson(response);
 	assert.equal(payload.success, true);
 	assert.equal(payload.service, "DRD RATE MANAGER");
-	assert.equal(payload.version, "0.13.0");
+	assert.equal(payload.version, "0.2.0");
 });

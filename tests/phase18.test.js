@@ -28,7 +28,7 @@ test("release preflight passes the current repository candidate", () => {
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout);
   assert.equal(report.ok, true);
-  assert.equal(report.version, "0.13.0");
+  assert.equal(report.version, "0.2.0");
   assert.equal(report.schemaVersion, 13);
 });
 
@@ -105,16 +105,16 @@ test("release preflight validates critical D1 and Worker bindings", async () => 
   }
 });
 
-test("release candidate keeps v0.13.0 and schema 13", async () => {
+test("release candidate keeps v0.2.0 and schema 13", async () => {
   const [app, pkg, wrangler] = await Promise.all([
     text("src/config/app.js"),
     json("package.json"),
     json("wrangler.jsonc"),
   ]);
-  assert.match(app, /version:\s*"0\.13\.0"/);
+  assert.match(app, /version:\s*"0\.2\.0"/);
   assert.match(app, /schemaVersion:\s*13/);
-  assert.equal(pkg.version, "0.13.0");
-  assert.equal(wrangler.vars.APP_VERSION, "0.13.0");
+  assert.equal(pkg.version, "0.2.0");
+  assert.equal(wrangler.vars.APP_VERSION, "0.2.0");
 });
 
 test("Phase 18.1 changes release tooling and docs only, not runtime schema", async () => {

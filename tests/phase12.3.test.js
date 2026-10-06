@@ -54,7 +54,7 @@ function wranglerFixture() {
 		name: "drd-rate-manager-bot",
 		vars: {
 			APP_NAME: "DRD RATE MANAGER",
-			APP_VERSION: "0.13.0",
+			APP_VERSION: "0.2.0",
 			TIMEZONE: "Asia/Tehran",
 			TELEGRAM_OWNER_ID: "123456",
 			COINGECKO_USER_AGENT: "Agent",
@@ -109,7 +109,7 @@ test("any live migration blocker fails closed", () => {
 test("wrangler cleanup removes only legacy runtime/secure ENV keys", () => {
 	const result = buildWranglerLegacyCleanup(wranglerFixture(), readyProof());
 	assert.equal(result.config.vars.APP_NAME, "DRD RATE MANAGER");
-	assert.equal(result.config.vars.APP_VERSION, "0.13.0");
+	assert.equal(result.config.vars.APP_VERSION, "0.2.0");
 	assert.equal(Object.hasOwn(result.config.vars, "TIMEZONE"), false);
 	assert.equal(Object.hasOwn(result.config.vars, "TELEGRAM_OWNER_ID"), false);
 	assert.equal(Object.hasOwn(result.config.vars, "COINGECKO_USER_AGENT"), false);

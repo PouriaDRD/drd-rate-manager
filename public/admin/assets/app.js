@@ -393,7 +393,7 @@ function renderSources() {
   renderPriority(data.usdt_priority || []);
 }
 function renderPriority(priority) {
-  els.priorityList.replaceChildren();
+  els.usdtPriorityList.replaceChildren();
   priority.forEach((name, index) => {
     const row = el("div", "priority-row");
     const actions = el("div", "action-row");
@@ -403,7 +403,7 @@ function renderPriority(priority) {
     down.disabled = index === priority.length - 1;
     actions.append(up, down);
     row.append(textEl("span", String(index + 1), "nav-glyph"), textEl("strong", sourceLabel(name)), actions);
-    els.priorityList.append(row);
+    els.usdtPriorityList.append(row);
   });
 }
 async function movePriority(index, delta) {

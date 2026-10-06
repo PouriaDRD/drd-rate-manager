@@ -22,7 +22,7 @@
   },
   "vars": {
     "APP_NAME": "DRD RATE MANAGER",
-    "APP_VERSION": "0.13.0",
+    "APP_VERSION": "0.2.0",
     "BOT_DISPLAY_NAME": "DRD Rate Manager",
     "TIMEZONE": "Asia/Tehran",
     "TELEGRAM_OWNER_ID": "<YOUR_OWNER_ID>",
@@ -31,7 +31,7 @@
     "COINGECKO_API_PLAN": "demo",
     "COINGECKO_TOP_LIMIT": "20",
     "COINGECKO_DEFAULT_ASSETS": "bitcoin,ethereum,binancecoin,ripple,solana,tron",
-    "COINGECKO_USER_AGENT": "DRD-Rate-Manager/0.13.0 (+https://t.me/DRDrate)",
+    "COINGECKO_USER_AGENT": "DRD-Rate-Manager/0.2.0 (+https://t.me/DRDrate)",
     "WALLEX_API_URL": "https://api.wallex.ir/hector/web/v1/markets",
     "TABDEAL_API_URL": "https://api1.tabdeal.org/r/api/v1/depth?symbol=USDTIRT&limit=1",
     "EXIR_API_URL": "https://api.exir.io/v2/orderbook?symbol=usdt-irt",
