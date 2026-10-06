@@ -33,6 +33,7 @@ export async function databaseStatus(services, { details = true } = {}) {
 		"market_cache",
 		"runtime_locks",
 		"automation_runs",
+		"api_tokens",
 	];
 	const records = {};
 	for (const table of tables) {

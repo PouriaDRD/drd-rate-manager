@@ -10,6 +10,7 @@ import { AdminInputRepository } from "../repositories/admin-input.repository.js"
 import { AdminRepository } from "../repositories/admin.repository.js";
 import { AssetRepository } from "../repositories/asset.repository.js";
 import { AuditRepository } from "../repositories/audit.repository.js";
+import { ApiTokenRepository } from "../repositories/api-token.repository.js";
 import { AutomationRunRepository } from "../repositories/automation-run.repository.js";
 import { LockRepository } from "../repositories/lock.repository.js";
 import { MarketCacheRepository } from "../repositories/market-cache.repository.js";
@@ -23,6 +24,7 @@ import { WebSessionRepository } from "../repositories/web-session.repository.js"
 import { AdminManagementService } from "../services/admin-management.service.js";
 import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
+import { ApiTokenService } from "../services/api-token.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
 import { OperationalAlertService } from "../services/operational-alert.service.js";
@@ -58,6 +60,8 @@ export function createServices(env) {
 	const admins = new AdminRepository(runtimeEnv, config);
 	const adminInput = new AdminInputRepository(runtimeEnv);
 	const audit = new AuditRepository(runtimeEnv);
+	const apiTokenRepository = new ApiTokenRepository(runtimeEnv);
+	const apiTokens = new ApiTokenService(apiTokenRepository);
 	const adminManagement = new AdminManagementService(config, admins, audit);
 	const webAdmins = new WebAdminRepository(runtimeEnv);
 	const webSessions = new WebSessionRepository(runtimeEnv);
@@ -124,6 +128,8 @@ export function createServices(env) {
 		admins,
 		adminInput,
 		audit,
+		apiTokenRepository,
+		apiTokens,
 		adminManagement,
 		webAdmins,
 		webSessions,

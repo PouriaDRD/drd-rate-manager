@@ -125,6 +125,24 @@ export class Database {
 				details TEXT
 			)`),
 			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_automation_runs_finished_at ON automation_runs(finished_at)"),
+			this.env.DB.prepare(`CREATE TABLE IF NOT EXISTS api_tokens (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				token_type TEXT NOT NULL CHECK(token_type IN ('market', 'core')),
+				token_prefix TEXT NOT NULL,
+				token_hash TEXT NOT NULL UNIQUE,
+				is_enabled INTEGER NOT NULL DEFAULT 1,
+				expires_at INTEGER NOT NULL DEFAULT 0,
+				last_used_at INTEGER NOT NULL DEFAULT 0,
+				usage_count INTEGER NOT NULL DEFAULT 0,
+				revoked_at INTEGER NOT NULL DEFAULT 0,
+				created_by_type TEXT NOT NULL DEFAULT 'system',
+				created_by_id TEXT,
+				created_at INTEGER NOT NULL,
+				updated_at INTEGER NOT NULL
+			)`),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_api_tokens_type ON api_tokens(token_type)"),
+			this.env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_api_tokens_enabled ON api_tokens(is_enabled, revoked_at)"),
 		]);
 
 		await this.#ensureColumn("settings", "created_at", "INTEGER NOT NULL DEFAULT 0");

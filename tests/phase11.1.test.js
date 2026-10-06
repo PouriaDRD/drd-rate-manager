@@ -121,7 +121,7 @@ test("healthy system snapshot aggregates runtime, database, cache, sources and a
 	assert.equal(snapshot.health.status, "healthy");
 	assert.deepEqual(snapshot.health.reasonCodes, []);
 	assert.equal(snapshot.runtime.version, "0.13.0");
-	assert.equal(snapshot.runtime.schemaVersion, 11);
+	assert.equal(snapshot.runtime.schemaVersion, 12);
 	assert.equal(snapshot.cache.fresh, true);
 	assert.equal(snapshot.sources.enabled, 2);
 	assert.equal(snapshot.sources.healthy, 2);
@@ -230,7 +230,7 @@ test("serializer converts timestamps and preserves reason codes", async () => {
 	const { now, services } = baseServices();
 	const snapshot = await manager(services).snapshot(now);
 	const data = serializeSystem(snapshot);
-	assert.equal(data.runtime.schema_version, 11);
+	assert.equal(data.runtime.schema_version, 12);
 	assert.equal(data.health.status, "healthy");
 	assert.equal(data.cache.fetched_at, new Date(now - 30_000).toISOString());
 	assert.equal(data.sources.items[0].last_checked_at, new Date(now - 5000).toISOString());

@@ -177,7 +177,7 @@ test(".env.example separates permanent configuration from migration-only inputs"
 test("Phase 12.2 does not change schema or application version", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(app, /version:\s*"0\.13\.0"/);
-	assert.match(app, /schemaVersion:\s*11/);
+	assert.match(app, /schemaVersion:\s*12/);
 });
 
 test("readiness diagnostics never require provider refresh operations", async () => {

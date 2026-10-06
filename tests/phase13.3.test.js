@@ -247,5 +247,5 @@ test("automation keeps retry semantics because publisher gate throws through exi
 test("Phase 13.3 keeps version 0.13.0 and schema 11", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	assert.match(app, /version:\s*"0\.13\.0"/);
-	assert.match(app, /schemaVersion:\s*11/);
+	assert.match(app, /schemaVersion:\s*12/);
 });

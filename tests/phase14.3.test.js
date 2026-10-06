@@ -350,5 +350,5 @@ test("Phase 14.3 reuses existing storage and keeps schema/version stable", async
 	assert.match(repo, /this\.settings\.get/);
 	assert.match(repo, /this\.settings\.set/);
 	assert.match(app, /version:\s*"0\.13\.0"/);
-	assert.match(app, /schemaVersion:\s*11/);
+	assert.match(app, /schemaVersion:\s*12/);
 });
