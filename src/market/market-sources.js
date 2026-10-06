@@ -8,7 +8,7 @@ import {
 	success,
 } from "../utils/core.js";
 
-const GOLD_OUTLIER_RATIO = 0.03;
+const CONSENSUS_OUTLIER_RATIO = 0.03;
 
 function median(values) {
 	const sorted = values
@@ -22,18 +22,23 @@ function median(values) {
 		: (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-export function resolveGoldConsensus(results = {}) {
-	const healthy = GOLD_SOURCE_NAMES
+function resolveConsensus(results, sourceNames, {
+	source,
+	sourceLabel,
+	unavailableMessage,
+} = {}) {
+	const healthy = sourceNames
 		.map((name) => ({ name, result: results[name] }))
 		.filter(({ result }) => result?.success && Number(result.price) > 0);
-	if (!healthy.length) return failure("All enabled gold sources failed");
+	if (!healthy.length) return failure(unavailableMessage);
 
 	const center = median(healthy.map(({ result }) => result.price));
 	let accepted = healthy;
 	let rejected = [];
 	if (healthy.length >= 3 && center) {
 		const inliers = healthy.filter(
-			({ result }) => Math.abs(Number(result.price) - center) / center <= GOLD_OUTLIER_RATIO,
+			({ result }) =>
+				Math.abs(Number(result.price) - center) / center <= CONSENSUS_OUTLIER_RATIO,
 		);
 		if (inliers.length >= 2) {
 			accepted = inliers;
@@ -45,12 +50,46 @@ export function resolveGoldConsensus(results = {}) {
 	const price = Math.round(median(accepted.map(({ result }) => result.price)));
 	return {
 		...success(price, 200),
-		source: "gold-consensus",
-		sourceLabel: "Gold Consensus",
+		source,
+		sourceLabel,
+		strategy: "consensus",
 		contributors: accepted.map(({ name }) => name),
 		rejected: rejected.map(({ name }) => name),
 		sampleCount: accepted.length,
 	};
+}
+
+export function resolveGoldConsensus(results = {}) {
+	return resolveConsensus(results, GOLD_SOURCE_NAMES, {
+		source: "gold-consensus",
+		sourceLabel: "Gold Consensus",
+		unavailableMessage: "All enabled gold sources failed",
+	});
+}
+
+export function resolveUsdtConsensus(results = {}) {
+	return resolveConsensus(results, USDT_SOURCE_PRIORITY, {
+		source: "usdt-consensus",
+		sourceLabel: "USDT Consensus",
+		unavailableMessage: "All enabled USDT sources failed",
+	});
+}
+
+function referencePrice(first, second, fallback = null) {
+	const a = nullableNumber(first);
+	const b = nullableNumber(second);
+	if (a && a > 0 && b && b > 0) return (a + b) / 2;
+	if (a && a > 0) return a;
+	if (b && b > 0) return b;
+	const extra = nullableNumber(fallback);
+	return extra && extra > 0 ? extra : null;
+}
+
+function bookPrices(items) {
+	if (!Array.isArray(items)) return [];
+	return items
+		.map((item) => nullableNumber(Array.isArray(item) ? item[0] : item?.price))
+		.filter((value) => value && value > 0);
 }
 
 const GOLD_METHODS = Object.freeze({
@@ -74,32 +113,28 @@ export class MarketSources {
 	}
 
 	async resolveUsdt() {
-		const priority = this.sourceSettings
-			? await this.sourceSettings.usdtPriority()
-			: [...USDT_SOURCE_PRIORITY];
-		let enabledCount = 0;
-		for (let index = 0; index < priority.length; index += 1) {
-			const source = priority[index];
-			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) continue;
-			enabledCount += 1;
-			const result = await this[`check${capitalize(source)}`]();
-			if (!result.skipped) await this.statuses.save(source, result);
-			if (result.success) {
-				return { ...result, source, sourceLabel: sourceLabel(source), fallbackLevel: index };
-			}
-		}
-		return failure(enabledCount ? "All enabled USDT sources failed" : "No USDT sources enabled");
+		const results = await this.checkAllUsdt();
+		const enabledCount = USDT_SOURCE_PRIORITY.filter(
+			(source) =>
+				!this.sourceSettings ||
+				results[source]?.message !== "Source disabled",
+		).length;
+		return enabledCount
+			? resolveUsdtConsensus(results)
+			: failure("No USDT sources enabled");
 	}
 
 	async checkAllUsdt() {
 		const results = {};
-		for (const source of USDT_SOURCE_PRIORITY) {
-			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) {
-				results[source] = failure("Source disabled", null, 0);
-				continue;
-			}
-			results[source] = await this[`check${capitalize(source)}`]();
-		}
+		await Promise.all(
+			USDT_SOURCE_PRIORITY.map(async (source) => {
+				if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) {
+					results[source] = failure("Source disabled", null, 0);
+					return;
+				}
+				results[source] = await this[`check${capitalize(source)}`]();
+			}),
+		);
 		await this.statuses.saveMany(results);
 		return results;
 	}
@@ -121,9 +156,10 @@ export class MarketSources {
 					(item) => String(item.symbol || "").toUpperCase() === "USDTTMN",
 				)
 				: null;
-			const price = nullableNumber(
-				documentedMarket?.stats?.askPrice ??
-					documentedMarket?.stats?.lastPrice ??
+			const price = referencePrice(
+				documentedMarket?.stats?.askPrice,
+				documentedMarket?.stats?.bidPrice,
+				documentedMarket?.stats?.lastPrice ??
 					documentedMarket?.price ??
 					legacyMarket?.price,
 			);
@@ -143,7 +179,10 @@ export class MarketSources {
 			);
 			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
 			const data = await response.json();
-			const price = nullableNumber(data?.asks?.[0]?.[0]);
+			const price = referencePrice(
+				data?.asks?.[0]?.[0] ?? data?.asks?.[0]?.price,
+				data?.bids?.[0]?.[0] ?? data?.bids?.[0]?.price,
+			);
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Tabdeal response", response.status);
@@ -164,10 +203,13 @@ export class MarketSources {
 				data?.["usdt-irt"] ??
 				data?.["USDT-IRT"] ??
 				data;
-			const price = nullableNumber(
+			const price = referencePrice(
 				orderbook?.asks?.[0]?.[0] ??
 					orderbook?.ask?.[0]?.price ??
 					orderbook?.asks?.[0]?.price,
+				orderbook?.bids?.[0]?.[0] ??
+					orderbook?.bid?.[0]?.price ??
+					orderbook?.bids?.[0]?.price,
 			);
 			return price && price > 0
 				? success(price, response.status)
@@ -188,9 +230,9 @@ export class MarketSources {
 			);
 			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
 			const data = await response.json();
-			const price = nullableNumber(
-				data?.asks?.[0]?.[0] ??
-					data?.asks?.[0]?.price,
+			const price = referencePrice(
+				data?.asks?.[0]?.[0] ?? data?.asks?.[0]?.price,
+				data?.bids?.[0]?.[0] ?? data?.bids?.[0]?.price,
 			);
 			return price && price > 0
 				? success(price, response.status)
@@ -211,13 +253,71 @@ export class MarketSources {
 			);
 			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
 			const data = await response.json();
-			const price = nullableNumber(
-				data?.asks?.[0]?.[0] ??
-					data?.asks?.[0]?.price,
+			const price = referencePrice(
+				data?.asks?.[0]?.[0] ?? data?.asks?.[0]?.price,
+				data?.bids?.[0]?.[0] ?? data?.bids?.[0]?.price,
 			);
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Nobitex response", response.status);
+		}));
+	}
+
+	async checkOmpfinex() {
+		return this.#resilient("ompfinex", () => this.#timed("ompfinex", async () => {
+			const url =
+				this.config?.ompfinexApiUrl ||
+				this.env.OMPFINEX_API_URL ||
+				"https://api.ompfinex.com/v1/orderbook";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const market = data?.data?.USDTIRR;
+			const buyPrices = bookPrices(market?.asks);
+			const sellPrices = bookPrices(market?.bids);
+			const bestBuyIrr = buyPrices.length ? Math.max(...buyPrices) : null;
+			const bestSellIrr = sellPrices.length ? Math.min(...sellPrices) : null;
+			const referenceIrr = referencePrice(bestBuyIrr, bestSellIrr);
+			const price = referenceIrr ? referenceIrr / 10 : null;
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid OMPFinex response", response.status);
+		}));
+	}
+
+	async checkRamzinex() {
+		return this.#resilient("ramzinex", () => this.#timed("ramzinex", async () => {
+			const url =
+				this.config?.ramzinexApiUrl ||
+				this.env.RAMZINEX_API_URL ||
+				"https://publicapi.ramzinex.com/exchange/api/v1.0/exchange/pairs";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const rawItems = data?.data;
+			const items = Array.isArray(rawItems)
+				? rawItems
+				: rawItems && typeof rawItems === "object"
+					? Object.values(rawItems)
+					: [];
+			const pair = items.find(
+				(item) => String(item?.url_name || "").toLowerCase() === "tether-usdt",
+			);
+			const buyIrr = nullableNumber(pair?.buy);
+			const sellIrr = nullableNumber(pair?.sell);
+			const referenceIrr = referencePrice(buyIrr, sellIrr);
+			const price = referenceIrr ? referenceIrr / 10 : null;
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Ramzinex response", response.status);
 		}));
 	}
 

@@ -23,7 +23,7 @@ test("application constants preserve v0.2.0 behavior", () => {
 	assert.equal(APP.version, "0.2.0");
 	assert.equal(APP.schemaVersion, 13);
 	assert.deepEqual(APP.publishIntervals, [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
-	assert.deepEqual(USDT_SOURCE_PRIORITY, ["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);
+	assert.deepEqual(USDT_SOURCE_PRIORITY, ["wallex", "tabdeal", "exir", "bitpin", "nobitex", "ompfinex", "ramzinex"]);
 });
 
 test("Config preserves current env-backed defaults", () => {
@@ -74,6 +74,8 @@ test("foundation helpers preserve current behavior", () => {
 	assert.equal(sourceLabel("wallex"), "Wallex");
 	assert.equal(sourceLabel("bitpin"), "Bitpin");
 	assert.equal(sourceLabel("nobitex"), "Nobitex");
+	assert.equal(sourceLabel("ompfinex"), "OMPFinex");
+	assert.equal(sourceLabel("ramzinex"), "Ramzinex");
 	assert.equal(coinNameFa("bitcoin"), "بیت‌کوین");
 	assert.deepEqual(safeJson('{"a":1}'), { a: 1 });
 	assert.equal(safeJson("bad", null), null);

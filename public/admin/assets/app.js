@@ -441,28 +441,20 @@ function renderPriority(priority) {
   els.usdtPriorityList.replaceChildren();
   priority.forEach((name, index) => {
     const row = el("div", "priority-row");
-    const actions = el("div", "action-row");
-    const up = button("↑", "icon-button", () => movePriority(index, -1));
-    const down = button("↓", "icon-button", () => movePriority(index, 1));
-    up.disabled = index === 0;
-    down.disabled = index === priority.length - 1;
-    actions.append(up, down);
-    row.append(textEl("span", String(index + 1), "nav-glyph"), textEl("strong", sourceLabel(name)), actions);
+    const source = state.sourceData?.sources?.[name];
+    row.append(
+      textEl("span", String(index + 1), "nav-glyph"),
+      textEl("strong", sourceLabel(name)),
+      textEl(
+        "span",
+        source?.enabled
+          ? t(state.language, "consensusParticipant")
+          : t(state.language, "disabled"),
+        "row-meta",
+      ),
+    );
     els.usdtPriorityList.append(row);
   });
-}
-async function movePriority(index, delta) {
-  const priority = [...(state.sourceData?.usdt_priority || [])];
-  const target = index + delta;
-  if (target < 0 || target >= priority.length) return;
-  [priority[index], priority[target]] = [priority[target], priority[index]];
-  try {
-    await api.updateUsdtPriority(priority, state.csrfToken);
-    await loadSources();
-    showToast(t(state.language, "priorityUpdated"), "success");
-  } catch (error) {
-    showToast(error.message || t(state.language, "networkError"), "error");
-  }
 }
 
 async function loadAssets() {
@@ -789,7 +781,7 @@ function camel(id) {
   return id.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
 function sourceLabel(name) {
-  return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", bitpin: "Bitpin", nobitex: "Nobitex", coingecko: "CoinGecko", wallgold: "WallGold", technogold: "TechnoGold", melligold: "MelliGold", talasea: "Talasea", milli: "Milli", gerami: "Gerami" })[name] || name;
+  return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", bitpin: "Bitpin", nobitex: "Nobitex", ompfinex: "OMPFinex", ramzinex: "Ramzinex", coingecko: "CoinGecko", wallgold: "WallGold", technogold: "TechnoGold", melligold: "MelliGold", talasea: "Talasea", milli: "Milli", gerami: "Gerami" })[name] || name;
 }
 function sourceStatusText(item) {
   const status = item?.status || {};

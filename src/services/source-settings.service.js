@@ -6,6 +6,8 @@ const SOURCE_DEFINITIONS = Object.freeze({
 	exir: Object.freeze({ key: "source.exir.enabled", label: "Exir", kind: "usdt", defaultEnabled: true }),
 	bitpin: Object.freeze({ key: "source.bitpin.enabled", label: "Bitpin", kind: "usdt", defaultEnabled: true }),
 	nobitex: Object.freeze({ key: "source.nobitex.enabled", label: "Nobitex", kind: "usdt", defaultEnabled: false }),
+	ompfinex: Object.freeze({ key: "source.ompfinex.enabled", label: "OMPFinex", kind: "usdt", defaultEnabled: true }),
+	ramzinex: Object.freeze({ key: "source.ramzinex.enabled", label: "Ramzinex", kind: "usdt", defaultEnabled: true }),
 	coingecko: Object.freeze({ key: "source.coingecko.enabled", label: "CoinGecko", kind: "market", defaultEnabled: true }),
 	wallgold: Object.freeze({ key: "source.wallgold.enabled", label: "WallGold", kind: "gold", defaultEnabled: true }),
 	technogold: Object.freeze({ key: "source.technogold.enabled", label: "TechnoGold", kind: "gold", defaultEnabled: true }),
@@ -16,7 +18,7 @@ const SOURCE_DEFINITIONS = Object.freeze({
 });
 
 export const SOURCE_NAMES = Object.freeze(Object.keys(SOURCE_DEFINITIONS));
-export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);
+export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex", "ompfinex", "ramzinex"]);
 export const DEFAULT_USDT_PRIORITY = Object.freeze([...USDT_SOURCE_NAMES]);
 export { GOLD_SOURCE_NAMES };
 const PRIORITY_KEY = "usdt_source_priority";
@@ -68,7 +70,7 @@ export class SourceSettingsService {
 				status: statuses[name] || null,
 			};
 		}
-		return { sources, usdt_priority: priority };
+		return { sources, usdt_priority: priority, usdt_strategy: "consensus" };
 	}
 
 	async isEnabled(name) {
@@ -102,7 +104,7 @@ export class SourceSettingsService {
 			requested.some((item, index) => item !== normalized[index])
 		) {
 			throw new Error(
-				"USDT priority must contain wallex, tabdeal, exir, bitpin and nobitex exactly once.",
+				"USDT source order must contain wallex, tabdeal, exir, bitpin, nobitex, ompfinex and ramzinex exactly once.",
 			);
 		}
 		await this.settings.set(PRIORITY_KEY, normalized.join(","));

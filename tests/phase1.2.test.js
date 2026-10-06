@@ -61,7 +61,7 @@ test("CoinGecko market bundle still uses exactly one request", async () => {
 	assert.equal(result.silver, 50);
 });
 
-test("USDT source fallback order remains Wallex -> Tabdeal -> Exir", async () => {
+test("USDT runtime queries every enabled source and returns consensus", async () => {
 	const requested = [];
 	const env = {
 		WALLEX_API_URL: "https://test.local/wallex",
@@ -71,37 +71,49 @@ test("USDT source fallback order remains Wallex -> Tabdeal -> Exir", async () =>
 	const http = {
 		async fetch(url) {
 			requested.push(url);
-			if (url.includes("wallex")) return jsonResponse({}, 503);
-			if (url.includes("tabdeal")) return jsonResponse({ asks: [["61234"]] }, 200);
-			return jsonResponse({ asks: [["70000"]] }, 200);
+			if (url.includes("wallex")) {
+				return jsonResponse({
+					result: { symbols: { USDTTMN: { stats: { askPrice: "60000", bidPrice: "59900" } } } },
+				});
+			}
+			if (url.includes("tabdeal")) {
+				return jsonResponse({ asks: [["61200"]], bids: [["61100"]] });
+			}
+			return jsonResponse({ "usdt-irt": { asks: [["62000"]], bids: [["61900"]] } });
 		},
 		async sourceError(response) { return `HTTP ${response.status}`; },
 	};
-	const saved = [];
-	const statuses = {
-		async save(source, result) { saved.push({ source, result }); },
-		async saveMany() {},
+	const statuses = { async save() {}, async saveMany() {} };
+	const sourceSettings = {
+		async isEnabled(name) {
+			return ["wallex", "tabdeal", "exir"].includes(name);
+		},
 	};
-	const sources = new MarketSources(env, http, statuses);
+	const sources = new MarketSources(env, http, statuses, null, sourceSettings);
 	const result = await sources.resolveUsdt();
 
-	assert.deepEqual(requested, [env.WALLEX_API_URL, env.TABDEAL_API_URL]);
+	assert.deepEqual(
+		new Set(requested),
+		new Set([env.WALLEX_API_URL, env.TABDEAL_API_URL, env.EXIR_API_URL]),
+	);
 	assert.equal(result.success, true);
-	assert.equal(result.source, "tabdeal");
-	assert.equal(result.sourceLabel, "Tabdeal");
-	assert.equal(result.fallbackLevel, 1);
-	assert.equal(result.price, 61234);
-	assert.deepEqual(saved.map((item) => item.source), ["wallex", "tabdeal"]);
+	assert.equal(result.source, "usdt-consensus");
+	assert.equal(result.sourceLabel, "USDT Consensus");
+	assert.equal(result.fallbackLevel, undefined);
+	assert.deepEqual(result.contributors, ["wallex", "tabdeal", "exir"]);
+	assert.equal(result.price, 61150);
 });
 
-test("resolveUsdtChecks preserves source priority", () => {
+test("resolveUsdtChecks uses median consensus and rejects large outliers", () => {
 	const result = resolveUsdtChecks({
-		wallex: { success: false, price: null },
-		tabdeal: { success: true, price: 60000 },
-		exir: { success: true, price: 61000 },
+		wallex: { success: true, price: 60000 },
+		tabdeal: { success: true, price: 60100 },
+		exir: { success: true, price: 60200 },
+		bitpin: { success: true, price: 100000 },
 	});
-	assert.equal(result.source, "tabdeal");
-	assert.equal(result.fallbackLevel, 1);
+	assert.equal(result.source, "usdt-consensus");
+	assert.equal(result.price, 60100);
+	assert.deepEqual(result.rejected, ["bitpin"]);
 });
 
 test("market post builder preserves rich and fallback message structure", () => {

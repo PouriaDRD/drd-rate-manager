@@ -147,7 +147,11 @@ export class MarketService {
 			usdt: {
 				price: usdt.success ? usdt.price : null,
 				source: usdt.success ? usdt.sourceLabel : null,
-				fallbackLevel: usdt.success ? usdt.fallbackLevel : null,
+				fallbackLevel: null,
+				strategy: usdt.success ? "consensus" : null,
+				contributors: usdt.success ? usdt.contributors : [],
+				rejected: usdt.success ? usdt.rejected : [],
+				sampleCount: usdt.success ? usdt.sampleCount : 0,
 			},
 			crypto: coinGecko.success
 				? coinGecko.crypto
@@ -180,7 +184,11 @@ export class MarketService {
 				...fresh.usdt,
 				price: fresh.usdt.price ?? stale.usdt?.price ?? null,
 				source: fresh.usdt.source ?? stale.usdt?.source ?? null,
-				fallbackLevel: fresh.usdt.fallbackLevel ?? stale.usdt?.fallbackLevel ?? null,
+				fallbackLevel: null,
+				strategy: fresh.usdt.strategy ?? stale.usdt?.strategy ?? null,
+				contributors: fresh.usdt.contributors ?? stale.usdt?.contributors ?? [],
+				rejected: fresh.usdt.rejected ?? stale.usdt?.rejected ?? [],
+				sampleCount: fresh.usdt.sampleCount ?? stale.usdt?.sampleCount ?? 0,
 			},
 			crypto: (fresh.crypto || []).map((coin) => {
 				const previous = staleCrypto.get(coin.id);

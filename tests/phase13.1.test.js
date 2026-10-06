@@ -151,14 +151,15 @@ test("resilience storage failure fails open instead of blocking providers", asyn
 	assert.equal(calls, 1);
 });
 
-test("USDT fallback skips cooled Wallex and reaches Tabdeal", async () => {
+test("USDT consensus skips cooled Wallex while healthy peers remain usable", async () => {
 	const { resilience } = setup();
 	const requested = [];
 	let wallexCalls = 0;
 	const statuses = { async save() {}, async saveMany() {} };
 	const sourceSettings = {
-		async usdtPriority() { return ["wallex", "tabdeal", "exir"]; },
-		async isEnabled() { return true; },
+		async isEnabled(name) {
+			return ["wallex", "tabdeal"].includes(name);
+		},
 	};
 	const http = {
 		async fetch(url) {
@@ -167,7 +168,11 @@ test("USDT fallback skips cooled Wallex and reaches Tabdeal", async () => {
 				wallexCalls += 1;
 				return { ok: false, status: 503, async text() { return "down"; } };
 			}
-			return { ok: true, status: 200, async json() { return { asks: [["61234"]] }; } };
+			return {
+				ok: true,
+				status: 200,
+				async json() { return { asks: [["61234"]], bids: [["61200"]] }; },
+			};
 		},
 		async sourceError(response) { return `HTTP ${response.status}`; },
 	};
@@ -175,7 +180,6 @@ test("USDT fallback skips cooled Wallex and reaches Tabdeal", async () => {
 		{
 			WALLEX_API_URL: "https://test/wallex",
 			TABDEAL_API_URL: "https://test/tabdeal",
-			EXIR_API_URL: "https://test/exir",
 		},
 		http,
 		statuses,
@@ -184,10 +188,15 @@ test("USDT fallback skips cooled Wallex and reaches Tabdeal", async () => {
 		resilience,
 	);
 
-	assert.equal((await sources.resolveUsdt()).source, "tabdeal");
+	const first = await sources.resolveUsdt();
+	assert.equal(first.source, "usdt-consensus");
+	assert.deepEqual(first.contributors, ["tabdeal"]);
 	assert.equal(wallexCalls, 1);
+
 	requested.length = 0;
-	assert.equal((await sources.resolveUsdt()).source, "tabdeal");
+	const second = await sources.resolveUsdt();
+	assert.equal(second.source, "usdt-consensus");
+	assert.deepEqual(second.contributors, ["tabdeal"]);
 	assert.equal(wallexCalls, 1);
 	assert.deepEqual(requested, ["https://test/tabdeal"]);
 });
@@ -269,11 +278,12 @@ test("Phase 13.1 reuses runtime_locks without schema or app-version bump", async
 	assert.doesNotMatch(database, /provider_resilience/);
 });
 
-test("provider circuit breaker preserves configured USDT priority semantics", async () => {
+test("provider circuit breaker preserves USDT consensus semantics", async () => {
 	const market = await readFile(
 		new URL("../src/market/market-sources.js", import.meta.url),
 		"utf8",
 	);
-	assert.match(market, /sourceSettings\.usdtPriority/);
-	assert.match(market, /fallbackLevel: index/);
+	assert.match(market, /resolveUsdtConsensus/);
+	assert.match(market, /Promise\.all/);
+	assert.doesNotMatch(market, /fallbackLevel: index/);
 });

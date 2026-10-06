@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { telegram_loginHistoryMethods } from "../src/controllers/telegram/telegram-login-history.methods.js";
-import { MarketSources, resolveGoldConsensus } from "../src/market/market-sources.js";
+import { MarketSources, resolveGoldConsensus, resolveUsdtConsensus } from "../src/market/market-sources.js";
 import {
 	OperationalAlertService,
 	operationalAlertCandidate,
@@ -388,7 +388,7 @@ test("Phase 19.5 uses documented Wallex and Exir response contracts", async () =
 	});
 	const exir = await sources.checkExir();
 	assert.equal(exir.success, true);
-	assert.equal(exir.price, 124000);
+	assert.equal(exir.price, 123950);
 	assert.equal(statusWrites.length, 0);
 });
 
@@ -425,7 +425,7 @@ test("Phase 19.5 source health is group-aware and cache lifecycle is information
 });
 
 
-test("Phase 19.6A adds Bitpin as production fallback and keeps Nobitex opt-in", async () => {
+test("Phase 19.6A providers remain configured while Nobitex stays opt-in", async () => {
 	const sourceSettings = await readFile(
 		new URL("../src/services/source-settings.service.js", import.meta.url),
 		"utf8",
@@ -434,11 +434,6 @@ test("Phase 19.6A adds Bitpin as production fallback and keeps Nobitex opt-in", 
 	assert.ok(sourceSettings.includes('nobitex: Object.freeze({ key: "source.nobitex.enabled"'));
 	assert.ok(sourceSettings.includes('label: "Bitpin", kind: "usdt", defaultEnabled: true'));
 	assert.ok(sourceSettings.includes('label: "Nobitex", kind: "usdt", defaultEnabled: false'));
-	assert.ok(
-		sourceSettings.includes(
-			'export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);',
-		),
-	);
 });
 
 test("Phase 19.6A parses Bitpin and Nobitex public orderbooks independently", async () => {
@@ -470,7 +465,7 @@ test("Phase 19.6A parses Bitpin and Nobitex public orderbooks independently", as
 
 	const bitpin = await sources.checkBitpin();
 	assert.equal(bitpin.success, true);
-	assert.equal(bitpin.price, 267357);
+	assert.equal(bitpin.price, 267352.5);
 
 	current = {
 		status: "ok",
@@ -479,7 +474,7 @@ test("Phase 19.6A parses Bitpin and Nobitex public orderbooks independently", as
 	};
 	const nobitex = await sources.checkNobitex();
 	assert.equal(nobitex.success, true);
-	assert.equal(nobitex.price, 268100);
+	assert.equal(nobitex.price, 268050);
 });
 
 test("Phase 19.6A source testing and UI labels cover both new USDT providers", async () => {
@@ -559,4 +554,82 @@ test("Phase 19.6B gold sources are first-class health and management providers",
 		assert.ok(app.includes(name));
 	}
 	assert.ok(telegram.includes('item.kind === "gold"'));
+});
+
+
+test("Phase 19.6C parses OMPFinex and Ramzinex into normalized Toman reference prices", async () => {
+	let body = {
+		data: {
+			USDTIRR: {
+				asks: [{ price: "2679000" }, { price: "2680000" }],
+				bids: [{ price: "2680600" }, { price: "2681000" }],
+			},
+		},
+	};
+	const sources = new MarketSources(
+		{},
+		{
+			async fetch() {
+				return { ok: true, status: 200, async json() { return body; } };
+			},
+			async sourceError(response) { return `HTTP ${response.status}`; },
+		},
+		{ async save() {}, async saveMany() {} },
+	);
+
+	const ompfinex = await sources.checkOmpfinex();
+	assert.equal(ompfinex.success, true);
+	assert.equal(ompfinex.price, 268030);
+
+	body = {
+		data: [{
+			pair_id: 11,
+			url_name: "tether-usdt",
+			buy: "2685500",
+			sell: "2685925",
+		}],
+	};
+	const ramzinex = await sources.checkRamzinex();
+	assert.equal(ramzinex.success, true);
+	assert.equal(ramzinex.price, 268571.25);
+});
+
+test("Phase 19.6C USDT uses the same median and 3-percent outlier strategy as gold", () => {
+	const result = resolveUsdtConsensus({
+		wallex: { success: true, price: 268000 },
+		tabdeal: { success: true, price: 268100 },
+		exir: { success: true, price: 267900 },
+		bitpin: { success: true, price: 268050 },
+		nobitex: { success: false, price: null },
+		ompfinex: { success: true, price: 268030 },
+		ramzinex: { success: true, price: 900000 },
+	});
+	assert.equal(result.success, true);
+	assert.equal(result.source, "usdt-consensus");
+	assert.ok(result.price >= 268000 && result.price <= 268100);
+	assert.deepEqual(result.rejected, ["ramzinex"]);
+	assert.ok(result.contributors.includes("ompfinex"));
+});
+
+test("Phase 19.6C exposes seven USDT providers and consensus metadata across control planes", async () => {
+	const [appConfig, settings, statuses, web, webApp, telegram, serializer] = await Promise.all([
+		readFile(new URL("../src/config/app.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/services/source-settings.service.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/repositories/source-status.repository.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/controllers/web-admin-data.controller.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/controllers/telegram/telegram-settings.methods.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/api/serializers.js", import.meta.url), "utf8"),
+	]);
+	for (const name of ["ompfinex", "ramzinex"]) {
+		assert.ok(appConfig.includes(name));
+		assert.ok(settings.includes(name));
+		assert.ok(statuses.includes(name));
+		assert.ok(web.includes(name));
+		assert.ok(webApp.includes(name));
+	}
+	assert.ok(settings.includes('usdt_strategy: "consensus"'));
+	assert.ok(telegram.includes("اجماع قیمت تتر"));
+	assert.ok(serializer.includes("contributors: snapshot.usdt?.contributors"));
+	assert.ok(serializer.includes("rejected: snapshot.usdt?.rejected"));
 });

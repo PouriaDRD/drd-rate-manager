@@ -9,10 +9,7 @@ async _showSources(message, force = false) {
 	if (force) await this.s.market.forceRefreshSources();
 	const snapshot = await this.s.sourceSettings.snapshot();
 	const en = this._tgLanguage() === "en";
-	const roleFor = (name) => {
-		const index = snapshot.usdt_priority.indexOf(name);
-		return index === 0 ? "Primary" : index > 0 ? `Fallback #${index}` : null;
-	};
+	const consensusRole = en ? "Consensus" : "اجماع";
 	const lines = [
 		`<b>📡 ${en ? "Source management" : "مدیریت منابع"}</b>`, "",
 		`<b>💵 ${en ? "USDT / Toman" : "تتر / تومان"}</b>`, "",
@@ -20,7 +17,7 @@ async _showSources(message, force = false) {
 	for (const name of snapshot.usdt_priority) {
 		const source = snapshot.sources[name];
 		lines.push(
-			`${source.enabled ? "🟢" : "⚪"} <b>${escapeHtml(source.label)}</b> · <code>${roleFor(name)}</code>`,
+			`${source.enabled ? "🟢" : "⚪"} <b>${escapeHtml(source.label)}</b> · <code>${consensusRole}</code>`,
 			source.enabled ? sourceStatusText(source.label, source.status, null) : `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
 			"",
 		);
@@ -58,21 +55,34 @@ async _showSources(message, force = false) {
 async _showUsdt(message) {
 	const snapshot = await this.s.sourceSettings.snapshot();
 	const en = this._tgLanguage() === "en";
-	const labels = snapshot.usdt_priority.map((name) => snapshot.sources[name]?.label || name);
-	let selected = null;
-	for (const name of snapshot.usdt_priority) {
-		const source = snapshot.sources[name];
-		if (source?.enabled && source.status?.success && source.status?.price != null) {
-			selected = source;
-			break;
-		}
-	}
-	const text = selected
-		? `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>✅ ${en ? "Valid cached price" : "قیمت معتبر کش‌شده"}</blockquote>\n\n💰 <b>${formatFaInteger(selected.status.price)} ${en ? "Toman" : "تومان"}</b>\n\n📡 <b>${escapeHtml(selected.label)}</b>\n\n${labels.join(" → ")}`
-		: `<b>💵 ${en ? "USDT route" : "مسیر دریافت تتر"}</b>\n\n<blockquote>🟡 ${en ? "No cached USDT price from enabled sources" : "قیمت تتر از منابع فعال در کش موجود نیست"}</blockquote>\n\n${labels.join(" → ")}`;
+	const enabledNames = snapshot.usdt_priority.filter(
+		(name) => snapshot.sources[name]?.enabled,
+	);
+	const statuses = Object.fromEntries(
+		enabledNames.map((name) => [name, snapshot.sources[name]?.status || null]),
+	);
+	const consensus = resolveUsdtFromStatuses(statuses, enabledNames);
+	const contributorLabels = consensus.contributors.map(
+		(name) => snapshot.sources[name]?.label || name,
+	);
+	const rejectedLabels = consensus.rejected.map(
+		(name) => snapshot.sources[name]?.label || name,
+	);
+	const text = consensus.available
+		? [
+			`<b>💵 ${en ? "USDT consensus" : "اجماع قیمت تتر"}</b>`,
+			"",
+			`<blockquote>✅ ${en ? "Consensus from healthy enabled providers" : "قیمت نهایی از اجماع منابع فعال و سالم"}</blockquote>`,
+			"",
+			`💰 <b>${formatFaInteger(consensus.price_toman)} ${en ? "Toman" : "تومان"}</b>`,
+			`📡 ${en ? "Contributors" : "منابع پذیرفته‌شده"}: <b>${escapeHtml(contributorLabels.join(" · ") || "—")}</b>`,
+			rejectedLabels.length
+				? `🧹 ${en ? "Outliers" : "منابع پرت"}: <code>${escapeHtml(rejectedLabels.join(" · "))}</code>`
+				: null,
+		].filter(Boolean).join("\n")
+		: `<b>💵 ${en ? "USDT consensus" : "اجماع قیمت تتر"}</b>\n\n<blockquote>🟡 ${en ? "No healthy enabled USDT provider is cached" : "قیمت معتبر از منابع فعال تتر در کش موجود نیست"}</blockquote>`;
 	return this.s.telegram.editMessage(message.chat.id, message.message_id, text, {
 		inline_keyboard: [
-			[{ text: en ? "↻ Rotate priority" : "↻ چرخش اولویت", callback_data: "sources:priority:rotate" }],
 			[{ text: en ? "🔄 Refresh sources" : "🔄 بروزرسانی منابع", callback_data: "sources:refresh" }],
 			[{ text: `⬅️ ${this._tg("sources")}`, callback_data: "sources:home" }],
 		],

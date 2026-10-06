@@ -1,19 +1,28 @@
 import { USDT_SOURCE_PRIORITY } from "../config/app.js";
-import { escapeHtml, nullableNumber, sourceLabel } from "../utils/core.js";
+import { resolveUsdtChecks } from "../services/market-support.js";
+import { escapeHtml, nullableNumber } from "../utils/core.js";
 
-export function resolveUsdtFromStatuses(statuses) {
-	for (let index = 0; index < USDT_SOURCE_PRIORITY.length; index += 1) {
-		const key = USDT_SOURCE_PRIORITY[index];
-		const item = statuses[key];
-		if (item?.success && nullableNumber(item.price) != null) {
-			return {
-				available: true,
-				selected_source: sourceLabel(key),
-				price_toman: nullableNumber(item.price),
-				fallback_level: index,
-				latency_ms: item.latency ?? null,
-			};
-		}
+export function resolveUsdtFromStatuses(statuses, enabledSources = USDT_SOURCE_PRIORITY) {
+	const enabled = new Set(enabledSources);
+	const checks = Object.fromEntries(
+		USDT_SOURCE_PRIORITY.map((key) => [
+			key,
+			enabled.has(key) ? statuses?.[key] : null,
+		]),
+	);
+	const result = resolveUsdtChecks(checks);
+	if (result?.success && nullableNumber(result.price) != null) {
+		return {
+			available: true,
+			selected_source: result.sourceLabel,
+			price_toman: nullableNumber(result.price),
+			fallback_level: null,
+			latency_ms: null,
+			strategy: "consensus",
+			contributors: result.contributors || [],
+			rejected: result.rejected || [],
+			sample_count: Number(result.sampleCount || 0),
+		};
 	}
 	return {
 		available: false,
@@ -21,6 +30,10 @@ export function resolveUsdtFromStatuses(statuses) {
 		price_toman: null,
 		fallback_level: null,
 		latency_ms: null,
+		strategy: "consensus",
+		contributors: [],
+		rejected: [],
+		sample_count: 0,
 	};
 }
 

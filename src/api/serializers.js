@@ -36,7 +36,11 @@ export function serializeMarketSnapshot(config, snapshot) {
 			available: snapshot.usdt?.price != null,
 			price_toman: snapshot.usdt?.price ?? null,
 			source: snapshot.usdt?.source ?? null,
-			fallback_level: snapshot.usdt?.fallbackLevel ?? null,
+			fallback_level: null,
+			strategy: snapshot.usdt?.strategy ?? null,
+			contributors: snapshot.usdt?.contributors ?? [],
+			rejected: snapshot.usdt?.rejected ?? [],
+			sample_count: Number(snapshot.usdt?.sampleCount || 0),
 		},
 		crypto: (snapshot.crypto || []).map((item) => ({
 			id: item.id,

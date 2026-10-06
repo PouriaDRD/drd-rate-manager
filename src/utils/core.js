@@ -77,6 +77,8 @@ export function sourceLabel(source) {
 		exir: "Exir",
 		bitpin: "Bitpin",
 		nobitex: "Nobitex",
+		ompfinex: "OMPFinex",
+		ramzinex: "Ramzinex",
 		coingecko: "CoinGecko",
 		wallgold: "WallGold",
 		technogold: "TechnoGold",
