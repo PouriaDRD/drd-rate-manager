@@ -1,14 +1,10 @@
+import { pbkdf2Sync, randomBytes } from "node:crypto";
+
 const DEFAULT_ITERATIONS = 600_000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
 const ALGORITHM = "PBKDF2-HMAC-SHA256";
-
-function cryptoApi() {
-	if (!globalThis.crypto?.subtle || !globalThis.crypto?.getRandomValues) {
-		throw new Error("Web Crypto API is unavailable");
-	}
-	return globalThis.crypto;
-}
+const DIGEST = "sha256";
 
 function toBase64Url(bytes) {
 	let binary = "";
@@ -40,9 +36,8 @@ export class PasswordHasher {
 	}
 
 	async hash(password) {
-		const salt = new Uint8Array(SALT_BYTES);
-		cryptoApi().getRandomValues(salt);
-		const hash = await this.#derive(String(password), salt, this.iterations);
+		const salt = new Uint8Array(randomBytes(SALT_BYTES));
+		const hash = this.#derive(String(password), salt, this.iterations);
 		return {
 			passwordHash: toBase64Url(hash),
 			passwordSalt: toBase64Url(salt),
@@ -58,27 +53,23 @@ export class PasswordHasher {
 		try {
 			const salt = fromBase64Url(record.password_salt);
 			const expected = fromBase64Url(record.password_hash);
-			const actual = await this.#derive(String(password), salt, iterations);
+			const actual = this.#derive(String(password), salt, iterations);
 			return constantTimeEqual(actual, expected);
 		} catch {
 			return false;
 		}
 	}
 
-	async #derive(password, salt, iterations) {
-		const key = await cryptoApi().subtle.importKey(
-			"raw",
-			new TextEncoder().encode(password),
-			"PBKDF2",
-			false,
-			["deriveBits"],
+	#derive(password, salt, iterations) {
+		return new Uint8Array(
+			pbkdf2Sync(
+				password,
+				salt,
+				iterations,
+				HASH_BYTES,
+				DIGEST,
+			),
 		);
-		const bits = await cryptoApi().subtle.deriveBits(
-			{ name: "PBKDF2", hash: "SHA-256", salt, iterations },
-			key,
-			HASH_BYTES * 8,
-		);
-		return new Uint8Array(bits);
 	}
 }
 
