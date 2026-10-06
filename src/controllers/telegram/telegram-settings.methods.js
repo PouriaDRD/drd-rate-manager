@@ -102,6 +102,7 @@ async _showSettings(message, admin) {
 	];
 	if (admin.role === "owner") {
 		keyboard.push([{ text: en ? "🔐 API Management" : "🔐 مدیریت API", callback_data: "api:home" }]);
+		keyboard.push([{ text: en ? "🛡 Login Security" : "🛡 امنیت ورود", callback_data: "security:logins:all:0" }]);
 		keyboard.push([{ text: enabled ? (en ? "⏸ Disable bot" : "⏸ غیرفعال کردن ربات") : (en ? "▶️ Enable bot" : "▶️ فعال کردن ربات"), callback_data: enabled ? "global:disable" : "global:enable" }]);
 	}
 	keyboard.push([{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }]);

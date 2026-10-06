@@ -121,6 +121,10 @@ async _callback(query) {
 		await this.s.preferences.toggleTelegramLanguage();
 		return this._showSettings(message, admin);
 	}
+	if (data.startsWith("security:logins:")) {
+		const [, , result, page] = data.split(":");
+		return this._showLoginHistory(message, admin, { result, page: Number(page) });
+	}
 	if (data === "api:home") return this._showApiManagement(message, admin);
 	if (data.startsWith("api:mode:confirm:")) {
 		return this._showApiModeConfirmation(message, admin, data.slice("api:mode:confirm:".length));
