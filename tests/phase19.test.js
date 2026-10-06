@@ -423,3 +423,75 @@ test("Phase 19.5 source health is group-aware and cache lifecycle is information
 	assert.ok(system.includes('notices.push("cache_expired")'));
 	assert.equal(system.includes('warnings.push("cache_expired")'), false);
 });
+
+
+test("Phase 19.6A adds Bitpin as production fallback and keeps Nobitex opt-in", async () => {
+	const sourceSettings = await readFile(
+		new URL("../src/services/source-settings.service.js", import.meta.url),
+		"utf8",
+	);
+	assert.ok(sourceSettings.includes('bitpin: Object.freeze({ key: "source.bitpin.enabled"'));
+	assert.ok(sourceSettings.includes('nobitex: Object.freeze({ key: "source.nobitex.enabled"'));
+	assert.ok(sourceSettings.includes('label: "Bitpin", kind: "usdt", defaultEnabled: true'));
+	assert.ok(sourceSettings.includes('label: "Nobitex", kind: "usdt", defaultEnabled: false'));
+	assert.ok(
+		sourceSettings.includes(
+			'export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);',
+		),
+	);
+});
+
+test("Phase 19.6A parses Bitpin and Nobitex public orderbooks independently", async () => {
+	let current = {
+		asks: [["267357", "1.2"]],
+		bids: [["267348", "2.3"]],
+	};
+	const sources = new MarketSources(
+		{},
+		{
+			async fetch() {
+				return {
+					ok: true,
+					status: 200,
+					async json() {
+						return current;
+					},
+				};
+			},
+			async sourceError(response) {
+				return `HTTP ${response.status}`;
+			},
+		},
+		{ async save() {}, async saveMany() {} },
+		{},
+		null,
+		null,
+	);
+
+	const bitpin = await sources.checkBitpin();
+	assert.equal(bitpin.success, true);
+	assert.equal(bitpin.price, 267357);
+
+	current = {
+		status: "ok",
+		asks: [["268100", "10"]],
+		bids: [["268000", "11"]],
+	};
+	const nobitex = await sources.checkNobitex();
+	assert.equal(nobitex.success, true);
+	assert.equal(nobitex.price, 268100);
+});
+
+test("Phase 19.6A source testing and UI labels cover both new USDT providers", async () => {
+	const [controller, webApp, core] = await Promise.all([
+		readFile(new URL("../src/controllers/web-admin-data.controller.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/utils/core.js", import.meta.url), "utf8"),
+	]);
+	assert.ok(controller.includes('case "bitpin":'));
+	assert.ok(controller.includes('case "nobitex":'));
+	assert.ok(webApp.includes('bitpin: "Bitpin"'));
+	assert.ok(webApp.includes('nobitex: "Nobitex"'));
+	assert.ok(core.includes('bitpin: "Bitpin"'));
+	assert.ok(core.includes('nobitex: "Nobitex"'));
+});

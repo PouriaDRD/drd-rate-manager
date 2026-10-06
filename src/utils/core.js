@@ -75,6 +75,8 @@ export function sourceLabel(source) {
 		wallex: "Wallex",
 		tabdeal: "Tabdeal",
 		exir: "Exir",
+		bitpin: "Bitpin",
+		nobitex: "Nobitex",
 		coingecko: "CoinGecko",
 		wallgold: "WallGold",
 	})[source] || source;

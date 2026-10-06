@@ -323,7 +323,9 @@ export class WebAdminDataController {
 		switch (name) {
 			case "wallex":
 			case "tabdeal":
-			case "exir": {
+			case "exir":
+			case "bitpin":
+			case "nobitex": {
 				const method = `check${name[0].toUpperCase()}${name.slice(1)}`;
 				result = await this.s.sources[method]();
 				await this.s.statuses.save(name, result);

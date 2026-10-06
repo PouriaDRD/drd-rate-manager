@@ -39,7 +39,7 @@ export class MarketSources {
 
 	async checkAllUsdt() {
 		const results = {};
-		for (const source of ["wallex", "tabdeal", "exir"]) {
+		for (const source of USDT_SOURCE_PRIORITY) {
 			if (this.sourceSettings && !(await this.sourceSettings.isEnabled(source))) {
 				results[source] = failure("Source disabled", null, 0);
 				continue;
@@ -118,6 +118,52 @@ export class MarketSources {
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Exir response", response.status);
+		}));
+	}
+
+	async checkBitpin() {
+		return this.#resilient("bitpin", () => this.#timed("bitpin", async () => {
+			const url =
+				this.config?.bitpinApiUrl ||
+				this.env.BITPIN_API_URL ||
+				"https://api.bitpin.ir/api/v1/mth/orderbook/USDT_IRT/";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(
+				data?.asks?.[0]?.[0] ??
+					data?.asks?.[0]?.price,
+			);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Bitpin response", response.status);
+		}));
+	}
+
+	async checkNobitex() {
+		return this.#resilient("nobitex", () => this.#timed("nobitex", async () => {
+			const url =
+				this.config?.nobitexApiUrl ||
+				this.env.NOBITEX_API_URL ||
+				"https://apiv2.nobitex.ir/v3/orderbook/USDTIRT";
+			const response = await this.http.fetch(
+				url,
+				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
+				7000,
+			);
+			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
+			const data = await response.json();
+			const price = nullableNumber(
+				data?.asks?.[0]?.[0] ??
+					data?.asks?.[0]?.price,
+			);
+			return price && price > 0
+				? success(price, response.status)
+				: failure("Invalid Nobitex response", response.status);
 		}));
 	}
 

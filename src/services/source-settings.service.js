@@ -1,13 +1,15 @@
 const SOURCE_DEFINITIONS = Object.freeze({
-	wallex: Object.freeze({ key: "source.wallex.enabled", label: "Wallex", kind: "usdt" }),
-	tabdeal: Object.freeze({ key: "source.tabdeal.enabled", label: "Tabdeal", kind: "usdt" }),
-	exir: Object.freeze({ key: "source.exir.enabled", label: "Exir", kind: "usdt" }),
-	coingecko: Object.freeze({ key: "source.coingecko.enabled", label: "CoinGecko", kind: "market" }),
-	wallgold: Object.freeze({ key: "source.wallgold.enabled", label: "WallGold", kind: "gold" }),
+	wallex: Object.freeze({ key: "source.wallex.enabled", label: "Wallex", kind: "usdt", defaultEnabled: true }),
+	tabdeal: Object.freeze({ key: "source.tabdeal.enabled", label: "Tabdeal", kind: "usdt", defaultEnabled: true }),
+	exir: Object.freeze({ key: "source.exir.enabled", label: "Exir", kind: "usdt", defaultEnabled: true }),
+	bitpin: Object.freeze({ key: "source.bitpin.enabled", label: "Bitpin", kind: "usdt", defaultEnabled: true }),
+	nobitex: Object.freeze({ key: "source.nobitex.enabled", label: "Nobitex", kind: "usdt", defaultEnabled: false }),
+	coingecko: Object.freeze({ key: "source.coingecko.enabled", label: "CoinGecko", kind: "market", defaultEnabled: true }),
+	wallgold: Object.freeze({ key: "source.wallgold.enabled", label: "WallGold", kind: "gold", defaultEnabled: true }),
 });
 
 export const SOURCE_NAMES = Object.freeze(Object.keys(SOURCE_DEFINITIONS));
-export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir"]);
+export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);
 export const DEFAULT_USDT_PRIORITY = Object.freeze([...USDT_SOURCE_NAMES]);
 const PRIORITY_KEY = "usdt_source_priority";
 
@@ -53,7 +55,7 @@ export class SourceSettingsService {
 				name,
 				label: definition.label,
 				kind: definition.kind,
-				enabled: parseEnabled(values[definition.key], true),
+				enabled: parseEnabled(values[definition.key], definition.defaultEnabled),
 				priority: priority.includes(name) ? priority.indexOf(name) : null,
 				status: statuses[name] || null,
 			};
@@ -63,7 +65,11 @@ export class SourceSettingsService {
 
 	async isEnabled(name) {
 		const definition = this.#definition(name);
-		return parseEnabled(await this.settings.get(definition.key, "1"), true);
+		const fallback = definition.defaultEnabled ? "1" : "0";
+		return parseEnabled(
+			await this.settings.get(definition.key, fallback),
+			definition.defaultEnabled,
+		);
 	}
 
 	async setEnabled(name, enabled) {
@@ -78,9 +84,18 @@ export class SourceSettingsService {
 
 	async setUsdtPriority(priority) {
 		const normalized = normalizeUsdtPriority(priority);
-		const requested = Array.isArray(priority) ? priority.map((item) => String(item).trim().toLowerCase()) : [];
-		if (requested.length !== 3 || requested.some((item, index) => item !== normalized[index])) {
-			throw new Error("USDT priority must contain wallex, tabdeal and exir exactly once.");
+		const requested = Array.isArray(priority)
+			? priority.map((item) => String(item).trim().toLowerCase())
+			: [];
+		if (
+			requested.length !== USDT_SOURCE_NAMES.length ||
+			new Set(requested).size !== USDT_SOURCE_NAMES.length ||
+			!USDT_SOURCE_NAMES.every((source) => requested.includes(source)) ||
+			requested.some((item, index) => item !== normalized[index])
+		) {
+			throw new Error(
+				"USDT priority must contain wallex, tabdeal, exir, bitpin and nobitex exactly once.",
+			);
 		}
 		await this.settings.set(PRIORITY_KEY, normalized.join(","));
 		return normalized;

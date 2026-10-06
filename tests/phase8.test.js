@@ -30,7 +30,7 @@ class FakeStatuses {
 	}
 	async all() {
 		return Object.fromEntries(
-			["wallex", "tabdeal", "exir", "coingecko", "wallgold"].map((name) => [name, {
+			["wallex", "tabdeal", "exir", "bitpin", "nobitex", "coingecko", "wallgold"].map((name) => [name, {
 				success: name === "tabdeal",
 				status: name === "tabdeal" ? 200 : null,
 				latency: name === "tabdeal" ? 30 : null,
@@ -48,26 +48,46 @@ class FakeStatuses {
 	}
 }
 
-test("source settings default to every provider enabled and stable USDT priority", async () => {
+test("source settings default to production providers enabled with Nobitex opt-in", async () => {
 	const service = new SourceSettingsService(new FakeSettings(), new FakeStatuses());
 	const snapshot = await service.snapshot();
 	assert.deepEqual(snapshot.usdt_priority, DEFAULT_USDT_PRIORITY);
-	assert.equal(Object.keys(snapshot.sources).length, 5);
-	assert.equal(Object.values(snapshot.sources).every((source) => source.enabled), true);
+	assert.equal(Object.keys(snapshot.sources).length, 7);
+	assert.equal(snapshot.sources.wallex.enabled, true);
+	assert.equal(snapshot.sources.tabdeal.enabled, true);
+	assert.equal(snapshot.sources.exir.enabled, true);
+	assert.equal(snapshot.sources.bitpin.enabled, true);
+	assert.equal(snapshot.sources.nobitex.enabled, false);
+	assert.equal(snapshot.sources.coingecko.enabled, true);
+	assert.equal(snapshot.sources.wallgold.enabled, true);
 });
 
-test("source settings persist toggles and validate USDT priority permutations", async () => {
+test("source settings persist toggles and validate five-provider USDT priority permutations", async () => {
 	const settings = new FakeSettings();
 	const service = new SourceSettingsService(settings, new FakeStatuses());
 	assert.equal(await service.setEnabled("wallex", false), false);
 	assert.equal(await service.isEnabled("wallex"), false);
-	assert.deepEqual(await service.setUsdtPriority(["exir", "wallex", "tabdeal"]), ["exir", "wallex", "tabdeal"]);
-	assert.equal(settings.values.usdt_source_priority, "exir,wallex,tabdeal");
-	await assert.rejects(() => service.setUsdtPriority(["wallex", "wallex", "exir"]), /exactly once/);
+	assert.equal(await service.isEnabled("bitpin"), true);
+	assert.equal(await service.isEnabled("nobitex"), false);
+	assert.deepEqual(
+		await service.setUsdtPriority(["bitpin", "exir", "wallex", "tabdeal", "nobitex"]),
+		["bitpin", "exir", "wallex", "tabdeal", "nobitex"],
+	);
+	assert.equal(
+		settings.values.usdt_source_priority,
+		"bitpin,exir,wallex,tabdeal,nobitex",
+	);
+	await assert.rejects(
+		() => service.setUsdtPriority(["wallex", "wallex", "exir", "bitpin", "nobitex"]),
+		/exactly once/,
+	);
 });
 
-test("priority normalization fails safe to the default route", () => {
-	assert.deepEqual(normalizeUsdtPriority("exir,tabdeal,wallex"), ["exir", "tabdeal", "wallex"]);
+test("priority normalization fails safe to the five-provider default route", () => {
+	assert.deepEqual(
+		normalizeUsdtPriority("nobitex,bitpin,exir,tabdeal,wallex"),
+		["nobitex", "bitpin", "exir", "tabdeal", "wallex"],
+	);
 	assert.deepEqual(normalizeUsdtPriority("wallex,wallex"), DEFAULT_USDT_PRIORITY);
 });
 
@@ -77,7 +97,9 @@ test("USDT runtime follows D1 priority and skips disabled sources", async () => 
 		"source.exir.enabled": "0",
 		"source.tabdeal.enabled": "1",
 		"source.wallex.enabled": "1",
-		usdt_source_priority: "exir,tabdeal,wallex",
+		"source.bitpin.enabled": "1",
+		"source.nobitex.enabled": "0",
+		usdt_source_priority: "exir,tabdeal,wallex,bitpin,nobitex",
 	});
 	const statuses = new FakeStatuses();
 	const sourceSettings = new SourceSettingsService(settings, statuses);
@@ -96,6 +118,8 @@ test("USDT runtime follows D1 priority and skips disabled sources", async () => 
 		WALLEX_API_URL: "https://test/wallex",
 		TABDEAL_API_URL: "https://test/tabdeal",
 		EXIR_API_URL: "https://test/exir",
+		BITPIN_API_URL: "https://test/bitpin",
+		NOBITEX_API_URL: "https://test/nobitex",
 	};
 	const sources = new MarketSources(env, http, statuses, null, sourceSettings);
 	const result = await sources.resolveUsdt();
@@ -104,12 +128,14 @@ test("USDT runtime follows D1 priority and skips disabled sources", async () => 
 	assert.deepEqual(requested, ["https://test/tabdeal"]);
 });
 
-test("full USDT check records disabled providers without making their network call", async () => {
+test("full USDT check covers all five providers and skips disabled sources", async () => {
 	const requested = [];
 	const settings = new FakeSettings({
 		"source.wallex.enabled": "0",
 		"source.tabdeal.enabled": "1",
 		"source.exir.enabled": "0",
+		"source.bitpin.enabled": "0",
+		"source.nobitex.enabled": "0",
 	});
 	const statuses = new FakeStatuses();
 	const sourceSettings = new SourceSettingsService(settings, statuses);
@@ -129,6 +155,8 @@ test("full USDT check records disabled providers without making their network ca
 	const result = await sources.checkAllUsdt();
 	assert.equal(result.wallex.message, "Source disabled");
 	assert.equal(result.exir.message, "Source disabled");
+	assert.equal(result.bitpin.message, "Source disabled");
+	assert.equal(result.nobitex.message, "Source disabled");
 	assert.equal(result.tabdeal.success, true);
 	assert.deepEqual(requested, ["https://test/tabdeal"]);
 });
