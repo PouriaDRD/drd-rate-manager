@@ -6,9 +6,6 @@ const ACTIONABLE_DEGRADED_REASONS = Object.freeze([
 	"no_sources_enabled",
 	"source_failures",
 	"provider_circuit_open",
-	"cache_empty",
-	"cache_expired",
-	"cache_last_error",
 	"operational_metrics_unavailable",
 ]);
 
@@ -341,7 +338,11 @@ export class OperationalAlertService {
 			),
 		);
 
-		if (snapshot.cache?.expired || snapshot.cache?.lastError) {
+		if (
+			candidate.reasons.some((reason) =>
+				["cache_empty", "cache_expired", "cache_last_error"].includes(reason),
+			)
+		) {
 			const cacheDetail = snapshot.cache?.lastError
 				? bounded(snapshot.cache.lastError, 100)
 				: en

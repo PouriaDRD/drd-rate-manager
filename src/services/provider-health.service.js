@@ -81,6 +81,54 @@ function failureBase(status) {
 	return 25;
 }
 
+function checkedAt(item) {
+	return Number(
+		item?.status?.lastCheckedAt ||
+			item?.status?.last_checked_at ||
+			0,
+	);
+}
+
+function providerGroup(name, items, priority = []) {
+	const enabled = items.filter((item) => item.enabled);
+	const checked = enabled.filter((item) => checkedAt(item) > 0);
+	const healthy = checked.filter((item) => item.status?.success === true);
+	const failed = checked.filter((item) => item.status?.success === false);
+	const candidateScores = healthy
+		.map((item) => item.health?.score)
+		.filter((score) => Number.isFinite(score));
+	const fallbackScores = enabled
+		.map((item) => item.health?.score)
+		.filter((score) => Number.isFinite(score));
+	const score = candidateScores.length
+		? Math.max(...candidateScores)
+		: fallbackScores.length
+			? Math.max(...fallbackScores)
+			: null;
+	const orderedNames = priority.length
+		? priority
+		: enabled.map((item) => item.name);
+	const activeSource =
+		orderedNames.find((source) =>
+			healthy.some((item) => item.name === source),
+		) ||
+		healthy[0]?.name ||
+		null;
+
+	return {
+		name,
+		enabled: enabled.length,
+		checked: checked.length,
+		healthy: healthy.length,
+		failed: failed.length,
+		unchecked: enabled.length - checked.length,
+		available: healthy.length > 0,
+		activeSource,
+		score,
+		grade: providerHealthGrade(score),
+	};
+}
+
 export class ProviderHealthService {
 	constructor(sourceSettings, resilience) {
 		this.sourceSettings = sourceSettings;
@@ -134,10 +182,39 @@ export class ProviderHealthService {
 		const numericScores = enabled
 			.map((item) => item.health.score)
 			.filter((score) => Number.isFinite(score));
-		const score = numericScores.length
+		const fleetScore = numericScores.length
 			? Math.round(
 				numericScores.reduce((total, value) => total + value, 0) /
 					numericScores.length,
+			)
+			: null;
+
+		const priority = Array.isArray(sourceSnapshot.usdt_priority)
+			? sourceSnapshot.usdt_priority
+			: [];
+		const groups = {
+			usdt: providerGroup(
+				"usdt",
+				Object.values(sources).filter((item) => item.kind === "usdt"),
+				priority,
+			),
+			market: providerGroup(
+				"market",
+				Object.values(sources).filter((item) => item.kind === "market"),
+			),
+			gold: providerGroup(
+				"gold",
+				Object.values(sources).filter((item) => item.kind === "gold"),
+			),
+		};
+		const groupScores = Object.values(groups)
+			.filter((group) => group.enabled > 0)
+			.map((group) => group.score)
+			.filter((score) => Number.isFinite(score));
+		const score = groupScores.length
+			? Math.round(
+				groupScores.reduce((total, value) => total + value, 0) /
+					groupScores.length,
 			)
 			: null;
 
@@ -148,6 +225,9 @@ export class ProviderHealthService {
 				version: PROVIDER_HEALTH_SCORE_VERSION,
 				score,
 				grade: providerHealthGrade(score),
+				fleetScore,
+				fleetGrade: providerHealthGrade(fleetScore),
+				groups,
 				openCircuits: enabled.filter((item) => item.health.circuit.state === "open").length,
 				probes: enabled.filter((item) =>
 					["probe_in_progress", "half_open_ready"].includes(item.health.circuit.state),

@@ -52,7 +52,7 @@ export class MarketSources {
 
 	async checkWallex() {
 		return this.#resilient("wallex", () => this.#timed("wallex", async () => {
-			const url = this.config?.wallexApiUrl || this.env.WALLEX_API_URL || "https://api.wallex.ir/hector/web/v1/markets";
+			const url = this.config?.wallexApiUrl || this.env.WALLEX_API_URL || "https://api.wallex.ir/v1/markets";
 			const response = await this.http.fetch(
 				url,
 				{ headers: { Accept: "application/json", "User-Agent": `DRD-Rate-Manager/${APP.version}` } },
@@ -60,11 +60,19 @@ export class MarketSources {
 			);
 			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
 			const data = await response.json();
-			const markets = data?.result?.markets;
-			const market = Array.isArray(markets)
-				? markets.find((item) => String(item.symbol || "").toUpperCase() === "USDTTMN")
+			const documentedMarket = data?.result?.symbols?.USDTTMN;
+			const legacyMarkets = data?.result?.markets;
+			const legacyMarket = Array.isArray(legacyMarkets)
+				? legacyMarkets.find(
+					(item) => String(item.symbol || "").toUpperCase() === "USDTTMN",
+				)
 				: null;
-			const price = nullableNumber(market?.price);
+			const price = nullableNumber(
+				documentedMarket?.stats?.askPrice ??
+					documentedMarket?.stats?.lastPrice ??
+					documentedMarket?.price ??
+					legacyMarket?.price,
+			);
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Wallex response", response.status);
@@ -98,7 +106,15 @@ export class MarketSources {
 			);
 			if (!response.ok) return failure(await this.http.sourceError(response), response.status);
 			const data = await response.json();
-			const price = nullableNumber(data?.asks?.[0]?.[0] ?? data?.ask?.[0]?.price ?? data?.asks?.[0]?.price);
+			const orderbook =
+				data?.["usdt-irt"] ??
+				data?.["USDT-IRT"] ??
+				data;
+			const price = nullableNumber(
+				orderbook?.asks?.[0]?.[0] ??
+					orderbook?.ask?.[0]?.price ??
+					orderbook?.asks?.[0]?.price,
+			);
 			return price && price > 0
 				? success(price, response.status)
 				: failure("Invalid Exir response", response.status);

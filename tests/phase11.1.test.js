@@ -140,14 +140,14 @@ test("database or runtime integrity failure makes health critical", async () => 
 	assert.ok(snapshot.health.critical.includes("runtime_integrity_failed"));
 });
 
-test("source failure, unchecked source and stale cache make health degraded", async () => {
+test("redundant provider failure and normal cache expiry do not degrade a usable market route", async () => {
 	const { now, services } = baseServices({
 		cache: {
 			async read() {
 				return {
 					fetchedAt: now - 120_000,
 					expiresAt: now - 60_000,
-					lastError: "provider timeout",
+					lastError: "previous provider timeout",
 					payload: {},
 				};
 			},
@@ -157,8 +157,89 @@ test("source failure, unchecked source and stale cache make health degraded", as
 				return {
 					usdt_priority: ["wallex", "tabdeal", "exir"],
 					sources: {
-						wallex: { name: "wallex", label: "Wallex", kind: "usdt", enabled: true, status: { success: false, status: 503, latency: 10, message: "down", lastCheckedAt: now - 1_000 } },
-						tabdeal: { name: "tabdeal", label: "Tabdeal", kind: "usdt", enabled: true, status: null },
+						wallex: {
+							name: "wallex",
+							label: "Wallex",
+							kind: "usdt",
+							enabled: true,
+							status: {
+								success: false,
+								status: 403,
+								latency: 10,
+								message: "Forbidden",
+								lastCheckedAt: now - 1000,
+							},
+						},
+						tabdeal: {
+							name: "tabdeal",
+							label: "Tabdeal",
+							kind: "usdt",
+							enabled: true,
+							status: {
+								success: true,
+								status: 200,
+								latency: 20,
+								lastCheckedAt: now - 1000,
+							},
+						},
+						exir: {
+							name: "exir",
+							label: "Exir",
+							kind: "usdt",
+							enabled: true,
+							status: null,
+						},
+					},
+				};
+			},
+		},
+	});
+	const snapshot = await manager(services).snapshot(now);
+	assert.equal(snapshot.health.status, "healthy");
+	assert.equal(snapshot.sources.groups.usdt.available, true);
+	assert.equal(snapshot.sources.groups.usdt.healthy, 1);
+	assert.equal(snapshot.sources.failed, 1);
+	assert.ok(snapshot.health.notices.includes("cache_expired"));
+	assert.ok(snapshot.health.notices.includes("cache_last_error"));
+	assert.doesNotMatch(
+		snapshot.health.warnings.join(","),
+		/source_failures|cache_expired|cache_last_error/,
+	);
+});
+
+test("an unavailable enabled provider group still degrades system health", async () => {
+	const { now, services } = baseServices({
+		sourceSettings: {
+			async snapshot() {
+				return {
+					usdt_priority: ["wallex", "tabdeal", "exir"],
+					sources: {
+						wallex: {
+							name: "wallex",
+							label: "Wallex",
+							kind: "usdt",
+							enabled: true,
+							status: {
+								success: false,
+								status: 503,
+								latency: 10,
+								message: "down",
+								lastCheckedAt: now - 1000,
+							},
+						},
+						tabdeal: {
+							name: "tabdeal",
+							label: "Tabdeal",
+							kind: "usdt",
+							enabled: true,
+							status: {
+								success: false,
+								status: 503,
+								latency: 10,
+								message: "down",
+								lastCheckedAt: now - 1000,
+							},
+						},
 					},
 				};
 			},
@@ -166,9 +247,8 @@ test("source failure, unchecked source and stale cache make health degraded", as
 	});
 	const snapshot = await manager(services).snapshot(now);
 	assert.equal(snapshot.health.status, "degraded");
-	for (const reason of ["source_failures", "sources_unverified", "cache_expired", "cache_last_error"]) {
-		assert.ok(snapshot.health.warnings.includes(reason), reason);
-	}
+	assert.equal(snapshot.sources.groups.usdt.available, false);
+	assert.ok(snapshot.health.warnings.includes("source_failures"));
 });
 
 test("disabled bot has explicit disabled health without becoming critical", async () => {
@@ -284,5 +364,7 @@ test("composition root and application wire the dedicated system management boun
 test("Phase 11.1 keeps schema 11 and defines stable health reason groups", () => {
 	assert.ok(SYSTEM_HEALTH_REASONS.critical.includes("database_unavailable"));
 	assert.ok(SYSTEM_HEALTH_REASONS.warnings.includes("source_failures"));
+	assert.ok(SYSTEM_HEALTH_REASONS.notices.includes("cache_expired"));
+	assert.ok(SYSTEM_HEALTH_REASONS.notices.includes("sources_unverified"));
 	assert.ok(SYSTEM_HEALTH_REASONS.notices.includes("bot_disabled"));
 });

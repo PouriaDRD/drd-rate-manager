@@ -23,6 +23,38 @@ function sourceHealth(snapshot = {}) {
 		(item) => checkedAt(item) > 0 && item.status?.success === false,
 	);
 	const unchecked = enabled.filter((item) => checkedAt(item) <= 0);
+	const group = (kind) => {
+		const members = enabled.filter((item) => item.kind === kind);
+		const checkedMembers = members.filter((item) => checkedAt(item) > 0);
+		const healthyMembers = checkedMembers.filter(
+			(item) => item.status?.success === true,
+		);
+		const failedMembers = checkedMembers.filter(
+			(item) => item.status?.success === false,
+		);
+		const providerGroup = snapshot.provider_health?.groups?.[kind] || {};
+		return {
+			enabled: members.length,
+			checked: checkedMembers.length,
+			healthy: healthyMembers.length,
+			failed: failedMembers.length,
+			unchecked: members.length - checkedMembers.length,
+			available: healthyMembers.length > 0,
+			activeSource: providerGroup.activeSource || null,
+			score: providerGroup.score ?? null,
+			grade: providerGroup.grade || "unknown",
+		};
+	};
+	const groups = {
+		usdt: group("usdt"),
+		market: group("market"),
+		gold: group("gold"),
+	};
+	const enabledGroups = Object.values(groups).filter((item) => item.enabled > 0);
+	const unavailableGroups = enabledGroups.filter(
+		(item) => item.checked > 0 && !item.available,
+	);
+	const unverifiedGroups = enabledGroups.filter((item) => item.checked === 0);
 
 	return {
 		total: items.length,
@@ -30,9 +62,14 @@ function sourceHealth(snapshot = {}) {
 		healthy: healthy.length,
 		failed: failed.length,
 		unchecked: unchecked.length,
+		groups,
+		unavailableGroups: unavailableGroups.length,
+		unverifiedGroups: unverifiedGroups.length,
 		usdtPriority: snapshot.usdt_priority || [],
 		healthScore: snapshot.provider_health?.score ?? null,
 		healthGrade: snapshot.provider_health?.grade || "unknown",
+		fleetHealthScore: snapshot.provider_health?.fleetScore ?? null,
+		fleetHealthGrade: snapshot.provider_health?.fleetGrade || "unknown",
 		openCircuits: Number(snapshot.provider_health?.openCircuits || 0),
 		probes: Number(snapshot.provider_health?.probes || 0),
 		unknownCircuits: Number(snapshot.provider_health?.unknownCircuits || 0),
@@ -189,12 +226,14 @@ function buildHealth({
 
 	if (!botEnabled) notices.push("bot_disabled");
 	if (!sources.enabled) warnings.push("no_sources_enabled");
-	if (sources.failed) warnings.push("source_failures");
-	if (sources.unchecked) warnings.push("sources_unverified");
-	if (sources.openCircuits) warnings.push("provider_circuit_open");
-	if (!cache.present) warnings.push("cache_empty");
-	if (cache.expired) warnings.push("cache_expired");
-	if (cache.lastError) warnings.push("cache_last_error");
+	if (sources.unavailableGroups) warnings.push("source_failures");
+	if (sources.unverifiedGroups) notices.push("sources_unverified");
+	if (sources.unavailableGroups && sources.openCircuits) {
+		warnings.push("provider_circuit_open");
+	}
+	if (!cache.present) notices.push("cache_empty");
+	if (cache.expired) notices.push("cache_expired");
+	if (cache.lastError) notices.push("cache_last_error");
 	if (operationalMetrics?.supported && !operationalMetrics.available) {
 		warnings.push("operational_metrics_unavailable");
 	}
@@ -389,15 +428,15 @@ export const SYSTEM_HEALTH_REASONS = Object.freeze({
 	warnings: Object.freeze([
 		"no_sources_enabled",
 		"source_failures",
-		"sources_unverified",
 		"provider_circuit_open",
-		"cache_empty",
-		"cache_expired",
-		"cache_last_error",
 		"operational_metrics_unavailable",
 	]),
 	notices: Object.freeze([
 		"bot_disabled",
+		"sources_unverified",
+		"cache_empty",
+		"cache_expired",
+		"cache_last_error",
 		"runtime_settings_legacy_fallback",
 		"runtime_settings_default_fallback",
 	]),

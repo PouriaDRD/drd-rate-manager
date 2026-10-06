@@ -86,16 +86,16 @@ test("critical health produces a stable operational alert fingerprint", () => {
 	);
 });
 
-test("degraded alerts include actionable warnings but ignore verification-only noise", () => {
+test("degraded alerts ignore cache lifecycle noise and keep real route failures actionable", () => {
 	const candidate = operationalAlertCandidate(
 		snapshot("degraded", {
 			warnings: ["sources_unverified", "provider_circuit_open", "cache_expired"],
 		}),
 	);
-	assert.deepEqual(candidate.reasons, ["cache_expired", "provider_circuit_open"]);
+	assert.deepEqual(candidate.reasons, ["provider_circuit_open"]);
 	assert.equal(
 		operationalAlertCandidate(
-			snapshot("degraded", { warnings: ["sources_unverified"] }),
+			snapshot("degraded", { warnings: ["sources_unverified", "cache_expired"] }),
 		),
 		null,
 	);
@@ -252,7 +252,7 @@ test("owner missing and alert-state storage failure both fail closed without sen
 test("Telegram send failure does not mark alert as delivered", async () => {
 	const harness = serviceHarness({ sendError: new Error("Telegram down") });
 	const result = await harness.service.evaluate(
-		snapshot("degraded", { warnings: ["cache_last_error"] }),
+		snapshot("degraded", { warnings: ["source_failures"] }),
 	);
 	assert.equal(result.action, "failed");
 	assert.equal(result.reason, "telegram_send_failed");

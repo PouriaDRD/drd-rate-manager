@@ -3,7 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { telegram_loginHistoryMethods } from "../src/controllers/telegram/telegram-login-history.methods.js";
-import { OperationalAlertService } from "../src/services/operational-alert.service.js";
+import { MarketSources } from "../src/market/market-sources.js";
+import {
+	OperationalAlertService,
+	operationalAlertCandidate,
+} from "../src/services/operational-alert.service.js";
 import { WebLoginAlertService } from "../src/services/web-login-alert.service.js";
 
 test("application identity is consistently version 0.2.0", async () => {
@@ -331,4 +335,91 @@ test("Phase 19.4 feature views expose loading empty and visible error states", a
 	}
 	assert.ok(apiManagement.includes('tr("noTokens")'));
 	assert.ok(loginHistory.includes('tr("noHistory")'));
+});
+
+
+test("Phase 19.5 uses documented Wallex and Exir response contracts", async () => {
+	const statusWrites = [];
+	const responseFor = (data) => ({
+		ok: true,
+		status: 200,
+		async json() {
+			return data;
+		},
+	});
+	let response = responseFor({
+		result: {
+			symbols: {
+				USDTTMN: {
+					stats: { askPrice: "123456", lastPrice: "123000" },
+				},
+			},
+		},
+	});
+	const sources = new MarketSources(
+		{},
+		{
+			async fetch() {
+				return response;
+			},
+			async sourceError() {
+				return "error";
+			},
+		},
+		{
+			async save(name, result) {
+				statusWrites.push([name, result]);
+			},
+		},
+		{},
+		null,
+		null,
+	);
+
+	const wallex = await sources.checkWallex();
+	assert.equal(wallex.success, true);
+	assert.equal(wallex.price, 123456);
+
+	response = responseFor({
+		"usdt-irt": {
+			asks: [["124000", "12"]],
+			bids: [["123900", "10"]],
+		},
+	});
+	const exir = await sources.checkExir();
+	assert.equal(exir.success, true);
+	assert.equal(exir.price, 124000);
+	assert.equal(statusWrites.length, 0);
+});
+
+test("Phase 19.5 treats normal cache expiry as non-actionable alert noise", () => {
+	assert.equal(
+		operationalAlertCandidate({
+			health: {
+				status: "degraded",
+				warnings: ["cache_expired", "sources_unverified"],
+			},
+		}),
+		null,
+	);
+	const routeFailure = operationalAlertCandidate({
+		health: {
+			status: "degraded",
+			warnings: ["source_failures"],
+		},
+	});
+	assert.deepEqual(routeFailure?.reasons, ["source_failures"]);
+});
+
+test("Phase 19.5 source health is group-aware and cache lifecycle is informational", async () => {
+	const [providerHealth, system] = await Promise.all([
+		readFile(new URL("../src/services/provider-health.service.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/services/system-management.service.js", import.meta.url), "utf8"),
+	]);
+	assert.ok(providerHealth.includes("fleetScore"));
+	assert.ok(providerHealth.includes("activeSource"));
+	assert.ok(providerHealth.includes("providerGroup("));
+	assert.ok(system.includes("unavailableGroups"));
+	assert.ok(system.includes('notices.push("cache_expired")'));
+	assert.equal(system.includes('warnings.push("cache_expired")'), false);
 });

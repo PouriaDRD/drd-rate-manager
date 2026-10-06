@@ -86,7 +86,7 @@ test("resilience inspect failure becomes unknown instead of throwing", async () 
 	assert.match(state.error, /D1 unavailable/);
 });
 
-test("ProviderHealthService combines D1 status and circuit state without network work", async () => {
+test("ProviderHealthService scores market capability by provider group while preserving fleet diagnostics", async () => {
 	const now = 1_800_000_000_000;
 	const service = new ProviderHealthService(
 		{
@@ -96,13 +96,16 @@ test("ProviderHealthService combines D1 status and circuit state without network
 					sources: {
 						wallex: {
 							name: "wallex", label: "Wallex", kind: "usdt", enabled: true,
-							status: { success: false, status: 503, latency: 300, lastCheckedAt: now - 1000 },
+							status: { success: false, status: 403, latency: 300, lastCheckedAt: now - 1000 },
 						},
 						tabdeal: {
 							name: "tabdeal", label: "Tabdeal", kind: "usdt", enabled: true,
 							status: { success: true, status: 200, latency: 100, lastCheckedAt: now - 1000 },
 						},
-						exir: { name: "exir", label: "Exir", kind: "usdt", enabled: false, status: null },
+						exir: {
+							name: "exir", label: "Exir", kind: "usdt", enabled: true,
+							status: { success: false, status: 200, latency: 200, lastCheckedAt: now - 1000 },
+						},
 						coingecko: {
 							name: "coingecko", label: "CoinGecko", kind: "market", enabled: true,
 							status: { success: true, status: 200, latency: 900, lastCheckedAt: now - 1000 },
@@ -132,8 +135,11 @@ test("ProviderHealthService combines D1 status and circuit state without network
 	assert.equal(snapshot.provider_health.openCircuits, 1);
 	assert.equal(snapshot.sources.wallex.health.score <= 15, true);
 	assert.equal(snapshot.sources.tabdeal.health.grade, "excellent");
-	assert.equal(snapshot.sources.exir.health.score, null);
-	assert.ok(snapshot.provider_health.score > 50);
+	assert.equal(snapshot.provider_health.groups.usdt.available, true);
+	assert.equal(snapshot.provider_health.groups.usdt.activeSource, "tabdeal");
+	assert.equal(snapshot.provider_health.groups.usdt.score, 100);
+	assert.ok(snapshot.provider_health.score >= 90);
+	assert.ok(snapshot.provider_health.fleetScore < snapshot.provider_health.score);
 });
 
 test("SystemManagement source health fixes never-checked detection using timestamp", async () => {
