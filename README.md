@@ -57,7 +57,7 @@ Cloudflare Worker
 ### Web Admin security
 
 - Dynamic/private admin path.
-- PBKDF2-HMAC-SHA256 password hashing with 600,000 iterations.
+- HMAC-SHA256 password peppering derived from APP_MASTER_KEY, followed by PBKDF2-HMAC-SHA256 at the Cloudflare Workers 100,000-iteration ceiling.
 - HttpOnly + Secure + SameSite=Strict sessions.
 - CSRF protection for mutations.
 - Login rate limiting and lockout.

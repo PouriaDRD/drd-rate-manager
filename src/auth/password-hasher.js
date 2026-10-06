@@ -1,10 +1,14 @@
-import { pbkdf2Sync, randomBytes } from "node:crypto";
+import { createHmac, pbkdf2Sync, randomBytes } from "node:crypto";
 
-const DEFAULT_ITERATIONS = 600_000;
+const DEFAULT_ITERATIONS = 100_000;
+const MAX_WORKERS_PBKDF2_ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const HASH_BYTES = 32;
-const ALGORITHM = "PBKDF2-HMAC-SHA256";
+const MASTER_KEY_BYTES = 32;
+const ALGORITHM = "HMAC-SHA256-PEPPER+PBKDF2-HMAC-SHA256";
 const DIGEST = "sha256";
+const PEPPER_DERIVATION_CONTEXT =
+	"drd-rate-manager:web-admin-password-pepper:v1";
 
 function toBase64Url(bytes) {
 	let binary = "";
@@ -13,7 +17,7 @@ function toBase64Url(bytes) {
 }
 
 function fromBase64Url(value) {
-	const normalized = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+	const normalized = String(value || "").trim().replace(/-/g, "+").replace(/_/g, "/");
 	const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
 	const binary = atob(padded);
 	return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -31,8 +35,19 @@ function constantTimeEqual(left, right) {
 }
 
 export class PasswordHasher {
-	constructor(iterations = DEFAULT_ITERATIONS) {
-		this.iterations = Math.max(DEFAULT_ITERATIONS, Number(iterations) || DEFAULT_ITERATIONS);
+	constructor(masterKey, iterations = DEFAULT_ITERATIONS) {
+		this.masterKey = String(masterKey || "").trim();
+		const parsedIterations = Number(iterations);
+		if (
+			!Number.isInteger(parsedIterations) ||
+			parsedIterations < 1 ||
+			parsedIterations > MAX_WORKERS_PBKDF2_ITERATIONS
+		) {
+			throw new Error(
+				`Password PBKDF2 iterations must be between 1 and ${MAX_WORKERS_PBKDF2_ITERATIONS} on Cloudflare Workers.`,
+			);
+		}
+		this.iterations = parsedIterations;
 	}
 
 	async hash(password) {
@@ -49,7 +64,13 @@ export class PasswordHasher {
 	async verify(password, record) {
 		if (!record || record.password_algorithm !== ALGORITHM) return false;
 		const iterations = Number(record.password_iterations || 0);
-		if (!Number.isFinite(iterations) || iterations < 1) return false;
+		if (
+			!Number.isInteger(iterations) ||
+			iterations < 1 ||
+			iterations > MAX_WORKERS_PBKDF2_ITERATIONS
+		) {
+			return false;
+		}
 		try {
 			const salt = fromBase64Url(record.password_salt);
 			const expected = fromBase64Url(record.password_hash);
@@ -61,9 +82,14 @@ export class PasswordHasher {
 	}
 
 	#derive(password, salt, iterations) {
+		const pepperKey = this.#pepperKey();
+		const pepperedPassword = createHmac(DIGEST, pepperKey)
+			.update(password, "utf8")
+			.digest();
+
 		return new Uint8Array(
 			pbkdf2Sync(
-				password,
+				pepperedPassword,
 				salt,
 				iterations,
 				HASH_BYTES,
@@ -71,11 +97,33 @@ export class PasswordHasher {
 			),
 		);
 	}
+
+	#pepperKey() {
+		if (!this.masterKey) {
+			throw new Error("APP_MASTER_KEY is required for Web Admin password hashing.");
+		}
+		let masterBytes;
+		try {
+			masterBytes = fromBase64Url(this.masterKey);
+		} catch {
+			throw new Error("APP_MASTER_KEY must be valid base64/base64url.");
+		}
+		if (masterBytes.byteLength !== MASTER_KEY_BYTES) {
+			throw new Error("APP_MASTER_KEY must decode to exactly 32 bytes.");
+		}
+
+		return createHmac(DIGEST, masterBytes)
+			.update(PEPPER_DERIVATION_CONTEXT, "utf8")
+			.digest();
+	}
 }
 
 export const PASSWORD_HASH_CONFIG = Object.freeze({
 	algorithm: ALGORITHM,
 	iterations: DEFAULT_ITERATIONS,
+	maxWorkersIterations: MAX_WORKERS_PBKDF2_ITERATIONS,
 	saltBytes: SALT_BYTES,
 	hashBytes: HASH_BYTES,
+	pepperSource: "APP_MASTER_KEY",
+	pepperVersion: 1,
 });

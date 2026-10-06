@@ -1,4 +1,4 @@
-import { PasswordHasher } from "../auth/password-hasher.js";
+import { PASSWORD_HASH_CONFIG, PasswordHasher } from "../auth/password-hasher.js";
 import {
 	WEB_AUTH,
 	clearSessionCookie,
@@ -14,8 +14,8 @@ import {
 
 const encoder = new TextEncoder();
 const DUMMY_RECORD = Object.freeze({
-	password_algorithm: "PBKDF2-HMAC-SHA256",
-	password_iterations: 600_000,
+	password_algorithm: PASSWORD_HASH_CONFIG.algorithm,
+	password_iterations: PASSWORD_HASH_CONFIG.iterations,
 	password_salt: "AAAAAAAAAAAAAAAAAAAAAA",
 	password_hash: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 });
@@ -50,7 +50,7 @@ export class WebAuthService {
 		users,
 		sessions,
 		attempts,
-		passwordHasher = new PasswordHasher(),
+		passwordHasher = new PasswordHasher(env?.APP_MASTER_KEY),
 		loginHistory = null,
 	) {
 		this.env = env;

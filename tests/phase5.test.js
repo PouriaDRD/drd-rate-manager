@@ -6,13 +6,15 @@ import { WEB_AUTH, validateAdminPath, validatePassword, validateUsername } from 
 import { WebAdminAuthController } from "../src/controllers/web-admin-auth.controller.js";
 import { WebAuthService } from "../src/services/web-auth.service.js";
 
+const TEST_MASTER_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
+
 class FakeHasher {
 	async hash(password) {
 		return {
 			passwordHash: `hash:${password}`,
 			passwordSalt: "salt",
-			passwordAlgorithm: "PBKDF2-HMAC-SHA256",
-			passwordIterations: 600_000,
+			passwordAlgorithm: "HMAC-SHA256-PEPPER+PBKDF2-HMAC-SHA256",
+			passwordIterations: 100_000,
 		};
 	}
 	async verify(password, record) {
@@ -117,12 +119,15 @@ function loginRequest(cookie = "", csrf = "") {
 
 function cookiePair(setCookie) { return String(setCookie).split(";")[0]; }
 
-test("password hashing uses PBKDF2-HMAC-SHA256 with the OWASP work factor", async () => {
-	const hasher = new PasswordHasher();
+test("password hashing uses a secret pepper and the Cloudflare Workers PBKDF2 ceiling", async () => {
+	const hasher = new PasswordHasher(TEST_MASTER_KEY);
 	const record = await hasher.hash("a-strong-password-123");
-	assert.equal(record.passwordAlgorithm, "PBKDF2-HMAC-SHA256");
+	assert.equal(
+		record.passwordAlgorithm,
+		"HMAC-SHA256-PEPPER+PBKDF2-HMAC-SHA256",
+	);
 	assert.equal(record.passwordIterations, PASSWORD_HASH_CONFIG.iterations);
-	assert.equal(record.passwordIterations, 600_000);
+	assert.equal(record.passwordIterations, 100_000);
 	assert.equal(await hasher.verify("a-strong-password-123", {
 		password_hash: record.passwordHash,
 		password_salt: record.passwordSalt,

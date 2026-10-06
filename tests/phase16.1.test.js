@@ -158,8 +158,8 @@ class FakeHasher {
 		return {
 			passwordHash: `hash:${password}`,
 			passwordSalt: "salt",
-			passwordAlgorithm: "PBKDF2-HMAC-SHA256",
-			passwordIterations: 600_000,
+			passwordAlgorithm: "HMAC-SHA256-PEPPER+PBKDF2-HMAC-SHA256",
+			passwordIterations: 100_000,
 		};
 	}
 }
@@ -171,8 +171,8 @@ class FakeUsers {
 			username: "admin",
 			password_hash: "hash:admin",
 			password_salt: "salt",
-			password_algorithm: "PBKDF2-HMAC-SHA256",
-			password_iterations: 600_000,
+			password_algorithm: "HMAC-SHA256-PEPPER+PBKDF2-HMAC-SHA256",
+			password_iterations: 100_000,
 			admin_path: "admin",
 			must_complete_bootstrap: 1,
 			credential_version: 1,
