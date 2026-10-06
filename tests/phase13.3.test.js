@@ -145,8 +145,8 @@ test("partial refresh uses bounded 60-second cache TTL and recovers stale values
 			async resolveUsdt() {
 				return { success: true, price: 61000, sourceLabel: "Tabdeal", fallbackLevel: 1 };
 			},
-			async checkWallGold() {
-				return { success: false, message: "WallGold down" };
+			async resolveGold() {
+				return { success: false, message: "Iranian gold unavailable" };
 			},
 		},
 		{

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { telegram_loginHistoryMethods } from "../src/controllers/telegram/telegram-login-history.methods.js";
-import { MarketSources } from "../src/market/market-sources.js";
+import { MarketSources, resolveGoldConsensus } from "../src/market/market-sources.js";
 import {
 	OperationalAlertService,
 	operationalAlertCandidate,
@@ -494,4 +494,69 @@ test("Phase 19.6A source testing and UI labels cover both new USDT providers", a
 	assert.ok(webApp.includes('nobitex: "Nobitex"'));
 	assert.ok(core.includes('bitpin: "Bitpin"'));
 	assert.ok(core.includes('nobitex: "Nobitex"'));
+});
+
+
+test("Phase 19.6B normalizes six live gold providers into Toman per gram 18K", async () => {
+	const responses = new Map([
+		["technogold", { succeed: true, results: { buy_price: 26772195, sell_price: 26439208 } }],
+		["melligold", { message: "Success", data: { price_buy: 26606640, price_sell: 26606640 } }],
+		["talasea", { price: 26680 }],
+		["milli", { code: 0, data: { price18: 265400 } }],
+		["gerami", { data: { pair: { price: 26749845, buy_price: 26749845, sell_price: 26549514 } } }],
+	]);
+	const statuses = { async save() {}, async saveMany() {} };
+	const http = {
+		async fetch(url) {
+			const key =
+				url.includes("technogold") ? "technogold" :
+				url.includes("melligold") ? "melligold" :
+				url.includes("talasea") ? "talasea" :
+				url.includes("milli.gold") ? "milli" :
+				url.includes("gerami") ? "gerami" :
+				"wallgold";
+			const body = key === "wallgold" ? { result: { price: 26650000 } } : responses.get(key);
+			return { ok: true, status: 200, async json() { return body; } };
+		},
+		async sourceError(response) { return `HTTP ${response.status}`; },
+	};
+	const sources = new MarketSources({}, http, statuses);
+	assert.equal((await sources.checkTalasea()).price, 26680000);
+	assert.equal((await sources.checkMilli()).price, 26540000);
+	assert.equal((await sources.checkMelliGold()).price, 26606640);
+	assert.equal((await sources.checkGerami()).price, 26749845);
+	assert.equal(Math.round((await sources.checkTechnoGold()).price), 26605702);
+	assert.equal((await sources.checkWallGold()).price, 26650000);
+});
+
+test("Phase 19.6B gold consensus rejects a large outlier and keeps healthy contributors", () => {
+	const result = resolveGoldConsensus({
+		wallgold: { success: true, price: 26650000 },
+		technogold: { success: true, price: 26610000 },
+		melligold: { success: true, price: 26600000 },
+		talasea: { success: true, price: 26680000 },
+		milli: { success: true, price: 26540000 },
+		gerami: { success: true, price: 99000000 },
+	});
+	assert.equal(result.success, true);
+	assert.ok(result.price > 26500000 && result.price < 26800000);
+	assert.ok(result.contributors.length >= 4);
+	assert.deepEqual(result.rejected, ["gerami"]);
+});
+
+test("Phase 19.6B gold sources are first-class health and management providers", async () => {
+	const [settings, statusRepo, web, telegram, app] = await Promise.all([
+		readFile(new URL("../src/services/source-settings.service.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/repositories/source-status.repository.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/controllers/web-admin-data.controller.js", import.meta.url), "utf8"),
+		readFile(new URL("../src/controllers/telegram/telegram-settings.methods.js", import.meta.url), "utf8"),
+		readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8"),
+	]);
+	for (const name of ["technogold", "melligold", "talasea", "milli", "gerami"]) {
+		assert.ok(settings.includes(name));
+		assert.ok(statusRepo.includes(name));
+		assert.ok(web.includes(name));
+		assert.ok(app.includes(name));
+	}
+	assert.ok(telegram.includes('item.kind === "gold"'));
 });

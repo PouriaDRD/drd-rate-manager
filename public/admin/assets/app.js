@@ -789,7 +789,7 @@ function camel(id) {
   return id.replace(/-([a-z])/g, (_, char) => char.toUpperCase());
 }
 function sourceLabel(name) {
-  return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", bitpin: "Bitpin", nobitex: "Nobitex", coingecko: "CoinGecko", wallgold: "WallGold" })[name] || name;
+  return ({ wallex: "Wallex", tabdeal: "Tabdeal", exir: "Exir", bitpin: "Bitpin", nobitex: "Nobitex", coingecko: "CoinGecko", wallgold: "WallGold", technogold: "TechnoGold", melligold: "MelliGold", talasea: "Talasea", milli: "Milli", gerami: "Gerami" })[name] || name;
 }
 function sourceStatusText(item) {
   const status = item?.status || {};

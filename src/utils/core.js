@@ -79,6 +79,11 @@ export function sourceLabel(source) {
 		nobitex: "Nobitex",
 		coingecko: "CoinGecko",
 		wallgold: "WallGold",
+		technogold: "TechnoGold",
+		melligold: "MelliGold",
+		talasea: "Talasea",
+		milli: "Milli",
+		gerami: "Gerami",
 	})[source] || source;
 }
 

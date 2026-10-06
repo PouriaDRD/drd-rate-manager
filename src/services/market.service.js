@@ -99,12 +99,9 @@ export class MarketService {
 
 	async #fetchLive(fullSourceCheck = false) {
 		const enabledAssets = await this.assets.enabled();
-		const [coinGeckoEnabled, wallGoldEnabled] = this.sourceSettings
-			? await Promise.all([
-				this.sourceSettings.isEnabled("coingecko"),
-				this.sourceSettings.isEnabled("wallgold"),
-			])
-			: [true, true];
+		const coinGeckoEnabled = this.sourceSettings
+			? await this.sourceSettings.isEnabled("coingecko")
+			: true;
 		const disabled = (source) => ({
 			success: false,
 			status: null,
@@ -112,10 +109,10 @@ export class MarketService {
 			message: `${source} disabled`,
 			price: null,
 		});
-		const [usdtResult, coinGecko, wallgold] = await Promise.all([
+		const [usdtResult, coinGecko, gold] = await Promise.all([
 			fullSourceCheck ? this.sources.checkAllUsdt() : this.sources.resolveUsdt(),
 			coinGeckoEnabled ? this.coinGecko.fetchMarketBundle(enabledAssets) : disabled("CoinGecko"),
-			wallGoldEnabled ? this.sources.checkWallGold() : disabled("WallGold"),
+			this.sources.resolveGold(),
 		]);
 		const usdt = fullSourceCheck ? resolveUsdtChecks(usdtResult) : usdtResult;
 		if (coinGeckoEnabled && !coinGecko.skipped) {
@@ -138,8 +135,8 @@ export class MarketService {
 		if (!coinGecko.success) {
 			errors.push({ source: "coingecko", message: coinGecko.message || "CoinGecko unavailable" });
 		}
-		if (!wallgold.success) {
-			errors.push({ source: "wallgold", message: wallgold.message || "WallGold unavailable" });
+		if (!gold.success) {
+			errors.push({ source: "gold", message: gold.message || "Iranian gold unavailable" });
 		}
 
 		return {
@@ -163,10 +160,13 @@ export class MarketService {
 					marketCapRank: item.market_cap_rank ?? null,
 				})),
 			metals: {
-				gram18: wallgold.success ? wallgold.price : null,
-				mazaneh: wallgold.success ? calculateMazanehFromGram18(wallgold.price) : null,
+				gram18: gold.success ? gold.price : null,
+				mazaneh: gold.success ? calculateMazanehFromGram18(gold.price) : null,
 				gold: coinGecko.success ? coinGecko.gold : null,
 				silver: coinGecko.success ? coinGecko.silver : null,
+				gram18Source: gold.success ? gold.sourceLabel : null,
+				gram18Contributors: gold.success ? gold.contributors : [],
+				gram18Rejected: gold.success ? gold.rejected : [],
 			},
 		};
 	}
@@ -195,6 +195,11 @@ export class MarketService {
 				mazaneh: fresh.metals?.mazaneh ?? stale.metals?.mazaneh ?? null,
 				gold: fresh.metals?.gold ?? stale.metals?.gold ?? null,
 				silver: fresh.metals?.silver ?? stale.metals?.silver ?? null,
+				gram18Source: fresh.metals?.gram18Source ?? stale.metals?.gram18Source ?? null,
+				gram18Contributors:
+					fresh.metals?.gram18Contributors ?? stale.metals?.gram18Contributors ?? [],
+				gram18Rejected:
+					fresh.metals?.gram18Rejected ?? stale.metals?.gram18Rejected ?? [],
 			},
 		};
 	}

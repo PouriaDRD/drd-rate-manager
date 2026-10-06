@@ -46,7 +46,7 @@ export class SourceStatusRepository {
 				lastCheckedAt: Number(row.last_checked_at || 0),
 			};
 		}
-		for (const source of ["wallex", "tabdeal", "exir", "bitpin", "nobitex", "coingecko", "wallgold"]) {
+		for (const source of ["wallex", "tabdeal", "exir", "bitpin", "nobitex", "coingecko", "wallgold", "technogold", "melligold", "talasea", "milli", "gerami"]) {
 			if (!map[source]) {
 				map[source] = {
 					success: false,

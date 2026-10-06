@@ -25,11 +25,22 @@ async _showSources(message, force = false) {
 			"",
 		);
 	}
-	for (const name of ["coingecko", "wallgold"]) {
-		const source = snapshot.sources[name];
+	const marketSource = snapshot.sources.coingecko;
+	lines.push(
+		`${marketSource.enabled ? "🟢" : "⚪"} <b>${escapeHtml(marketSource.label)}</b>`,
+		marketSource.enabled
+			? sourceStatusText(marketSource.label, marketSource.status, null)
+			: `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
+		"",
+		`<b>🟡 ${en ? "18K gold / Toman" : "طلای ۱۸ عیار / تومان"}</b>`,
+		"",
+	);
+	for (const source of Object.values(snapshot.sources).filter((item) => item.kind === "gold")) {
 		lines.push(
 			`${source.enabled ? "🟢" : "⚪"} <b>${escapeHtml(source.label)}</b>`,
-			source.enabled ? sourceStatusText(source.label, source.status, null) : `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
+			source.enabled
+				? sourceStatusText(source.label, source.status, null)
+				: `<code>${en ? "Disabled" : "غیرفعال"}</code>`,
 			"",
 		);
 	}

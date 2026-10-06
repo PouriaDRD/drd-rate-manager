@@ -17,3 +17,4 @@ export const APP = Object.freeze({
 });
 
 export const USDT_SOURCE_PRIORITY = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);
+export const GOLD_SOURCE_NAMES = Object.freeze(["wallgold", "technogold", "melligold", "talasea", "milli", "gerami"]);

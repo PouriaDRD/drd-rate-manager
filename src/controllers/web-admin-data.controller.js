@@ -334,6 +334,21 @@ export class WebAdminDataController {
 			case "wallgold":
 				result = await this.s.sources.checkWallGold();
 				break;
+			case "technogold":
+				result = await this.s.sources.checkTechnoGold();
+				break;
+			case "melligold":
+				result = await this.s.sources.checkMelliGold();
+				break;
+			case "talasea":
+				result = await this.s.sources.checkTalasea();
+				break;
+			case "milli":
+				result = await this.s.sources.checkMilli();
+				break;
+			case "gerami":
+				result = await this.s.sources.checkGerami();
+				break;
 			case "coingecko": {
 				const probe = await this.s.coinGecko.fetchTopAssets();
 				result = probe.success

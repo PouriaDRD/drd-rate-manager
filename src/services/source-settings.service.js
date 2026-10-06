@@ -1,3 +1,5 @@
+import { GOLD_SOURCE_NAMES } from "../config/app.js";
+
 const SOURCE_DEFINITIONS = Object.freeze({
 	wallex: Object.freeze({ key: "source.wallex.enabled", label: "Wallex", kind: "usdt", defaultEnabled: true }),
 	tabdeal: Object.freeze({ key: "source.tabdeal.enabled", label: "Tabdeal", kind: "usdt", defaultEnabled: true }),
@@ -6,11 +8,17 @@ const SOURCE_DEFINITIONS = Object.freeze({
 	nobitex: Object.freeze({ key: "source.nobitex.enabled", label: "Nobitex", kind: "usdt", defaultEnabled: false }),
 	coingecko: Object.freeze({ key: "source.coingecko.enabled", label: "CoinGecko", kind: "market", defaultEnabled: true }),
 	wallgold: Object.freeze({ key: "source.wallgold.enabled", label: "WallGold", kind: "gold", defaultEnabled: true }),
+	technogold: Object.freeze({ key: "source.technogold.enabled", label: "TechnoGold", kind: "gold", defaultEnabled: true }),
+	melligold: Object.freeze({ key: "source.melligold.enabled", label: "MelliGold", kind: "gold", defaultEnabled: true }),
+	talasea: Object.freeze({ key: "source.talasea.enabled", label: "Talasea", kind: "gold", defaultEnabled: true }),
+	milli: Object.freeze({ key: "source.milli.enabled", label: "Milli", kind: "gold", defaultEnabled: true }),
+	gerami: Object.freeze({ key: "source.gerami.enabled", label: "Gerami", kind: "gold", defaultEnabled: true }),
 });
 
 export const SOURCE_NAMES = Object.freeze(Object.keys(SOURCE_DEFINITIONS));
 export const USDT_SOURCE_NAMES = Object.freeze(["wallex", "tabdeal", "exir", "bitpin", "nobitex"]);
 export const DEFAULT_USDT_PRIORITY = Object.freeze([...USDT_SOURCE_NAMES]);
+export { GOLD_SOURCE_NAMES };
 const PRIORITY_KEY = "usdt_source_priority";
 
 function parseEnabled(value, fallback = true) {

@@ -30,7 +30,7 @@ class FakeStatuses {
 	}
 	async all() {
 		return Object.fromEntries(
-			["wallex", "tabdeal", "exir", "bitpin", "nobitex", "coingecko", "wallgold"].map((name) => [name, {
+			["wallex", "tabdeal", "exir", "bitpin", "nobitex", "coingecko", "wallgold", "technogold", "melligold", "talasea", "milli", "gerami"].map((name) => [name, {
 				success: name === "tabdeal",
 				status: name === "tabdeal" ? 200 : null,
 				latency: name === "tabdeal" ? 30 : null,
@@ -52,7 +52,7 @@ test("source settings default to production providers enabled with Nobitex opt-i
 	const service = new SourceSettingsService(new FakeSettings(), new FakeStatuses());
 	const snapshot = await service.snapshot();
 	assert.deepEqual(snapshot.usdt_priority, DEFAULT_USDT_PRIORITY);
-	assert.equal(Object.keys(snapshot.sources).length, 7);
+	assert.equal(Object.keys(snapshot.sources).length, 12);
 	assert.equal(snapshot.sources.wallex.enabled, true);
 	assert.equal(snapshot.sources.tabdeal.enabled, true);
 	assert.equal(snapshot.sources.exir.enabled, true);
@@ -60,6 +60,11 @@ test("source settings default to production providers enabled with Nobitex opt-i
 	assert.equal(snapshot.sources.nobitex.enabled, false);
 	assert.equal(snapshot.sources.coingecko.enabled, true);
 	assert.equal(snapshot.sources.wallgold.enabled, true);
+	assert.equal(snapshot.sources.technogold.enabled, true);
+	assert.equal(snapshot.sources.melligold.enabled, true);
+	assert.equal(snapshot.sources.talasea.enabled, true);
+	assert.equal(snapshot.sources.milli.enabled, true);
+	assert.equal(snapshot.sources.gerami.enabled, true);
 });
 
 test("source settings persist toggles and validate five-provider USDT priority permutations", async () => {
