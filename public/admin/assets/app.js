@@ -12,8 +12,9 @@ const VIEWS = Object.freeze({
   automation: { index: "05", description: "viewAutomation" },
   admins: { index: "06", description: "viewAdmins" },
   apiManagement: { index: "07", description: "viewApiManagement" },
-  system: { index: "08", description: "viewSystem" },
-  settings: { index: "09", description: "viewSettings" },
+  loginHistory: { index: "08", description: "viewLoginHistory" },
+  system: { index: "09", description: "viewSystem" },
+  settings: { index: "10", description: "viewSettings" },
 });
 
 const state = {
@@ -47,6 +48,7 @@ window.DRDAdminShell = Object.freeze({
   rotateApiToken: (id, payload = {}) => api.rotateApiToken(id, payload, state.csrfToken),
   revokeApiToken: (id) => api.revokeApiToken(id, state.csrfToken),
   setMarketApiMode: (mode) => api.setMarketApiMode(mode, state.csrfToken),
+  loginHistory: (options = {}) => api.loginHistory(options),
   toast: (message, type = "info") => showToast(message, type),
 });
 
@@ -207,6 +209,7 @@ async function submitLogout() {
   }
   stopAutomationCountdown();
   window.DRDApiManagement?.reset?.();
+  window.DRDLoginHistory?.reset?.();
   state.user = null;
   state.csrfToken = "";
   showLogin();
@@ -265,7 +268,7 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "apiManagement", "system", "settings"];
+  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "apiManagement", "loginHistory", "system", "settings"];
   for (const key of realViews) {
     const node = document.querySelector(`#${key}-view`);
     if (node) node.hidden = key !== view;
@@ -287,6 +290,7 @@ async function activateView(view) {
     if (view === "automation") await loadAutomation();
     if (view === "admins") await window.DRDAdmins?.load?.();
     if (view === "apiManagement") await window.DRDApiManagement?.load?.();
+    if (view === "loginHistory") await window.DRDLoginHistory?.load?.();
     if (view === "system") await window.DRDSystem?.load?.();
     else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
@@ -609,6 +613,7 @@ async function toggleLanguage() {
   if (state.activeView === "assets") renderAssets();
   if (state.activeView === "admins") window.DRDAdmins?.render?.();
   if (state.activeView === "apiManagement") window.DRDApiManagement?.render?.();
+  if (state.activeView === "loginHistory") window.DRDLoginHistory?.render?.();
   if (state.activeView === "system") window.DRDSystem?.render?.();
   refreshLanguageButtons();
 }

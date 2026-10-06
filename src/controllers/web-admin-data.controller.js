@@ -6,6 +6,7 @@ import {
 } from "../api/serializers.js";
 import { APP } from "../config/app.js";
 import { adminEmptyResponse, adminJsonResponse } from "../http/admin-responses.js";
+import { WEB_LOGIN_RESULTS } from "../services/login-history.service.js";
 
 async function readJson(request) {
 	const text = await request.text();
@@ -25,6 +26,51 @@ function booleanSetting(value, fallback = true) {
 function requireBoolean(value, field = "enabled") {
 	if (typeof value !== "boolean") throw new Error(`${field} must be a boolean.`);
 	return value;
+}
+
+const LOGIN_HISTORY_RESULTS = new Set(Object.values(WEB_LOGIN_RESULTS));
+
+function queryInteger(searchParams, key, fallback, min, max) {
+	const raw = searchParams.get(key);
+	if (raw == null || raw === "") return fallback;
+	if (!/^\d+$/.test(raw)) throw new Error(`${key} must be an integer.`);
+	const value = Number(raw);
+	if (!Number.isSafeInteger(value) || value < min || value > max) {
+		throw new Error(`${key} must be between ${min} and ${max}.`);
+	}
+	return value;
+}
+
+function loginHistoryResult(searchParams) {
+	const value = String(searchParams.get("result") || "all").trim().toLowerCase();
+	if (!value || value === "all") return null;
+	if (!LOGIN_HISTORY_RESULTS.has(value)) throw new Error("Invalid login history result filter.");
+	return value;
+}
+
+function isoTimestamp(value) {
+	const date = new Date(Number(value));
+	return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
+function serializeLoginHistoryRecord(record) {
+	return {
+		id: Number(record.id),
+		user_id: record.userId == null ? null : Number(record.userId),
+		username: String(record.username || ""),
+		result: String(record.result || ""),
+		reason: String(record.reason || ""),
+		ip_address: String(record.ipAddress || ""),
+		user_agent: String(record.userAgent || ""),
+		cf_ray: String(record.cfRay || ""),
+		country: String(record.country || ""),
+		region: String(record.region || ""),
+		city: String(record.city || ""),
+		timezone: String(record.timezone || ""),
+		asn: record.asn == null ? null : Number(record.asn),
+		session_ref: record.sessionRef == null ? null : String(record.sessionRef),
+		created_at: isoTimestamp(record.createdAt),
+	};
 }
 
 export class WebAdminDataController {
@@ -120,6 +166,35 @@ export class WebAdminDataController {
 				return adminJsonResponse({
 					success: true,
 					data: history.map(serializeAutomationRun),
+				});
+			}
+			if (request.method === "GET" && url.pathname === `${base}/api/v1/login-history`) {
+				const limit = queryInteger(url.searchParams, "limit", 25, 1, 100);
+				const offset = queryInteger(url.searchParams, "offset", 0, 0, 100_000);
+				const result = loginHistoryResult(url.searchParams);
+				const [history, stats] = await Promise.all([
+					this.s.loginHistory.list({ limit, offset, result }),
+					this.s.loginHistory.stats(),
+				]);
+				const total = result ? Number(stats[result] || 0) : Number(stats.total || 0);
+				return adminJsonResponse({
+					success: true,
+					data: {
+						items: history.map(serializeLoginHistoryRecord),
+						stats: {
+							total: Number(stats.total || 0),
+							success: Number(stats.success || 0),
+							failure: Number(stats.failure || 0),
+							locked: Number(stats.locked || 0),
+						},
+						pagination: {
+							limit,
+							offset,
+							total,
+							has_more: offset + history.length < total,
+						},
+						filter: { result: result || "all" },
+					},
 				});
 			}
 			if (request.method === "GET" && url.pathname === `${base}/api/v1/preferences`) {

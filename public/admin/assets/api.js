@@ -65,6 +65,15 @@ export class AdminApi {
     });
   }
 
+  loginHistory({ limit = 25, offset = 0, result = "all" } = {}) {
+    const params = new URLSearchParams({
+      limit: String(Math.max(1, Math.min(100, Number(limit) || 25))),
+      offset: String(Math.max(0, Math.min(100000, Number(offset) || 0))),
+      result: String(result || "all"),
+    });
+    return this.#request(`/api/v1/login-history?${params.toString()}`);
+  }
+
   system() { return this.#request("/api/v1/system"); }
 
   admins() { return this.#request("/api/v1/admins"); }

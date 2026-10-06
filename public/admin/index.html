@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="assets/admins.css">
   <link rel="stylesheet" href="assets/system.css">
   <link rel="stylesheet" href="assets/api-management.css">
+  <link rel="stylesheet" href="assets/login-history.css">
 </head>
 <body>
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
@@ -64,8 +65,9 @@
         <button class="nav-item" type="button" data-view="automation"><span class="nav-glyph">05</span><span data-i18n="automation">اتوماسیون</span></button>
         <button class="nav-item" type="button" data-view="admins"><span class="nav-glyph">06</span><span data-i18n="admins">ادمین‌ها</span></button>
         <button class="nav-item" type="button" data-view="apiManagement"><span class="nav-glyph">07</span><span data-i18n="apiManagement">مدیریت API</span></button>
-        <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">08</span><span data-i18n="system">سیستم</span></button>
-        <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">09</span><span data-i18n="settings">تنظیمات</span></button>
+        <button class="nav-item" type="button" data-view="loginHistory"><span class="nav-glyph">08</span><span data-i18n="loginHistory">امنیت ورود</span></button>
+        <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">09</span><span data-i18n="system">سیستم</span></button>
+        <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">10</span><span data-i18n="settings">تنظیمات</span></button>
       </nav>
       <div class="sidebar-footer"><div class="mini-status"><span class="status-dot"></span><div><strong data-i18n="webAdminOnline">Web Admin فعال</strong><span>v0.13.0</span></div></div></div>
     </aside>
@@ -249,10 +251,49 @@
           </article>
         </section>
 
+        <section id="login-history-view" class="view-section" hidden>
+          <div class="section-heading-row login-history-hero">
+            <div>
+              <span class="eyebrow">DRD / 08</span>
+              <h2 data-login-i18n="title">امنیت ورود</h2>
+              <p class="section-description" data-login-i18n="intro">تاریخچه ورود Web Admin و رویدادهای امنیتی ثبت‌شده را بررسی کنید.</p>
+            </div>
+            <button id="login-history-reload" class="secondary-button" type="button" data-login-i18n="reload">بروزرسانی</button>
+          </div>
+
+          <div class="login-history-summary-grid">
+            <article class="login-history-summary-card"><span data-login-i18n="total">کل رویدادها</span><strong id="login-history-total">—</strong></article>
+            <article class="login-history-summary-card"><span data-login-i18n="success">ورود موفق</span><strong id="login-history-success">—</strong></article>
+            <article class="login-history-summary-card"><span data-login-i18n="failure">ناموفق</span><strong id="login-history-failure">—</strong></article>
+            <article class="login-history-summary-card"><span data-login-i18n="locked">قفل‌شده</span><strong id="login-history-locked">—</strong></article>
+          </div>
+
+          <article class="panel-card">
+            <div class="login-history-toolbar">
+              <label class="field login-history-filter">
+                <span data-login-i18n="filter">فیلتر نتیجه</span>
+                <select id="login-history-filter">
+                  <option value="all" data-login-i18n="all">همه</option>
+                  <option value="success" data-login-i18n="success">ورود موفق</option>
+                  <option value="failure" data-login-i18n="failure">ناموفق</option>
+                  <option value="locked" data-login-i18n="locked">قفل‌شده</option>
+                </select>
+              </label>
+              <div><strong data-login-i18n="history">تاریخچه ورود</strong></div>
+            </div>
+            <div id="login-history-list" class="login-history-list"></div>
+            <div class="login-history-pagination">
+              <button id="login-history-prev" class="secondary-button compact-button" type="button" data-login-i18n="previous">قبلی</button>
+              <span id="login-history-page" class="login-history-page">—</span>
+              <button id="login-history-next" class="secondary-button compact-button" type="button" data-login-i18n="next">بعدی</button>
+            </div>
+          </article>
+        </section>
+
         <section id="system-view" class="view-section" hidden>
           <div class="section-heading-row system-hero">
             <div>
-              <span class="eyebrow">DRD / 07</span>
+              <span class="eyebrow">DRD / 09</span>
               <h2 data-system-i18n="title">وضعیت سیستم</h2>
               <p class="section-description" data-system-i18n="intro">نمای تجمیعی سلامت سیستم.</p>
             </div>
@@ -385,7 +426,7 @@
         </section>
 
         <section id="settings-view" class="view-section" hidden>
-          <div class="section-heading-row"><div><span class="eyebrow">DRD / 08</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
+          <div class="section-heading-row"><div><span class="eyebrow">DRD / 10</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
           <form id="preferences-form" class="panel-card form-card">
             <div class="field-grid">
               <label class="field"><span data-i18n="adminLanguage">زبان پنل</span><select id="admin-language-select"><option value="fa">فارسی</option><option value="en">English</option></select></label>
@@ -412,5 +453,6 @@
   <script type="module" src="assets/admins.js"></script>
   <script type="module" src="assets/system.js"></script>
   <script type="module" src="assets/api-management.js"></script>
+  <script type="module" src="assets/login-history.js"></script>
 </body>
 </html>
