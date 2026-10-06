@@ -101,6 +101,7 @@ async _showSettings(message, admin) {
 		[{ text: `🌐 ${this._tg("language")} · ${this._tg("languageName")}`, callback_data: "settings:language:toggle" }],
 	];
 	if (admin.role === "owner") {
+		keyboard.push([{ text: en ? "🔐 API Management" : "🔐 مدیریت API", callback_data: "api:home" }]);
 		keyboard.push([{ text: enabled ? (en ? "⏸ Disable bot" : "⏸ غیرفعال کردن ربات") : (en ? "▶️ Enable bot" : "▶️ فعال کردن ربات"), callback_data: enabled ? "global:disable" : "global:enable" }]);
 	}
 	keyboard.push([{ text: `⬅️ ${this._tg("managementPanel")}`, callback_data: "menu:home" }]);

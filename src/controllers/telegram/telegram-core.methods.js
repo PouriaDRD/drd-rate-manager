@@ -60,6 +60,8 @@ async _message(message) {
 
 	const input = await this.s.adminInput.get(user.id);
 	if (input?.action === "add_admin" && !command) return this._handleAddAdminInput(message, admin);
+	if (input?.action === "api_token_name" && command) await this.s.adminInput.clear(user.id);
+	if (input?.action === "api_token_name" && !command) return this._handleApiTokenNameInput(message, admin, input);
 
 	const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
 	if (!enabled && admin.role !== "owner") {
@@ -118,6 +120,67 @@ async _callback(query) {
 	if (data === "settings:language:toggle") {
 		await this.s.preferences.toggleTelegramLanguage();
 		return this._showSettings(message, admin);
+	}
+	if (data === "api:home") return this._showApiManagement(message, admin);
+	if (data.startsWith("api:mode:confirm:")) {
+		return this._showApiModeConfirmation(message, admin, data.slice("api:mode:confirm:".length));
+	}
+	if (data.startsWith("api:mode:set:")) {
+		return this._setApiMarketMode(message, admin, data.slice("api:mode:set:".length));
+	}
+	if (data.startsWith("api:tokens:")) {
+		return this._showApiTokens(message, admin, Number(data.slice("api:tokens:".length)));
+	}
+	if (data === "api:create") return this._showApiCreateType(message, admin);
+	if (data.startsWith("api:create:type:")) {
+		return this._showApiCreateExpiry(message, admin, data.slice("api:create:type:".length));
+	}
+	if (data.startsWith("api:create:expiry:")) {
+		const [, , , type, days] = data.split(":");
+		return this._beginApiTokenNameInput(message, admin, user, type, Number(days));
+	}
+	if (data === "api:create:cancel") return this._cancelApiTokenInput(message, admin, user);
+	if (data.startsWith("api:token:set:")) {
+		const [, , , tokenId, enabledValue] = data.split(":");
+		return this._setApiTokenEnabled(message, admin, tokenId, enabledValue === "1");
+	}
+	if (data.startsWith("api:token:revoke:confirm:")) {
+		return this._confirmApiTokenRevoke(
+			message,
+			admin,
+			data.slice("api:token:revoke:confirm:".length),
+		);
+	}
+	if (data.startsWith("api:token:revoke:execute:")) {
+		return this._executeApiTokenRevoke(
+			message,
+			admin,
+			data.slice("api:token:revoke:execute:".length),
+		);
+	}
+	if (data.startsWith("api:token:rotate:confirm:")) {
+		return this._confirmApiTokenRotate(
+			message,
+			admin,
+			data.slice("api:token:rotate:confirm:".length),
+		);
+	}
+	if (data.startsWith("api:token:rotate:execute:")) {
+		return this._executeApiTokenRotate(
+			message,
+			admin,
+			data.slice("api:token:rotate:execute:".length),
+		);
+	}
+	if (data.startsWith("api:secret:hide:")) {
+		return this._hideApiSecret(
+			message,
+			admin,
+			data.slice("api:secret:hide:".length),
+		);
+	}
+	if (data.startsWith("api:token:")) {
+		return this._showApiTokenDetail(message, admin, data.slice("api:token:".length));
 	}
 	if (data === "cache:home") return this._showCacheSettings(message);
 	if (data.startsWith("cache:set:")) {

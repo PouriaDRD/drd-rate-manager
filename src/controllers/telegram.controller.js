@@ -1,3 +1,4 @@
+import { telegram_apiMethods } from "./telegram/telegram-api.methods.js";
 import { telegram_coreMethods } from "./telegram/telegram-core.methods.js";
 import { telegram_marketMethods } from "./telegram/telegram-market.methods.js";
 import { telegram_settingsMethods } from "./telegram/telegram-settings.methods.js";
@@ -13,6 +14,7 @@ export class TelegramController {
 Object.assign(
 	TelegramController.prototype,
 	telegram_coreMethods,
+	telegram_apiMethods,
 	telegram_marketMethods,
 	telegram_settingsMethods,
 	telegram_systemMethods,
