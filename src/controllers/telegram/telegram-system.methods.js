@@ -18,6 +18,7 @@ async _showSystem(message) {
 	const migration = snapshot.configuration?.migration || {};
 	const metrics = snapshot.metrics || {};
 	const automationMetrics = metrics.automation || {};
+	const alerts = snapshot.alerts || {};
 
 	const lines = [
 		`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`,
@@ -37,6 +38,7 @@ async _showSystem(message) {
 		`📡 ${en ? "Sources" : "منابع"}: <b>${Number(sources.healthy || 0)}/${Number(sources.enabled || 0)}</b> ${en ? "healthy" : "سالم"} · ${Number(sources.failed || 0)} ${en ? "failed" : "ناموفق"} · ${Number(sources.unchecked || 0)} ${en ? "unchecked" : "بررسی‌نشده"}`,
 		`🩺 ${en ? "Provider health" : "سلامت Providerها"}: <b>${sources.healthScore == null ? "—" : `${Number(sources.healthScore)}/100`}</b> · ${Number(sources.openCircuits || 0)} ${en ? "open" : "باز"} · ${Number(sources.probes || 0)} ${en ? "probe" : "پروب"}`,
 		`📊 Automation 24h: <b>${automationMetrics.available ? Number(automationMetrics.totalRuns || 0) : "—"}</b> ${en ? "runs" : "اجرا"} · ${automationMetrics.successRate == null ? "—" : `${Number(automationMetrics.successRate).toFixed(1)}%`} ${en ? "success" : "موفق"} · ${Number(automationMetrics.errorCount || 0)} ${en ? "errors" : "خطا"}`,
+		`🚨 ${en ? "Operational alerts" : "هشدار عملیاتی"}: <b>${!alerts.configured ? (en ? "OWNER MISSING" : "OWNER تنظیم نشده") : !alerts.available ? (en ? "UNAVAILABLE" : "در دسترس نیست") : alerts.active ? (en ? "ACTIVE" : "فعال") : (en ? "READY" : "آماده")}</b>${alerts.active && alerts.severity ? ` · <code>${escapeHtml(alerts.severity)}</code>` : ""}`,
 		`👥 ${en ? "Admins" : "ادمین‌ها"}: <b>${Number(admins.activeAdmins || 0)}</b> ${en ? "active" : "فعال"} · ${Number(admins.inactiveAdmins || 0)} ${en ? "inactive" : "غیرفعال"}`,
 		"",
 		`⚙️ Runtime settings: <code>${Number(runtimeSettings.d1Count || 0)}/${Number(runtimeSettings.total || 0)} D1</code>`,

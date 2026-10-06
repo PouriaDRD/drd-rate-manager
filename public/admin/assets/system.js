@@ -119,6 +119,12 @@ const copy = Object.freeze({
     averageDuration: "میانگین زمان اجرا",
     lastMetricError: "آخرین خطای اجرا",
     status_operational_metrics_unavailable: "متریک‌های عملیاتی در دسترس نیستند",
+    alertState: "وضعیت هشدار",
+    lastAlert: "آخرین هشدار",
+    alertActive: "فعال",
+    alertIdle: "آماده",
+    alertUnavailable: "در دسترس نیست",
+    alertNotConfigured: "Owner تنظیم نشده",
     tables: "جدول",
   },
   en: {
@@ -241,6 +247,12 @@ const copy = Object.freeze({
     averageDuration: "Average duration",
     lastMetricError: "Last run error",
     status_operational_metrics_unavailable: "Operational metrics are unavailable",
+    alertState: "Alert state",
+    lastAlert: "Last alert",
+    alertActive: "Active",
+    alertIdle: "Ready",
+    alertUnavailable: "Unavailable",
+    alertNotConfigured: "Owner not configured",
     tables: "tables",
   },
 });
@@ -310,7 +322,7 @@ function render() {
   setText("system-automation-last", formatDateTime(automation.last_success_at));
   setText("system-automation-can-publish", automation.can_publish_now ? tr("yes") : tr("no"));
 
-  renderMetrics(data.metrics || {});
+  renderMetrics(data.metrics || {}, data.alerts || {});
   renderSources(data.sources || {});
   renderAdmins(data.admins || {});
   renderSettings(data.settings || {});
@@ -318,7 +330,7 @@ function render() {
   renderReasons(data.health?.reason_codes || []);
 }
 
-function renderMetrics(metrics) {
+function renderMetrics(metrics, alerts) {
   const automation = metrics.automation || {};
   const providers = metrics.providers || {};
   const cache = metrics.cache || {};
@@ -348,6 +360,18 @@ function renderMetrics(metrics) {
   );
   setText("system-metrics-cache-age", formatSeconds(cache.age_seconds));
   setText("system-metrics-db-latency", formatMs(database.latency_ms));
+  const alertLabel = !alerts.configured
+    ? tr("alertNotConfigured")
+    : !alerts.available
+      ? tr("alertUnavailable")
+      : alerts.active
+        ? `${tr("alertActive")} · ${humanCode(alerts.severity)}`
+        : tr("alertIdle");
+  setText("system-alert-state", alertLabel);
+  setText(
+    "system-alert-last",
+    formatDateTime(alerts.last_sent_at || alerts.recovered_at),
+  );
 }
 
 function renderStorage(storage) {

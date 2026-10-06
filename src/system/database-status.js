@@ -2,7 +2,7 @@ import { APP } from "../config/app.js";
 import { HttpClient } from "../clients/http.client.js";
 import { errorMessage } from "../utils/core.js";
 
-export async function databaseStatus(services) {
+export async function databaseStatus(services, { details = true } = {}) {
 	const started = Date.now();
 	let connected = false;
 	try {
@@ -12,6 +12,14 @@ export async function databaseStatus(services) {
 		connected = false;
 	}
 	const latencyMs = Date.now() - started;
+	if (!details) {
+		return {
+			connected,
+			provider: "Cloudflare D1",
+			latency_ms: latencyMs,
+			schema_version: APP.schemaVersion,
+		};
+	}
 	const tables = [
 		"admins",
 		"web_admin_users",

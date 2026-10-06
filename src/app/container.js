@@ -13,6 +13,7 @@ import { AuditRepository } from "../repositories/audit.repository.js";
 import { AutomationRunRepository } from "../repositories/automation-run.repository.js";
 import { LockRepository } from "../repositories/lock.repository.js";
 import { MarketCacheRepository } from "../repositories/market-cache.repository.js";
+import { OperationalAlertRepository } from "../repositories/operational-alert.repository.js";
 import { SecureSettingsRepository } from "../repositories/secure-settings.repository.js";
 import { SettingsRepository } from "../repositories/settings.repository.js";
 import { SourceStatusRepository } from "../repositories/source-status.repository.js";
@@ -24,6 +25,7 @@ import { AutomationManagementService } from "../services/automation-management.s
 import { AutomationService } from "../services/automation.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
 import { MarketService } from "../services/market.service.js";
+import { OperationalAlertService } from "../services/operational-alert.service.js";
 import { PreferencesService } from "../services/preferences.service.js";
 import { ProviderHealthService } from "../services/provider-health.service.js";
 import { ProviderResilienceService } from "../services/provider-resilience.service.js";
@@ -43,6 +45,7 @@ export function createServices(env) {
 	const settings = new SettingsRepository(runtimeEnv);
 	const settingsService = new SettingsService(runtimeEnv, settings);
 	const preferences = new PreferencesService(settings);
+	const operationalAlertRepository = new OperationalAlertRepository(settings);
 	const config = new Config(runtimeEnv, settingsService);
 	const cache = new MarketCacheRepository(runtimeEnv);
 	const locks = new LockRepository(runtimeEnv);
@@ -87,10 +90,17 @@ export function createServices(env) {
 		cache,
 		sourceSettings,
 		providerHealth,
+		operationalAlertRepository,
 		automationRuns,
 		automationManagement,
 		adminManagement,
 	});
+	const operationalAlerts = new OperationalAlertService(
+		config,
+		telegram,
+		preferences,
+		operationalAlertRepository,
+	);
 
 	return {
 		env: runtimeEnv,
@@ -99,6 +109,7 @@ export function createServices(env) {
 		settings,
 		settingsService,
 		preferences,
+		operationalAlertRepository,
 		secureSettings,
 		secureSettingsService,
 		secretCrypto,
@@ -127,6 +138,7 @@ export function createServices(env) {
 		publisher,
 		automation,
 		automationManagement,
+		operationalAlerts,
 		systemManagement,
 	};
 }

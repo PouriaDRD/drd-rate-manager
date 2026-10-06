@@ -147,7 +147,7 @@ test("Web Admin System renders the metrics panel with safe text primitives", asy
 	]);
 	assert.match(html, /system-metrics-total-runs/);
 	assert.match(html, /system-metrics-success-rate/);
-	assert.match(js, /function renderMetrics\(metrics\)/);
+	assert.match(js, /function renderMetrics\(metrics, alerts\)/);
 	assert.match(js, /setText\("system-metrics-total-runs"/);
 	assert.doesNotMatch(js, /\.innerHTML\s*=/);
 });

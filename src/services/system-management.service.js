@@ -110,6 +110,51 @@ async function automationMetricStats(repository, now) {
 	}
 }
 
+async function operationalAlertState(repository, configured) {
+	if (!repository?.get) {
+		return {
+			configured,
+			available: false,
+			active: false,
+			fingerprint: null,
+			severity: null,
+			reasons: [],
+			firstSentAt: 0,
+			lastSentAt: 0,
+			recoveredAt: 0,
+			error: null,
+		};
+	}
+	try {
+		const state = await repository.get();
+		return {
+			configured,
+			available: true,
+			active: Boolean(state.active),
+			fingerprint: state.fingerprint || null,
+			severity: state.severity || null,
+			reasons: Array.isArray(state.reasons) ? state.reasons : [],
+			firstSentAt: Number(state.firstSentAt || 0),
+			lastSentAt: Number(state.lastSentAt || 0),
+			recoveredAt: Number(state.recoveredAt || 0),
+			error: null,
+		};
+	} catch (error) {
+		return {
+			configured,
+			available: false,
+			active: false,
+			fingerprint: null,
+			severity: null,
+			reasons: [],
+			firstSentAt: 0,
+			lastSentAt: 0,
+			recoveredAt: 0,
+			error: errorMessage(error).slice(0, 500),
+		};
+	}
+}
+
 function secureStatus(status = {}) {
 	return {
 		version: status.version ?? null,
@@ -183,6 +228,63 @@ export class SystemManagementService {
 		this.runtimeIntegrityFn = runtimeIntegrityFn;
 	}
 
+	async healthSnapshot(now = Date.now()) {
+		const [
+			database,
+			sourceSnapshot,
+			cacheRow,
+			botEnabledRaw,
+			automationMetrics,
+		] = await Promise.all([
+			this.databaseStatusFn(this.s, { details: false }),
+			this.s.providerHealth
+				? this.s.providerHealth.snapshot(now)
+				: this.s.sourceSettings.snapshot(),
+			this.s.cache.read(),
+			this.s.settings.get("bot_enabled", "1"),
+			automationMetricStats(this.s.automationRuns, now),
+		]);
+
+		const integrity = Boolean(this.runtimeIntegrityFn());
+		const botEnabled = parseBoolean(botEnabledRaw, true);
+		const sources = sourceHealth(sourceSnapshot);
+		const cache = cacheHealth(cacheRow, now);
+		const runtimeSettings = this.s.settingsService.status();
+		const health = buildHealth({
+			database,
+			integrity,
+			botEnabled,
+			sources,
+			cache,
+			runtimeSettings,
+			operationalMetrics: automationMetrics,
+		});
+		const metrics = buildOperationalMetrics({
+			now,
+			automation: automationMetrics,
+			database,
+			cache,
+			sources,
+			health,
+		});
+
+		return {
+			generatedAt: now,
+			health,
+			runtime: {
+				version: this.s.config.version,
+				schemaVersion: APP.schemaVersion,
+				timezone: this.s.config.timezone,
+				integrity,
+				botEnabled,
+			},
+			database,
+			cache,
+			sources,
+			metrics,
+		};
+	}
+
 	async snapshot(now = Date.now()) {
 		const [
 			database,
@@ -192,6 +294,7 @@ export class SystemManagementService {
 			cacheRow,
 			botEnabledRaw,
 			automationMetrics,
+			alertState,
 		] = await Promise.all([
 			this.databaseStatusFn(this.s),
 			this.s.providerHealth
@@ -202,6 +305,10 @@ export class SystemManagementService {
 			this.s.cache.read(),
 			this.s.settings.get("bot_enabled", "1"),
 			automationMetricStats(this.s.automationRuns, now),
+			operationalAlertState(
+				this.s.operationalAlertRepository,
+				Boolean(this.s.config.ownerId),
+			),
 		]);
 
 		const integrity = Boolean(this.runtimeIntegrityFn());
@@ -267,6 +374,7 @@ export class SystemManagementService {
 				secure: secureSettings,
 			},
 			metrics,
+			alerts: alertState,
 			configuration,
 		};
 	}

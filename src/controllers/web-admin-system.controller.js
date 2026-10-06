@@ -175,6 +175,18 @@ function serializeSystem(snapshot) {
 				open_circuits: Number(snapshot.metrics?.providers?.openCircuits || 0),
 			},
 		},
+		alerts: {
+			configured: Boolean(snapshot.alerts?.configured),
+			available: Boolean(snapshot.alerts?.available),
+			active: Boolean(snapshot.alerts?.active),
+			fingerprint: snapshot.alerts?.fingerprint || null,
+			severity: snapshot.alerts?.severity || null,
+			reasons: snapshot.alerts?.reasons || [],
+			first_sent_at: isoOrNull(snapshot.alerts?.firstSentAt),
+			last_sent_at: isoOrNull(snapshot.alerts?.lastSentAt),
+			recovered_at: isoOrNull(snapshot.alerts?.recoveredAt),
+			error: snapshot.alerts?.error || null,
+		},
 		configuration: serializeConfiguration(snapshot.configuration),
 	};
 }
