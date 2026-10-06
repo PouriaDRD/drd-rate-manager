@@ -22,6 +22,7 @@ import { WebAdminRepository } from "../repositories/web-admin.repository.js";
 import { WebAuthAttemptRepository } from "../repositories/web-auth-attempt.repository.js";
 import { WebSessionRepository } from "../repositories/web-session.repository.js";
 import { AdminManagementService } from "../services/admin-management.service.js";
+import { ApiAccessService } from "../services/api-access.service.js";
 import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
 import { ApiTokenService } from "../services/api-token.service.js";
@@ -62,6 +63,7 @@ export function createServices(env) {
 	const audit = new AuditRepository(runtimeEnv);
 	const apiTokenRepository = new ApiTokenRepository(runtimeEnv);
 	const apiTokens = new ApiTokenService(apiTokenRepository);
+	const apiAccess = new ApiAccessService(settings, apiTokens);
 	const adminManagement = new AdminManagementService(config, admins, audit);
 	const webAdmins = new WebAdminRepository(runtimeEnv);
 	const webSessions = new WebSessionRepository(runtimeEnv);
@@ -130,6 +132,7 @@ export function createServices(env) {
 		audit,
 		apiTokenRepository,
 		apiTokens,
+		apiAccess,
 		adminManagement,
 		webAdmins,
 		webSessions,

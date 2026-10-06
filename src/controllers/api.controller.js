@@ -6,6 +6,21 @@ import { databaseStatus } from "../system/database-status.js";
 import { resolveUsdtFromStatuses } from "../telegram/ui.js";
 import { parseBoolean } from "../utils/core.js";
 
+function accessErrorResponse(access) {
+	const status = Number(access?.status || 401);
+	return jsonResponse(
+		{
+			success: false,
+			message: status === 403 ? "Forbidden" : "Unauthorized",
+			error: {
+				code: access?.reason || "unauthorized",
+				required_scope: access?.requiredType || null,
+			},
+		},
+		status,
+	);
+}
+
 /** HTTP API controller. */
 export class ApiController {
 	constructor(services) {
@@ -15,6 +30,9 @@ export class ApiController {
 	async route(request, url) {
 		if (request.method === "OPTIONS") return corsResponse();
 		if (request.method !== "GET") return null;
+
+		const access = url.pathname === "/" ? null : await this.s.apiAccess.authorize(request, url.pathname);
+		if (access && !access.ok) return accessErrorResponse(access);
 
 		switch (url.pathname) {
 			case "/":

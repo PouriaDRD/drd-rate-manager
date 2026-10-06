@@ -169,6 +169,7 @@ export class Database {
 			auto_publish_last_error_at: "0",
 			auto_publish_last_skip_reason: "",
 			market_cache_ttl_seconds: String(APP.defaultCacheTtlSeconds),
+			market_api_mode: "public",
 			...runtimeSettingSeedValues(this.env),
 		};
 		await this.env.DB.batch(
