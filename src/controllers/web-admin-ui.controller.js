@@ -12,6 +12,8 @@ const ADMIN_ASSETS = new Set([
 	"assets/system.js",
 	"assets/api-management.css",
 	"assets/api-management.js",
+	"assets/login-history.css",
+	"assets/login-history.js",
 ]);
 
 export class WebAdminUiController {
@@ -43,7 +45,11 @@ export class WebAdminUiController {
 		}
 
 		const assetUrl = new URL(request.url);
-		assetUrl.pathname = `/${relativePath}`;
+		// Cloudflare Static Assets applies html_handling to ASSETS.fetch().
+		// With the default auto-trailing-slash mode, requesting /index.html
+		// redirects to /. Request the canonical root directly so the private
+		// admin shell receives the actual index.html response instead of a 3xx.
+		assetUrl.pathname = relativePath === "index.html" ? "/" : `/${relativePath}`;
 		assetUrl.search = "";
 		const assetRequest = new Request(assetUrl, request);
 		const response = await assets.fetch(assetRequest);

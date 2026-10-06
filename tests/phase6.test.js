@@ -19,7 +19,7 @@ function controller() {
         async fetch(request) {
           const url = new URL(request.url);
           requested.push(url.pathname);
-          if (url.pathname === "/index.html") {
+          if (url.pathname === "/") {
             return new Response("<!doctype html><title>Admin</title>", {
               status: 200,
               headers: { "Content-Type": "text/html; charset=utf-8" },
@@ -29,6 +29,18 @@ function controller() {
             return new Response(":root{}", {
               status: 200,
               headers: { "Content-Type": "text/css; charset=utf-8" },
+            });
+          }
+          if (url.pathname === "/assets/login-history.css") {
+            return new Response(".login-history{}", {
+              status: 200,
+              headers: { "Content-Type": "text/css; charset=utf-8" },
+            });
+          }
+          if (url.pathname === "/assets/login-history.js") {
+            return new Response("export {};", {
+              status: 200,
+              headers: { "Content-Type": "text/javascript; charset=utf-8" },
             });
           }
           return new Response("missing", { status: 404 });
@@ -48,12 +60,12 @@ test("admin shell redirects the dynamic admin path to a trailing slash", async (
   assert.equal(response.headers.get("Cache-Control"), "no-store");
 });
 
-test("admin shell is served through the private ASSETS binding with UI CSP", async () => {
+test("admin shell is served through the canonical ASSETS root with UI CSP", async () => {
   const { instance, requested } = controller();
   const request = new Request("https://example.test/management-x8k2/");
   const response = await instance.route(request, new URL(request.url));
   assert.equal(response.status, 200);
-  assert.deepEqual(requested, ["/index.html"]);
+  assert.deepEqual(requested, ["/"]);
   assert.equal(response.headers.get("Cache-Control"), "no-store, no-cache, must-revalidate");
   assert.match(response.headers.get("Content-Security-Policy"), /script-src 'self'/);
   assert.match(response.headers.get("Content-Security-Policy"), /connect-src 'self'/);
@@ -67,6 +79,24 @@ test("dynamic-path assets map to the static binding and use bounded caching", as
   assert.equal(response.status, 200);
   assert.deepEqual(requested, ["/assets/styles.css"]);
   assert.equal(response.headers.get("Cache-Control"), "public, max-age=3600");
+});
+
+test("login history assets are available through the private dynamic path", async () => {
+  const css = controller();
+  const cssRequest = new Request(
+    "https://example.test/management-x8k2/assets/login-history.css",
+  );
+  const cssResponse = await css.instance.route(cssRequest, new URL(cssRequest.url));
+  assert.equal(cssResponse.status, 200);
+  assert.deepEqual(css.requested, ["/assets/login-history.css"]);
+
+  const js = controller();
+  const jsRequest = new Request(
+    "https://example.test/management-x8k2/assets/login-history.js",
+  );
+  const jsResponse = await js.instance.route(jsRequest, new URL(jsRequest.url));
+  assert.equal(jsResponse.status, 200);
+  assert.deepEqual(js.requested, ["/assets/login-history.js"]);
 });
 
 test("admin UI does not intercept API routes or unrelated paths", async () => {
@@ -101,6 +131,7 @@ test("admin HTML is CSP-friendly and contains login, bootstrap and shell surface
   assert.match(html, /id="bootstrap-form"/);
   assert.match(html, /id="app-shell"/);
   assert.match(html, /href="assets\/styles\.css"/);
+  assert.match(html, /href="assets\/login-history\.css"/);
   assert.match(html, /src="assets\/app\.js"/);
   assert.doesNotMatch(html, /<style[\s>]/i);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/i);
@@ -138,7 +169,6 @@ test("frontend supports System, Dark and Light without storing sensitive session
   assert.match(app, /prefers-color-scheme: dark/);
   assert.match(api, /credentials: "same-origin"/);
 });
-
 
 test("Phase 5 auth controller yields the shell route to the UI controller", async () => {
   const authController = new WebAdminAuthController({
