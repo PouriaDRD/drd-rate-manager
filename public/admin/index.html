@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="assets/styles.css">
   <link rel="stylesheet" href="assets/admins.css">
   <link rel="stylesheet" href="assets/system.css">
+  <link rel="stylesheet" href="assets/api-management.css">
 </head>
 <body>
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
@@ -62,8 +63,9 @@
         <button class="nav-item" type="button" data-view="assets"><span class="nav-glyph">04</span><span data-i18n="assets">دارایی‌ها</span></button>
         <button class="nav-item" type="button" data-view="automation"><span class="nav-glyph">05</span><span data-i18n="automation">اتوماسیون</span></button>
         <button class="nav-item" type="button" data-view="admins"><span class="nav-glyph">06</span><span data-i18n="admins">ادمین‌ها</span></button>
-        <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">07</span><span data-i18n="system">سیستم</span></button>
-        <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">08</span><span data-i18n="settings">تنظیمات</span></button>
+        <button class="nav-item" type="button" data-view="apiManagement"><span class="nav-glyph">07</span><span data-i18n="apiManagement">مدیریت API</span></button>
+        <button class="nav-item" type="button" data-view="system"><span class="nav-glyph">08</span><span data-i18n="system">سیستم</span></button>
+        <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">09</span><span data-i18n="settings">تنظیمات</span></button>
       </nav>
       <div class="sidebar-footer"><div class="mini-status"><span class="status-dot"></span><div><strong data-i18n="webAdminOnline">Web Admin فعال</strong><span>v0.13.0</span></div></div></div>
     </aside>
@@ -191,6 +193,60 @@
               <div id="admins-list" class="admin-access-list"></div>
             </article>
           </div>
+        </section>
+
+        <section id="api-management-view" class="view-section" hidden>
+          <div class="section-heading-row api-management-hero">
+            <div>
+              <span class="eyebrow">DRD / 07</span>
+              <h2 data-api-i18n="title">مدیریت API</h2>
+              <p class="section-description" data-api-i18n="intro">توکن‌های Market و Core و وضعیت دسترسی عمومی/خصوصی بازار را مدیریت کنید.</p>
+            </div>
+            <button id="api-management-reload" class="secondary-button" type="button" data-api-i18n="reload">بروزرسانی</button>
+          </div>
+
+          <div class="api-summary-grid">
+            <article class="api-summary-card"><span data-api-i18n="total">کل توکن‌ها</span><strong id="api-stat-total">—</strong></article>
+            <article class="api-summary-card"><span data-api-i18n="active">فعال</span><strong id="api-stat-active">—</strong></article>
+            <article class="api-summary-card"><span data-api-i18n="market">Market</span><strong id="api-stat-market">—</strong></article>
+            <article class="api-summary-card"><span data-api-i18n="core">Core</span><strong id="api-stat-core">—</strong></article>
+            <article class="api-summary-card"><span data-api-i18n="revoked">لغوشده</span><strong id="api-stat-revoked">—</strong></article>
+          </div>
+
+          <div class="section-grid api-management-grid">
+            <form id="api-market-mode-form" class="panel-card api-mode-card" novalidate>
+              <div class="card-heading"><div><h3 data-api-i18n="marketMode">حالت Market API</h3></div></div>
+              <label class="field">
+                <span data-api-i18n="marketMode">حالت Market API</span>
+                <select id="api-market-mode">
+                  <option value="public" data-api-i18n="public">عمومی</option>
+                  <option value="private" data-api-i18n="private">خصوصی</option>
+                </select>
+              </label>
+              <p id="api-market-mode-help" class="api-mode-help"></p>
+              <button class="primary-button wide-button" type="submit" data-api-i18n="saveMode">ذخیره حالت</button>
+            </form>
+
+            <form id="api-token-create-form" class="panel-card api-create-card" novalidate>
+              <div class="card-heading"><div><h3 data-api-i18n="createTitle">ساخت API Token</h3><p data-api-i18n="createHelp">Secret فقط همین یک بار نمایش داده می‌شود.</p></div></div>
+              <label class="field"><span data-api-i18n="name">نام توکن</span><input id="api-token-name" type="text" maxlength="80" autocomplete="off" required></label>
+              <label class="field"><span data-api-i18n="type">نوع توکن</span><select id="api-token-type"><option value="market" data-api-i18n="marketToken">Market</option><option value="core" data-api-i18n="coreToken">Core</option></select></label>
+              <label class="field"><span data-api-i18n="expiration">انقضا</span><input id="api-token-expiration" type="datetime-local" autocomplete="off"><small data-api-i18n="optionalExpiration">اختیاری</small></label>
+              <p class="api-security-note" data-api-i18n="rawNotRecoverable">Secret توکن‌های قبلی قابل بازیابی نیست.</p>
+              <button class="primary-button wide-button" type="submit" data-api-i18n="create">ساخت توکن</button>
+            </form>
+          </div>
+
+          <article id="api-secret-panel" class="panel-card api-secret-panel" hidden>
+            <div class="card-heading"><div><h3 data-api-i18n="secretTitle">Secret یک‌باره</h3><p data-api-i18n="secretWarning">این مقدار دوباره از سرور قابل بازیابی نیست.</p></div></div>
+            <div class="api-secret-box"><code id="api-secret-value" class="api-secret-value" dir="ltr"></code></div>
+            <div class="api-secret-actions"><button id="api-secret-copy" class="primary-button compact-button" type="button" data-api-i18n="copy">کپی</button><button id="api-secret-dismiss" class="secondary-button compact-button" type="button" data-api-i18n="dismiss">بستن و پاک‌کردن</button></div>
+          </article>
+
+          <article class="panel-card api-token-list-card">
+            <div class="card-heading"><div><h3 data-api-i18n="tokensTitle">API Tokens</h3></div></div>
+            <div id="api-token-list" class="api-token-list"></div>
+          </article>
         </section>
 
         <section id="system-view" class="view-section" hidden>
@@ -355,5 +411,6 @@
   <script type="module" src="assets/app.js"></script>
   <script type="module" src="assets/admins.js"></script>
   <script type="module" src="assets/system.js"></script>
+  <script type="module" src="assets/api-management.js"></script>
 </body>
 </html>

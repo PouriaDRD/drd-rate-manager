@@ -11,8 +11,9 @@ const VIEWS = Object.freeze({
   assets: { index: "04", description: "viewAssets" },
   automation: { index: "05", description: "viewAutomation" },
   admins: { index: "06", description: "viewAdmins" },
-  system: { index: "07", description: "viewSystem" },
-  settings: { index: "08", description: "viewSettings" },
+  apiManagement: { index: "07", description: "viewApiManagement" },
+  system: { index: "08", description: "viewSystem" },
+  settings: { index: "09", description: "viewSettings" },
 });
 
 const state = {
@@ -40,13 +41,19 @@ window.DRDAdminShell = Object.freeze({
   addAdmin: (userId) => api.addAdmin(userId, state.csrfToken),
   setAdminEnabled: (id, enabled) => api.updateAdmin(id, enabled, state.csrfToken),
   removeAdmin: (id) => api.removeAdmin(id, state.csrfToken),
+  apiManagementSnapshot: () => api.apiManagement(),
+  createApiToken: (payload) => api.createApiToken(payload, state.csrfToken),
+  setApiTokenEnabled: (id, enabled) => api.updateApiToken(id, enabled, state.csrfToken),
+  rotateApiToken: (id, payload = {}) => api.rotateApiToken(id, payload, state.csrfToken),
+  revokeApiToken: (id) => api.revokeApiToken(id, state.csrfToken),
+  setMarketApiMode: (mode) => api.setMarketApiMode(mode, state.csrfToken),
   toast: (message, type = "info") => showToast(message, type),
 });
 
 const els = Object.fromEntries([
   "auth-screen","app-shell","login-form","bootstrap-form","login-error","bootstrap-error",
   "user-name","user-avatar","admin-route-value","page-title","page-eyebrow","dashboard-view",
-  "market-view","sources-view","assets-view","automation-view","settings-view","placeholder-view",
+  "market-view","sources-view","assets-view","automation-view","api-management-view","settings-view","placeholder-view",
   "placeholder-index","placeholder-title","placeholder-description","sidebar","sidebar-overlay","toast",
   "logout-button","preferences-form","admin-language-select","admin-theme-select","telegram-language-select",
   "preview-panel","preview-content","sources-list","usdt-priority-list","assets-list","asset-search",
@@ -199,6 +206,7 @@ async function submitLogout() {
     }
   }
   stopAutomationCountdown();
+  window.DRDApiManagement?.reset?.();
   state.user = null;
   state.csrfToken = "";
   showLogin();
@@ -257,7 +265,7 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "system", "settings"];
+  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "apiManagement", "system", "settings"];
   for (const key of realViews) {
     const node = document.querySelector(`#${key}-view`);
     if (node) node.hidden = key !== view;
@@ -278,6 +286,7 @@ async function activateView(view) {
     if (view === "assets") await loadAssets();
     if (view === "automation") await loadAutomation();
     if (view === "admins") await window.DRDAdmins?.load?.();
+    if (view === "apiManagement") await window.DRDApiManagement?.load?.();
     if (view === "system") await window.DRDSystem?.load?.();
     else stopAutomationCountdown();
     if (view === "settings") syncPreferencesForm();
@@ -599,6 +608,7 @@ async function toggleLanguage() {
   if (state.activeView === "sources" && state.sourceData) renderSources();
   if (state.activeView === "assets") renderAssets();
   if (state.activeView === "admins") window.DRDAdmins?.render?.();
+  if (state.activeView === "apiManagement") window.DRDApiManagement?.render?.();
   if (state.activeView === "system") window.DRDSystem?.render?.();
   refreshLanguageButtons();
 }

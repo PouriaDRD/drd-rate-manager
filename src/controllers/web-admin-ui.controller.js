@@ -6,6 +6,12 @@ const ADMIN_ASSETS = new Set([
 	"assets/api.js",
 	"assets/i18n.js",
 	"assets/app.js",
+	"assets/admins.css",
+	"assets/admins.js",
+	"assets/system.css",
+	"assets/system.js",
+	"assets/api-management.css",
+	"assets/api-management.js",
 ]);
 
 export class WebAdminUiController {

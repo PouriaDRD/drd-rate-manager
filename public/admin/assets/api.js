@@ -85,6 +85,33 @@ export class AdminApi {
     });
   }
 
+  apiManagement() { return this.#request("/api/v1/api-management"); }
+  createApiToken(payload, csrfToken) {
+    return this.#request("/api/v1/api-management/tokens", {
+      method: "POST", body: payload, csrfToken,
+    });
+  }
+  updateApiToken(id, enabled, csrfToken) {
+    return this.#request(`/api/v1/api-management/tokens/${encodeURIComponent(id)}`, {
+      method: "PATCH", body: { enabled }, csrfToken,
+    });
+  }
+  rotateApiToken(id, payload, csrfToken) {
+    return this.#request(`/api/v1/api-management/tokens/${encodeURIComponent(id)}/rotate`, {
+      method: "POST", body: payload || {}, csrfToken,
+    });
+  }
+  revokeApiToken(id, csrfToken) {
+    return this.#request(`/api/v1/api-management/tokens/${encodeURIComponent(id)}`, {
+      method: "DELETE", csrfToken,
+    });
+  }
+  setMarketApiMode(mode, csrfToken) {
+    return this.#request("/api/v1/api-management/market-mode", {
+      method: "PATCH", body: { mode }, csrfToken,
+    });
+  }
+
   automation() { return this.#request("/api/v1/automation"); }
   updateAutomationSettings(payload, csrfToken) {
     return this.#request("/api/v1/automation/settings", {
