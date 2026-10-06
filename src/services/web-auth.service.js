@@ -98,6 +98,12 @@ export class WebAuthService {
 				ok: false,
 				status: 429,
 				error: "Too many login attempts.",
+				securityEvent: {
+					username,
+					result: "locked",
+					reason: "rate_limited",
+					createdAt: now,
+				},
 				retryAfterSeconds: Math.max(1, Math.ceil((Number(attempt.locked_until) - now) / 1000)),
 			};
 		}
@@ -122,6 +128,13 @@ export class WebAuthService {
 				ok: false,
 				status: failure.lockedUntil > now ? 429 : 401,
 				error: "Invalid username or password.",
+				securityEvent: {
+					userId: user?.id ?? null,
+					username,
+					result: lockedNow ? "locked" : "failure",
+					reason: lockedNow ? "invalid_credentials_lockout" : "invalid_credentials",
+					createdAt: now,
+				},
 				retryAfterSeconds: failure.lockedUntil > now
 					? Math.max(1, Math.ceil((failure.lockedUntil - now) / 1000))
 					: 0,
@@ -145,6 +158,14 @@ export class WebAuthService {
 			user: this.#publicUser(user),
 			csrfToken: session.csrfToken,
 			cookie: sessionCookie(session.token),
+			securityEvent: {
+				userId: user.id,
+				username,
+				result: "success",
+				reason: "authenticated",
+				sessionRef: session.sessionRef,
+				createdAt: now,
+			},
 		};
 	}
 

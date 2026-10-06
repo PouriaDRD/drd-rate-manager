@@ -29,7 +29,7 @@ export class Application {
 		this.webAdminUi = new WebAdminUiController(this.services);
 	}
 
-	async fetch(request) {
+	async fetch(request, ctx = null) {
 		await this.database.ensureReady();
 		await this.services.secureSettingsService.refresh();
 		await this.services.config.refresh();
@@ -54,7 +54,7 @@ export class Application {
 		if (webAdminSystemResponse) return webAdminSystemResponse;
 		const webAdminDataResponse = await this.webAdminData.route(request, url);
 		if (webAdminDataResponse) return webAdminDataResponse;
-		const webAdminResponse = await this.webAdmin.route(request, url);
+		const webAdminResponse = await this.webAdmin.route(request, url, ctx);
 		if (webAdminResponse) return webAdminResponse;
 		return jsonResponse({ success: false, message: "Not found" }, 404);
 	}

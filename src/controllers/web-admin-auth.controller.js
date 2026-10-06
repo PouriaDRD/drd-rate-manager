@@ -1,5 +1,6 @@
 import { WEB_AUTH, clearSessionCookie } from "../auth/web-auth-utils.js";
 import { adminEmptyResponse, adminJsonResponse } from "../http/admin-responses.js";
+import { errorMessage } from "../utils/core.js";
 
 async function readJson(request) {
 	const text = await request.text();
@@ -18,7 +19,7 @@ export class WebAdminAuthController {
 		this.s = services;
 	}
 
-	async route(request, url) {
+	async route(request, url, ctx = null) {
 		const state = await this.s.webAuth.routingState();
 		const base = `/${state.adminPath}`;
 		if (url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return null;
@@ -40,7 +41,7 @@ export class WebAdminAuthController {
 		if (!url.pathname.startsWith(`${base}/api/`)) return null;
 
 		if (request.method === "POST" && url.pathname === `${base}/api/v1/auth/login`) {
-			return this.#login(request);
+			return this.#login(request, ctx);
 		}
 		if (request.method === "GET" && url.pathname === `${base}/api/v1/auth/session`) {
 			return this.#session(request);
@@ -58,7 +59,7 @@ export class WebAdminAuthController {
 		return adminJsonResponse({ success: false, message: "Not found" }, 404);
 	}
 
-	async #login(request) {
+	async #login(request, ctx) {
 		let body;
 		try {
 			body = await readJson(request);
@@ -66,6 +67,7 @@ export class WebAdminAuthController {
 			return adminJsonResponse({ success: false, message: error.message }, 400);
 		}
 		const result = await this.s.webAuth.login(request, body.username, body.password);
+		await this.#queueLoginSecurityAlert(request, result.securityEvent, ctx);
 		if (!result.ok) {
 			return adminJsonResponse(
 				{
@@ -87,6 +89,26 @@ export class WebAdminAuthController {
 			200,
 			{ "Set-Cookie": result.cookie },
 		);
+	}
+
+	async #queueLoginSecurityAlert(request, event, ctx) {
+		if (!event || typeof this.s.webLoginAlerts?.notify !== "function") return;
+		const task = Promise.resolve()
+			.then(() => this.s.webLoginAlerts.notify(request, event))
+			.catch((error) => {
+				console.warn({
+					timestamp: new Date().toISOString(),
+					level: "warn",
+					event: "web_auth.login_security_alert_failed",
+					message: errorMessage(error).slice(0, 300),
+				});
+				return null;
+			});
+		if (typeof ctx?.waitUntil === "function") {
+			ctx.waitUntil(task);
+			return;
+		}
+		await task;
 	}
 
 	async #session(request) {

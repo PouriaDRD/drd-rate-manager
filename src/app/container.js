@@ -40,6 +40,7 @@ import { SettingsService } from "../services/settings.service.js";
 import { SourceSettingsService } from "../services/source-settings.service.js";
 import { SystemManagementService } from "../services/system-management.service.js";
 import { WebAuthService } from "../services/web-auth.service.js";
+import { WebLoginAlertService } from "../services/web-login-alert.service.js";
 
 /** Dependency composition root. */
 export function createServices(env) {
@@ -80,6 +81,7 @@ export function createServices(env) {
 	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings, resilience);
 	const market = new MarketService(runtimeEnv, config, settings, cache, locks, assets, statuses, sources, coinGecko, sourceSettings);
 	const telegram = new TelegramClient(runtimeEnv, http);
+	const webLoginAlerts = new WebLoginAlertService(config, telegram, preferences);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
 	const automation = new AutomationService(runtimeEnv, config, settings, market, publisher, locks, automationRuns);
@@ -152,6 +154,7 @@ export function createServices(env) {
 		sources,
 		market,
 		telegram,
+		webLoginAlerts,
 		postBuilder,
 		publisher,
 		automation,
