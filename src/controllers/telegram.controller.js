@@ -2,6 +2,7 @@ import { telegram_apiMethods } from "./telegram/telegram-api.methods.js";
 import { telegram_coreMethods } from "./telegram/telegram-core.methods.js";
 import { telegram_marketMethods } from "./telegram/telegram-market.methods.js";
 import { telegram_loginHistoryMethods } from "./telegram/telegram-login-history.methods.js";
+import { telegram_membershipMethods } from "./telegram/telegram-membership.methods.js";
 import { telegram_settingsMethods } from "./telegram/telegram-settings.methods.js";
 import { telegram_systemMethods } from "./telegram/telegram-system.methods.js";
 
@@ -18,6 +19,7 @@ Object.assign(
 	telegram_apiMethods,
 	telegram_marketMethods,
 	telegram_loginHistoryMethods,
+	telegram_membershipMethods,
 	telegram_settingsMethods,
 	telegram_systemMethods,
 );

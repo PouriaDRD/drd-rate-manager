@@ -42,6 +42,21 @@ export class TelegramClient {
 		return data.result;
 	}
 
+	getMe() {
+		return this.api("getMe");
+	}
+
+	getChat(chatId) {
+		return this.api("getChat", { chat_id: chatId });
+	}
+
+	getChatMember(chatId, userId) {
+		return this.api("getChatMember", {
+			chat_id: chatId,
+			user_id: Number(userId),
+		});
+	}
+
 	sendMessage(chatId, text, replyMarkup = null) {
 		return this.api("sendMessage", {
 			chat_id: chatId,

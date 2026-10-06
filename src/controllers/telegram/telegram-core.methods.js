@@ -58,8 +58,14 @@ async _message(message) {
 	}
 	await this.s.admins.touchProfile(user);
 
+	if (!(await this._enforceRequiredMembership(message, admin, user.id))) return;
+
 	const input = await this.s.adminInput.get(user.id);
 	if (input?.action === "add_admin" && !command) return this._handleAddAdminInput(message, admin);
+	if (input?.action === "required_channel_add" && command) await this.s.adminInput.clear(user.id);
+	if (input?.action === "required_channel_add" && !command) {
+		return this._handleRequiredChannelInput(message, admin);
+	}
 	if (input?.action === "api_token_name" && command) await this.s.adminInput.clear(user.id);
 	if (input?.action === "api_token_name" && !command) return this._handleApiTokenNameInput(message, admin, input);
 
@@ -85,6 +91,10 @@ async _callback(query) {
 		return this.s.telegram.editMessage(message.chat.id, message.message_id, `<b>${this._tg("unauthorizedTitle")}</b>`);
 	}
 	const data = String(query.data || "");
+	if (data === "membership:check") {
+		return this._recheckRequiredMembership(message, admin, user.id);
+	}
+	if (!(await this._enforceRequiredMembership(message, admin, user.id, { edit: true }))) return;
 	const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
 	if (!enabled && admin.role !== "owner" && data !== "global:enable") {
 		return this.s.telegram.editMessage(message.chat.id, message.message_id, this._disabledText(admin));
@@ -120,6 +130,27 @@ async _callback(query) {
 	if (data === "settings:language:toggle") {
 		await this.s.preferences.toggleTelegramLanguage();
 		return this._showSettings(message, admin);
+	}
+	if (data === "membership:home") {
+		await this.s.adminInput.clear(user.id);
+		return this._showMembershipSettings(message, admin);
+	}
+	if (data === "membership:add") {
+		return this._beginRequiredChannelAdd(message, admin, user);
+	}
+	if (data.startsWith("membership:remove:confirm:")) {
+		return this._confirmRequiredChannelRemove(
+			message,
+			admin,
+			data.slice("membership:remove:confirm:".length),
+		);
+	}
+	if (data.startsWith("membership:remove:execute:")) {
+		return this._executeRequiredChannelRemove(
+			message,
+			admin,
+			data.slice("membership:remove:execute:".length),
+		);
 	}
 	if (data.startsWith("security:logins:")) {
 		const [, , result, page] = data.split(":");

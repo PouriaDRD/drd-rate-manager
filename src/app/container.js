@@ -15,6 +15,7 @@ import { AutomationRunRepository } from "../repositories/automation-run.reposito
 import { LockRepository } from "../repositories/lock.repository.js";
 import { MarketCacheRepository } from "../repositories/market-cache.repository.js";
 import { OperationalAlertRepository } from "../repositories/operational-alert.repository.js";
+import { RequiredMembershipRepository } from "../repositories/required-membership.repository.js";
 import { SecureSettingsRepository } from "../repositories/secure-settings.repository.js";
 import { SettingsRepository } from "../repositories/settings.repository.js";
 import { SourceStatusRepository } from "../repositories/source-status.repository.js";
@@ -35,6 +36,7 @@ import { OperationalAlertService } from "../services/operational-alert.service.j
 import { PreferencesService } from "../services/preferences.service.js";
 import { ProviderHealthService } from "../services/provider-health.service.js";
 import { ProviderResilienceService } from "../services/provider-resilience.service.js";
+import { RequiredMembershipService } from "../services/required-membership.service.js";
 import { SecureSettingsService } from "../services/secure-settings.service.js";
 import { SettingsService } from "../services/settings.service.js";
 import { SourceSettingsService } from "../services/source-settings.service.js";
@@ -50,6 +52,7 @@ export function createServices(env) {
 	const runtimeEnv = createRuntimeEnv(env, secureSettingsService);
 
 	const settings = new SettingsRepository(runtimeEnv);
+	const requiredMembershipRepository = new RequiredMembershipRepository(settings);
 	const settingsService = new SettingsService(runtimeEnv, settings);
 	const preferences = new PreferencesService(settings);
 	const operationalAlertRepository = new OperationalAlertRepository(settings);
@@ -81,6 +84,11 @@ export function createServices(env) {
 	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings, resilience);
 	const market = new MarketService(runtimeEnv, config, settings, cache, locks, assets, statuses, sources, coinGecko, sourceSettings);
 	const telegram = new TelegramClient(runtimeEnv, http);
+	const requiredMembership = new RequiredMembershipService(
+		requiredMembershipRepository,
+		telegram,
+		audit,
+	);
 	const webLoginAlerts = new WebLoginAlertService(config, telegram, preferences);
 	const postBuilder = new MarketPostBuilder(config);
 	const publisher = new MarketPublisher(config, telegram, postBuilder);
@@ -99,6 +107,7 @@ export function createServices(env) {
 		env: runtimeEnv,
 		config,
 		settings,
+		requiredMembershipRepository,
 		settingsService,
 		secureSettingsService,
 		cache,
@@ -154,6 +163,7 @@ export function createServices(env) {
 		sources,
 		market,
 		telegram,
+		requiredMembership,
 		webLoginAlerts,
 		postBuilder,
 		publisher,
