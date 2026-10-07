@@ -13,9 +13,14 @@
     "config:finalize": "node scripts/finalize-config-cleanup.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:check": "npm test && npm run check && npm run release:preflight",
-    "test:phase19.8": "node --test tests/phase19.8.test.js tests/phase19.8b.test.js"
+    "test:phase19.8": "node --test tests/phase19.8.test.js tests/phase19.8b.test.js tests/phase19.8c.test.js",
+    "test:browser": "playwright test",
+    "test:browser:chromium": "playwright test --project=chromium",
+    "test:browser:headed": "playwright test --project=chromium --headed",
+    "test:hardening": "npm run test:phase19.8 && npm test && npm run test:browser && npm run check"
   },
   "devDependencies": {
-    "prettier": "3.9.9"
+    "prettier": "3.9.9",
+    "@playwright/test": "1.63.0"
   }
 }

@@ -21,6 +21,19 @@ const VIEWS = Object.freeze({
   settings: { index: "10", description: "viewSettings" },
 });
 
+const VIEW_ELEMENT_IDS = Object.freeze({
+  dashboard: "dashboard-view",
+  market: "market-view",
+  sources: "sources-view",
+  assets: "assets-view",
+  automation: "automation-view",
+  admins: "admins-view",
+  apiManagement: "api-management-view",
+  loginHistory: "login-history-view",
+  system: "system-view",
+  settings: "settings-view",
+});
+
 const storedActiveView = readPreference(VIEW_KEY, "dashboard");
 const initialActiveView = VIEWS[storedActiveView] ? storedActiveView : "dashboard";
 
@@ -105,6 +118,7 @@ function bindEvents() {
   els.preferencesForm?.addEventListener("submit", savePreferencesForm);
   els.logoutButton?.addEventListener("click", submitLogout);
   els.bootRetry?.addEventListener("click", restoreSession);
+  window.addEventListener("drd-admin-session-expired", handleSessionExpired);
 
   document.querySelector("#market-refresh")?.addEventListener("click", refreshMarket);
   document.querySelector("#market-preview")?.addEventListener("click", showMarketPreview);
@@ -235,6 +249,17 @@ async function submitLogout() {
   setBusy(els.logoutButton, false);
 }
 
+function handleSessionExpired() {
+  stopAutomationCountdown();
+  apiManagementView.reset();
+  loginHistoryView.reset();
+  configurationView.reset();
+  state.user = null;
+  state.csrfToken = "";
+  showLogin();
+  showToast(t(state.language, "sessionExpired"), "error");
+}
+
 async function savePreferencesForm(event) {
   event.preventDefault();
   const submit = event.submitter;
@@ -320,12 +345,11 @@ async function activateView(view) {
   els.pageTitle.textContent = t(state.language, view);
   els.pageEyebrow.textContent = view === "dashboard" ? t(state.language, "overview") : `DRD / ${VIEWS[view].index}`;
 
-  const realViews = ["dashboard", "market", "sources", "assets", "automation", "admins", "apiManagement", "loginHistory", "system", "settings"];
-  for (const key of realViews) {
-    const node = document.querySelector(`#${key}-view`);
+  for (const [key, elementId] of Object.entries(VIEW_ELEMENT_IDS)) {
+    const node = document.querySelector(`#${elementId}`);
     if (node) node.hidden = key !== view;
   }
-  const placeholder = !realViews.includes(view);
+  const placeholder = !Object.hasOwn(VIEW_ELEMENT_IDS, view);
   els.placeholderView.hidden = !placeholder;
   if (placeholder) {
     els.placeholderIndex.textContent = VIEWS[view].index;

@@ -19,7 +19,12 @@ test("Admin API client exposes the read-only Phase 11.1 system endpoint", async 
 test("app shell exposes System through the existing narrow runtime bridge", async () => {
   const app = await readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8");
   assert.match(app, /system: \(\) => api\.system\(\)/);
-  assert.match(app, /"automation", "admins", "apiManagement", "loginHistory", "system", "settings"/);
+  assert.match(app, /automation:\s*"automation-view"/);
+  assert.match(app, /admins:\s*"admins-view"/);
+  assert.match(app, /apiManagement:\s*"api-management-view"/);
+  assert.match(app, /loginHistory:\s*"login-history-view"/);
+  assert.match(app, /system:\s*"system-view"/);
+  assert.match(app, /settings:\s*"settings-view"/);
   assert.match(app, /window\.DRDSystem\?\.load\?\.\(\)/);
 });
 

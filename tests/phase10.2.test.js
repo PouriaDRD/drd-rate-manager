@@ -29,7 +29,9 @@ test("app shell exposes a narrow runtime bridge instead of browser-stored CSRF",
 
 test("Admins participates in normal view activation and language rerendering", async () => {
   const app = await readFile(new URL("../public/admin/assets/app.js", import.meta.url), "utf8");
-  assert.match(app, /const realViews = \[[^\]]*"admins"[^\]]*\]/);
+  assert.match(app, /const VIEW_ELEMENT_IDS = Object\.freeze/);
+  assert.match(app, /admins:\s*"admins-view"/);
+  assert.match(app, /Object\.entries\(VIEW_ELEMENT_IDS\)/);
   assert.match(app, /window\.DRDAdmins\?\.load\?\.\(\)/);
   assert.match(app, /window\.DRDAdmins\?\.render\?\.\(\)/);
 });

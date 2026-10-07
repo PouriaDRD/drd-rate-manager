@@ -176,6 +176,17 @@ export class AdminApi {
     let payload = null;
     try { payload = await response.json(); } catch { payload = null; }
     if (!response.ok) {
+      if (
+        response.status === 401 &&
+        path !== "/api/v1/auth/login" &&
+        typeof window !== "undefined"
+      ) {
+        window.dispatchEvent(
+          new CustomEvent("drd-admin-session-expired", {
+            detail: { path },
+          }),
+        );
+      }
       throw new ApiError(payload?.message || `Request failed (${response.status})`, response.status, payload);
     }
     return payload || {};
