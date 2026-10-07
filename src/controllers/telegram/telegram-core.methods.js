@@ -40,7 +40,11 @@ async _process(update) {
 
 async _message(message) {
 	const user = message.from;
-	const command = normalizeCommand(message.text || "");
+	const parsedCommand = normalizeCommand(message.text || "");
+	const supportedCommands = new Set(["/start", "/menu", "/help", "/id"]);
+	const command = supportedCommands.has(parsedCommand) ? parsedCommand : "";
+	const unknownSlashCommand = Boolean(parsedCommand && !command);
+
 	if (["/start", "/menu", "/help"].includes(command)) this.s.telegram.syncInterface();
 	if (command === "/id") {
 		return this.s.telegram.sendMessage(
@@ -61,13 +65,23 @@ async _message(message) {
 	if (!(await this._enforceRequiredMembership(message, admin, user.id))) return;
 
 	const input = await this.s.adminInput.get(user.id);
-	if (input?.action === "add_admin" && !command) return this._handleAddAdminInput(message, admin);
-	if (input?.action === "required_channel_add" && command) await this.s.adminInput.clear(user.id);
+	if (unknownSlashCommand) return;
+
+	if (input?.action === "add_admin" && !command) {
+		return this._handleAddAdminInput(message, admin);
+	}
+	if (input?.action === "required_channel_add" && command) {
+		await this.s.adminInput.clear(user.id);
+	}
 	if (input?.action === "required_channel_add" && !command) {
 		return this._handleRequiredChannelInput(message, admin);
 	}
-	if (input?.action === "api_token_name" && command) await this.s.adminInput.clear(user.id);
-	if (input?.action === "api_token_name" && !command) return this._handleApiTokenNameInput(message, admin, input);
+	if (input?.action === "api_token_name" && command) {
+		await this.s.adminInput.clear(user.id);
+	}
+	if (input?.action === "api_token_name" && !command) {
+		return this._handleApiTokenNameInput(message, admin, input);
+	}
 
 	const enabled = parseBoolean(await this.s.settings.get("bot_enabled", "1"), true);
 	if (!enabled && admin.role !== "owner") {
@@ -78,7 +92,7 @@ async _message(message) {
 		case "/start": return this._sendStart(message.chat.id, admin);
 		case "/menu": return this._sendMenu(message.chat.id, admin);
 		case "/help": return this._sendHelp(message.chat.id, admin);
-		default: return this._sendMenu(message.chat.id, admin);
+		default: return;
 	}
 },
 

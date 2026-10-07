@@ -35,11 +35,17 @@ export function adminEmptyResponse(status = 204, extraHeaders = {}) {
 	return new Response(null, { status, headers: { ...API_SECURITY_HEADERS, ...extraHeaders } });
 }
 
-export function adminUiResponse(response, { document = false } = {}) {
+export function adminUiResponse(response, { document: _document = false } = {}) {
 	const headers = new Headers(response.headers);
 	for (const [key, value] of Object.entries(UI_SECURITY_HEADERS)) headers.set(key, value);
-	headers.set("Cache-Control", document ? "no-store, no-cache, must-revalidate" : "public, max-age=3600");
-	if (document) headers.set("Pragma", "no-cache");
+
+	// The Web Admin is a private authenticated control surface. Never allow the
+	// document and its ES modules/CSS to drift across releases due to browser or
+	// intermediary caching; a mixed shell/module version can expose stale views.
+	headers.set("Cache-Control", "no-store, no-cache, must-revalidate, private");
+	headers.set("Pragma", "no-cache");
+	headers.set("Expires", "0");
+
 	return new Response(response.body, {
 		status: response.status,
 		statusText: response.statusText,

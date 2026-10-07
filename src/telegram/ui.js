@@ -54,5 +54,6 @@ export function backKeyboard(label, callback) {
 
 export function normalizeCommand(text) {
 	const first = String(text || "").trim().split(/\s+/)[0].toLowerCase();
+	if (!first.startsWith("/")) return "";
 	return first.replace(/@[^\s]+$/, "");
 }

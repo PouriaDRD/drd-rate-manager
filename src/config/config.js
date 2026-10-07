@@ -112,6 +112,42 @@ export class Config {
 		return this.#setting("providers.wallgold_api_url");
 	}
 
+	get bitpinApiUrl() {
+		return this.#setting("providers.bitpin_api_url");
+	}
+
+	get nobitexApiUrl() {
+		return this.#setting("providers.nobitex_api_url");
+	}
+
+	get ompfinexApiUrl() {
+		return this.#setting("providers.ompfinex_api_url");
+	}
+
+	get ramzinexApiUrl() {
+		return this.#setting("providers.ramzinex_api_url");
+	}
+
+	get technoGoldApiUrl() {
+		return this.#setting("providers.technogold_api_url");
+	}
+
+	get melliGoldApiUrl() {
+		return this.#setting("providers.melligold_api_url");
+	}
+
+	get talaseaApiUrl() {
+		return this.#setting("providers.talasea_api_url");
+	}
+
+	get milliApiUrl() {
+		return this.#setting("providers.milli_api_url");
+	}
+
+	get geramiApiUrl() {
+		return this.#setting("providers.gerami_api_url");
+	}
+
 	get cloudflareAccountId() {
 		return String(this.#setting("cloudflare.account_id") || "").trim();
 	}
