@@ -1,154 +1,308 @@
 # DRD Rate Manager Release Checklist
 
-This checklist is deliberately split into candidate validation and production actions. Nothing in `npm run release:check` deploys the Worker or mutates Cloudflare resources.
+This checklist separates candidate validation, staged smoke, final `dev -> main` promotion, and post-promotion cleanup.
 
-## 1. Candidate validation
+Nothing in `npm run release:check` deploys the Worker or mutates Cloudflare resources.
 
-Run from a clean project checkout:
+## 1. Candidate validation on dev
 
-```bash
-npm install
-npm run release:check
-```
-
-The command runs the complete Node test suite, syntax/format checks, and the repository release preflight.
-
-Before tagging or deploying, also verify:
+Confirm:
 
 ```bash
-git status
+git branch --show-current
+git status --short
 git log -1 --oneline
 ```
 
-For a final clean-tree check:
+Expected development branch:
 
-```bash
-npm run release:preflight -- --require-clean
+```text
+dev
 ```
 
-The repository `wrangler.jsonc` is a template and intentionally contains `<YOUR_...>` placeholders. Validate an actual production Wrangler file with:
+Run:
 
 ```bash
-npm run release:preflight -- --strict-config --wrangler wrangler.production.jsonc --require-clean
+npm test
+npm run check
+npm run test:browser
+npm run release:check
 ```
 
-Never put production secrets in a committed Wrangler file.
+For the actual production Wrangler file:
+
+```bash
+npm run release:preflight -- \
+  --strict-config \
+  --wrangler <PRODUCTION_WRANGLER_FILE> \
+  --require-clean
+```
+
+Record exact test counts/results. A mandatory failing suite blocks release.
 
 ## 2. Production prerequisites
 
-Confirm all of the following before deployment:
+Verify:
 
-- The D1 `DB` binding points to the intended `drd-rate-manager-db` database.
-- The `ASSETS` binding points to `./public/admin` and `run_worker_first` remains enabled.
-- The Cron trigger remains `* * * * *`.
-- `APP_MASTER_KEY` exists as a Cloudflare secret and has not changed unexpectedly.
-- Telegram bot token/webhook secret and provider secrets are available through encrypted secure settings or the approved migration fallback.
-- System diagnostics report the expected runtime and secure-setting migration state.
-- If legacy ENV cleanup is planned, first capture the authenticated System API snapshot and run `npm run config:finalize -- <snapshot.json>` as a dry-run. Use `--write` only after reviewing the plan.
+- D1 `DB` binding points to the intended database.
+- `ASSETS` points to `./public/admin` with `run_worker_first`.
+- Cron is `* * * * *`.
+- `APP_NAME`/`APP_VERSION` are correct.
+- `APP_MASTER_KEY` exists and has not been regenerated.
+- Runtime settings diagnostics are expected for the release.
+- Secure settings diagnostics are expected for the release.
+- Required Telegram channels are exactly `@DRDNetwork` and `@DRDrate`.
+- Membership verification uses Telegram `getChatMember`.
+- The bot is Administrator where required for membership checks.
+- Owner intentionally bypasses membership enforcement to prevent administrative lockout.
+- Rollback Worker version is known.
 
-### Required Telegram membership prerequisites
+Never commit the real production Wrangler file if it contains environment-specific identifiers.
 
-`@DRDNetwork` and `@DRDrate` are permanent required channels. Any owner-added extra channel is also enforced.
+## 3. Fresh D1 backup
 
-For Telegram `getChatMember` checks on other users to be reliable, the bot must be an **Administrator** in every required channel. Verify this in Telegram before deploying the membership gate.
-
-The bot Owner intentionally bypasses membership enforcement to prevent administrative lockout.
-
-## 3. Back up D1
-
-Create a remote export immediately before deployment:
-
-```bash
-mkdir -p backups
-npx wrangler d1 export drd-rate-manager-db --remote --output=./backups/drd-rate-manager-pre-release.sql
-```
-
-Keep the export outside source control. It may contain operational or user-related data.
-
-Optionally record current database information:
+Immediately before the release candidate/promotion window:
 
 ```bash
-npx wrangler d1 info drd-rate-manager-db --json
+npx --yes wrangler@<PINNED_VERSION> d1 export \
+  <DATABASE_NAME> \
+  --remote \
+  --config <PRODUCTION_WRANGLER_FILE> \
+  --output=./backups/pre-release.sql
 ```
 
-## 4. Deployment — manual approval only
+Store backup outside Git.
 
-Deployment is an explicit operator action. Do not add this command to `release:check` or an automatic patch script.
+Record timestamp and file size.
 
-When the candidate, backup, configuration, and rollback plan are approved:
+The repository's established database-name example is intentionally kept explicit for release-contract validation:
 
 ```bash
-npx wrangler deploy
+npx wrangler d1 export drd-rate-manager-db --remote --config <PRODUCTION_WRANGLER_FILE> --output=./backups/pre-release.sql
 ```
 
-Record the resulting Worker version/deployment identifier and the Git commit SHA.
+## 4. Upload release candidate
 
-## 5. Post-deploy verification
+Upload only:
 
-Run these checks immediately after deployment.
+```bash
+npx --yes wrangler@<PINNED_VERSION> versions upload \
+  --config <PRODUCTION_WRANGLER_FILE> \
+  --message "<RC_MESSAGE>"
+```
 
-### HTTP and API
+Record the candidate Version ID.
 
-- `GET /` returns the normal service root.
-- `GET /docs` loads the self-contained API documentation.
-- `GET /openapi.json` returns OpenAPI 3.1 metadata.
-- Market endpoints follow the configured public/private Market API mode.
-- Core endpoints still require a valid `drd_core_*` token.
-- The private Web Admin path works and is not disclosed by public docs.
+Upload is not approval for production traffic.
+
+## 5. Zero-percent staged deployment
+
+With explicit approval, deploy:
+
+```text
+known-good production version = 100%
+candidate version             = 0%
+```
+
+Example:
+
+```bash
+npx --yes wrangler@<PINNED_VERSION> versions deploy \
+  <CURRENT_VERSION>@100% \
+  <CANDIDATE_VERSION>@0% \
+  --config <PRODUCTION_WRANGLER_FILE> \
+  --message "<ZERO_PERCENT_SMOKE_MESSAGE>" -y
+```
+
+Then verify:
+
+```bash
+npx --yes wrangler@<PINNED_VERSION> deployments list \
+  --config <PRODUCTION_WRANGLER_FILE>
+```
+
+Do not continue if the split is not exactly the approved split.
+
+### Deployment — manual approval only
+
+Deployment is always a manual, explicitly approved action. `npm run release:check` and `release:preflight` never deploy.
+
+The preferred production flow for this project is the versioned rollout described above and a final release built from `main`.
+The generic `npx wrangler deploy` command is deployment-capable and must **not** be used during validation, documentation checks, or ordinary `dev` work. If it is ever deliberately chosen for a production release, it may only be run from the reviewed `main` state after explicit deployment approval and with the intended production config.
+
+## 6. Candidate smoke
+
+Use version-specific routing/override where supported.
+
+Validate:
+
+- `GET /` returns expected application version.
+- `/docs` and `/openapi.json` are healthy.
+- authenticated private Web Admin login/session works.
+- System diagnostics are healthy.
+- Runtime settings are fully D1-owned as expected.
+- Secure settings are encrypted/migrated as expected.
+- provider/source configuration resolves correctly.
+- Market snapshot works without unsafe partial publication.
+- Web Admin main views work.
+- Login History/API Management/Configuration views work.
+- Telegram non-destructive management flow works.
+
+Avoid force-run/manual production publish unless intentionally testing a real publication.
+
+## 7. Configuration-cleanup releases
+
+When legacy ENV cleanup is part of the release:
+
+1. capture a fresh authenticated candidate System snapshot;
+2. run `config:finalize` dry-run;
+3. review the exact removal plan;
+4. run `--write` only on the intended private Wrangler file;
+5. verify legacy runtime vars are gone;
+6. upload a fresh clean-config candidate;
+7. repeat zero-percent candidate smoke;
+8. keep legacy Worker secrets until post-promotion.
+
+`APP_MASTER_KEY` is always retained.
+
+## 8. Final gate before merge
+
+Run the full release gate again after all release-related changes.
+
+Require:
+
+```text
+all mandatory Node tests green
+all browser projects green
+syntax green
+format green
+strict preflight green
+working tree clean
+fresh backup retained
+rollback target retained
+candidate smoke green
+```
+
+## 9. Merge dev -> main
+
+Only after explicit release approval:
+
+```bash
+git checkout main
+git pull
+git merge --ff-only dev
+```
+
+If fast-forward is not possible, stop and review branch history instead of improvising a merge.
+
+Push `main` only after verifying the intended commit.
+
+## 10. Production version from main
+
+The final production release must be built/uploaded from `main`, not by promoting an arbitrary earlier `dev` upload.
+
+Upload from `main`, verify commit/version identity, then perform the approved production traffic promotion.
+
+Record:
+
+```text
+Git SHA
+tag/release version
+Cloudflare Worker Version ID
+previous rollback Version ID
+```
+
+## 11. Post-deploy verification
+
+Immediately verify:
+
+### HTTP/API
+
+- root/version;
+- docs/OpenAPI;
+- Market public/private mode;
+- Core token enforcement;
+- private path not exposed.
 
 ### Web Admin
 
-- Login succeeds with the expected account.
-- A successful login appears in Login Security history.
-- Telegram Owner receives the successful-login security notification.
-- Invalid login attempts are recorded without credential/session leakage.
-- Admins, Sources, Assets, Automation, API Management, System and Login Security views load normally.
+- login/session;
+- dashboard;
+- Sources;
+- Assets;
+- Automation;
+- API Management;
+- System;
+- Login History;
+- Configuration.
 
 ### Telegram
 
-- `/id` remains available for onboarding.
-- Owner can access the management panel even without channel membership.
-- A regular Admin who is not in every required channel receives the join/recheck gate.
-- After joining all required channels, `✅ Check membership` restores access.
-- `@DRDNetwork` and `@DRDrate` cannot be removed.
-- Owner-added extra channels can be added only when the bot is Administrator there.
-- Login Security history is Owner-only.
+- `/id`;
+- Owner control-plane access;
+- regular Admin membership gate;
+- immutable required channels;
+- safe menu navigation.
 
-### Automation and providers
+### Market/automation
 
-- System status can be opened without triggering provider refreshes.
-- Manual source refresh works.
-- Market preview works.
-- Automatic publishing diagnostics show the correct next slot/quiet-hours state.
-- Do not force-publish to the production channel unless a real publication is intended.
+- provider status;
+- USDT consensus;
+- Gold consensus;
+- CoinGecko;
+- cache state;
+- automation diagnostics.
 
-### Database and security
+### Security/database
 
-- System diagnostics report schema **13**.
-- D1 is connected and expected tables are present.
-- Secure settings remain encrypted.
-- No raw API token, Web Admin password, raw session, CSRF token, Telegram bot token, or Authorization header appears in logs/UI/history.
+- schema `13`;
+- expected runtime/secure catalog versions;
+- encrypted secure settings;
+- no secret leakage in UI/logs/history.
 
-## 6. Rollback plan
+## 12. Post-promotion legacy secret cleanup
 
-If the deployment has a functional regression:
+Only after the new production version is verified and stable:
 
-1. Stop manual changes and preserve logs/correlation IDs.
-2. Roll back the Worker to the previously known-good deployment/version using the Cloudflare deployment controls appropriate to the account.
-3. Do **not** import the D1 backup merely to roll back Worker code. Schema 13 changes are designed to be backward-compatible; database restore is a separate destructive decision.
-4. If database restoration is genuinely required, review the exported SQL and Cloudflare D1 restore/import procedure before changing production data.
-5. Re-run HTTP, Web Admin, Telegram membership, and automation smoke checks after rollback.
+- re-check exact production System readiness;
+- verify runtime catalog metadata is stable;
+- remove only the approved legacy Worker secrets;
+- use version-aware Cloudflare secret operations when required by the deployment model;
+- verify the Worker again after each cleanup batch.
 
-## 7. Release evidence to retain
+Never delete:
 
-Keep these with the release notes or deployment record:
+```text
+APP_MASTER_KEY
+```
 
-- Git commit SHA.
-- `npm run release:check` result.
-- Clean `git status` result.
-- D1 export filename and timestamp.
-- Pre-deploy System health/migration snapshot.
-- Cloudflare deployment/version identifier.
-- Post-deploy smoke-test result.
+## 13. Rollback plan
 
-Do not retain raw production secrets, session cookies, CSRF tokens, or raw API tokens in release evidence.
+If a functional regression appears:
+
+1. stop additional mutations;
+2. preserve logs/correlation evidence;
+3. move Worker traffic back to the known-good version;
+4. do not restore D1 just because code was rolled back;
+5. re-run HTTP/Web Admin/Telegram/automation smoke;
+6. investigate migration compatibility before any database restore.
+
+## 14. Evidence to retain
+
+Keep:
+
+- release Git SHA;
+- tag/version;
+- exact test outputs/counts;
+- strict preflight;
+- clean `git status`;
+- D1 backup filename/timestamp/size;
+- candidate System readiness snapshot metadata;
+- candidate Worker Version ID;
+- final Worker Version ID;
+- rollback Version ID;
+- zero-percent deployment proof;
+- post-deploy smoke result;
+- post-promotion cleanup result.
+
+Do not retain plaintext secrets, raw API tokens, cookies, CSRF tokens, or passwords in release evidence.
