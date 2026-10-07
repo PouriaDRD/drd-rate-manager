@@ -92,7 +92,7 @@ Configuration is split into three groups:
 
 `APP_MASTER_KEY` is permanent infrastructure secret material. Do not regenerate or casually rotate it: encrypted secure settings and Web Admin password protection depend on it.
 
-Legacy ENV/Worker secrets exist only as migration compatibility inputs. Production cleanup is proof-driven through the authenticated System diagnostics and `config:finalize`.
+Production v0.2.1 has completed legacy ENV and legacy Worker-secret cleanup. Repository templates now expose only deployment identity plus `APP_MASTER_KEY` setup. Compatibility fallback code remains for older installations/migration tooling, but cleaned deployments must not reintroduce legacy ENV or Worker secrets.
 
 ## Quick start
 

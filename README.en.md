@@ -327,7 +327,7 @@ cloudflare.d1_database_id
 cloudflare.d1_database_limit_mb
 ```
 
-In a migrated environment, D1 is the source of truth. Legacy ENV values are bootstrap/backward-compatibility inputs only.
+D1 is the source of truth for current deployments. Compatibility code can still read legacy ENV values for older installations, but current repository templates no longer provision those inputs.
 
 ### Secure settings
 
@@ -364,11 +364,11 @@ Important behaviors:
 - runtime configuration can refresh without deployment
 - `APP_MASTER_KEY` is status-only and is never displayed
 
-## 19. ENV migration and cleanup
+## 19. Legacy ENV migration and completed cleanup
 
-`.env.example` documents migration inputs; this does not imply permanent ENV ownership.
+The v0.2.1 production baseline has completed legacy Runtime ENV cleanup and legacy Worker-secret cleanup. Current `.env.example` and `wrangler.jsonc` intentionally do not provision those legacy inputs.
 
-Proof-driven cleanup:
+For an older installation that still needs migration, cleanup remains proof-driven:
 
 1. Complete Runtime and Secure migration.
 2. Authenticated System diagnostics must report full readiness.
@@ -386,7 +386,9 @@ npm run config:finalize -- system-snapshot.json --wrangler wrangler.production.j
 npm run config:finalize -- system-snapshot.json --wrangler wrangler.production.jsonc --write
 ```
 
-The finalizer does not deploy and does not automatically delete Worker Secrets. `APP_MASTER_KEY` is never part of legacy cleanup.
+The finalizer does not deploy and does not automatically delete Worker Secrets. Legacy Worker-secret deletion is a separate version-aware Cloudflare operation after production verification. `APP_MASTER_KEY` is never part of legacy cleanup.
+
+For the cleaned v0.2.1 baseline, the expected Worker secret inventory is `APP_MASTER_KEY` only.
 
 ## 20. Version skew during staged deployments
 
@@ -421,7 +423,7 @@ For reproducible/CI installs, `npm ci` can be used because `package-lock.json` i
 
 ## 22. Wrangler and D1
 
-`wrangler.jsonc` is a template and intentionally contains placeholders. Real production configuration must not be committed.
+`wrangler.jsonc` is a template and intentionally keeps only deployment identity under `vars`; the D1 binding still contains a placeholder database ID. Real production configuration must not be committed.
 
 Bindings:
 
@@ -446,7 +448,7 @@ For a new environment:
 wrangler secret put APP_MASTER_KEY
 ```
 
-Legacy secure inputs may be required during initial migration, but the target architecture reads managed secure values from encrypted D1.
+After bootstrap, configure Runtime Settings and replace-only Secure Settings through the private Configuration surface so D1 becomes the application source of truth. Do not add legacy Worker secrets to a new cleaned deployment.
 
 ## 24. Web Admin bootstrap
 

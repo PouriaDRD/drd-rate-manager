@@ -143,10 +143,15 @@ test("Phase 19.8 provider catalog covers every USDT and gold source exactly once
 	}
 });
 
-test("Phase 19.8 provider configuration is documented for all thirteen sources", async () => {
-	const env = await readFile(new URL("../.env.example", import.meta.url), "utf8");
-	for (const [source, [, envKey]] of Object.entries(EXPECTED_PROVIDER_SETTINGS)) {
-		assert.match(env, new RegExp(`^${envKey}=`, "m"), `${source} missing from .env.example`);
+test("Phase 19.8 provider configuration is D1-documented without legacy ENV assignments", async () => {
+	const [env, configurationDoc] = await Promise.all([
+		readFile(new URL("../.env.example", import.meta.url), "utf8"),
+		readFile(new URL("../docs/configuration.md", import.meta.url), "utf8"),
+	]);
+
+	for (const [source, [settingKey, envKey]] of Object.entries(EXPECTED_PROVIDER_SETTINGS)) {
+		assert.match(configurationDoc, new RegExp(settingKey.replaceAll(".", "\\.")), `${source} missing from configuration docs`);
+		assert.doesNotMatch(env, new RegExp(`^${envKey}=`, "m"), `${source} legacy ENV returned to .env.example`);
 	}
 });
 

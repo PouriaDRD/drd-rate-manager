@@ -117,9 +117,11 @@ Do not restore D1 merely because Worker code was rolled back.
 
 ## Legacy Worker secrets
 
-Legacy secure Worker secrets are post-promotion cleanup items after the new version is verified using encrypted D1 secure settings.
+The v0.2.1 production baseline has completed legacy Worker-secret cleanup and retains only `APP_MASTER_KEY`.
 
-Only remove explicitly approved legacy secrets. `APP_MASTER_KEY` remains.
+For older installations still undergoing migration, legacy secure Worker secrets are post-promotion cleanup items after the new version is verified using encrypted D1 secure settings.
+
+Only remove explicitly approved legacy secrets with version-aware Cloudflare operations. Never remove or regenerate `APP_MASTER_KEY`, and do not reintroduce deleted legacy Worker secrets into a cleaned deployment.
 
 ## Related documents
 

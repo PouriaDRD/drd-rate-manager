@@ -262,13 +262,16 @@ Immediately verify:
 
 ## 12. Post-promotion legacy secret cleanup
 
-Only after the new production version is verified and stable:
+The cleaned v0.2.1 production baseline has already completed this step. Its expected Worker secret inventory is `APP_MASTER_KEY` only.
+
+For an older installation or a future migration that still carries legacy Worker secrets, only after the new production version is verified and stable:
 
 - re-check exact production System readiness;
 - verify runtime catalog metadata is stable;
 - remove only the approved legacy Worker secrets;
 - use version-aware Cloudflare secret operations when required by the deployment model;
-- verify the Worker again after each cleanup batch.
+- verify the Worker again after each cleanup batch;
+- verify the final Worker secret inventory and ensure deleted legacy secrets were not reintroduced.
 
 Never delete:
 

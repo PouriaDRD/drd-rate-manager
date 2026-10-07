@@ -56,7 +56,7 @@ cloudflare.d1_database_id
 cloudflare.d1_database_limit_mb
 ```
 
-After migration, D1 is the source of truth. Legacy ENV keys are compatibility/bootstrap inputs only.
+D1 is the source of truth for the current production baseline. Legacy ENV keys remain recognized by compatibility/migration code for older installations, but current repository templates no longer provision them.
 
 ### Secure settings
 
@@ -163,7 +163,11 @@ Do not regenerate or casually rotate it. Existing encrypted secure settings are 
 
 ## Template files
 
-`.env.example` documents both current ownership and legacy migration inputs. `wrangler.jsonc` is a repository template and may contain placeholders.
+`.env.example` now documents only deployment identity, the permanent `APP_MASTER_KEY` requirement, and the D1-managed ownership model. It intentionally contains no legacy runtime/secure assignments.
+
+`wrangler.jsonc` is a repository template. Under `vars` it contains only `APP_NAME` and `APP_VERSION`; environment-specific D1 identifiers remain placeholders.
+
+The v0.2.1 production baseline has completed legacy ENV and legacy Worker-secret cleanup. Compatibility fallback code remains available for older installations and migration tooling, but a cleaned deployment must not reintroduce legacy inputs.
 
 A real production Wrangler file must stay outside source control and must pass strict preflight before release.
 

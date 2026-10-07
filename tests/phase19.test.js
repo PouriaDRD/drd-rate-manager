@@ -31,7 +31,7 @@ test("application identity is consistently version 0.2.1", async () => {
 	}
 	assert.match(appConfig, /version:\s*"0\.2\.1"/);
 	assert.match(wrangler, /"APP_VERSION":\s*"0\.2\.1"/);
-	assert.match(wrangler, /DRD-Rate-Manager\/0\.2\.1/);
+	assert.doesNotMatch(wrangler, /"COINGECKO_USER_AGENT"/);
 });
 
 test("Web Admin login alert renders a compact device summary instead of a raw browser blob", async () => {

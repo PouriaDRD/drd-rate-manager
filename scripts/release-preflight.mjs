@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
+import { LEGACY_RUNTIME_ENV_KEYS } from "../src/config/runtime-settings.js";
+import { LEGACY_SECURE_ENV_KEYS } from "../src/config/secure-settings.js";
+
 const EXPECTED_NAME = "drd-rate-manager";
 const EXPECTED_VERSION = "0.2.1";
 const EXPECTED_SCHEMA = 13;
@@ -12,6 +15,9 @@ const FORBIDDEN_WRANGLER_SECRETS = [
 	"TELEGRAM_WEBHOOK_SECRET",
 	"COINGECKO_API_KEY",
 	"CLOUDFLARE_API_TOKEN",
+];
+const LEGACY_WRANGLER_VARS = [
+	...new Set([...LEGACY_RUNTIME_ENV_KEYS, ...LEGACY_SECURE_ENV_KEYS]),
 ];
 
 function parseArgs(argv) {
@@ -212,6 +218,17 @@ function run(options) {
 			`${secret} is not stored in wrangler vars`,
 		);
 	}
+
+	const legacyVarsPresent = LEGACY_WRANGLER_VARS.filter((key) =>
+		Object.hasOwn(wrangler.vars || {}, key),
+	);
+	expect(
+		legacyVarsPresent.length === 0,
+		"legacy_config_vars",
+		legacyVarsPresent.length
+			? `legacy Wrangler vars remain: ${legacyVarsPresent.join(", ")}`
+			: "Wrangler vars contain no legacy runtime/secure inputs",
+	);
 
 	const channelMatches = [
 		...membershipSource.matchAll(

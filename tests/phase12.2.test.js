@@ -6,6 +6,8 @@ import {
 	configurationMigrationReadiness,
 	configurationOwnershipSnapshot,
 } from "../src/config/config-ownership.js";
+import { LEGACY_RUNTIME_ENV_KEYS } from "../src/config/runtime-settings.js";
+import { LEGACY_SECURE_ENV_KEYS } from "../src/config/secure-settings.js";
 import { serializeSystem } from "../src/controllers/web-admin-system.controller.js";
 
 test("complete runtime and encrypted-secret coverage is safe for legacy ENV removal", () => {
@@ -153,25 +155,30 @@ test("Telegram System shows the shared legacy ENV readiness and blocker codes", 
 	assert.match(source, /migration\.canRemoveAllLegacyEnv/);
 });
 
-test("wrangler keeps permanent identity and legacy bootstrap variables until readiness is verified", async () => {
+test("wrangler repository template contains only deployment identity after cleanup", async () => {
 	const wranglerText = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
 	const wrangler = JSON.parse(wranglerText);
 	assert.equal(wrangler.assets?.run_worker_first, true);
+	assert.deepEqual(Object.keys(wrangler.vars || {}).sort(), ["APP_NAME", "APP_VERSION"]);
 	assert.equal(wrangler.vars?.APP_NAME, "DRD RATE MANAGER");
 	assert.equal(wrangler.vars?.APP_VERSION, "0.2.1");
-	assert.ok(Object.hasOwn(wrangler.vars || {}, "TELEGRAM_OWNER_ID"));
-	assert.ok(Object.hasOwn(wrangler.vars || {}, "COINGECKO_USER_AGENT"));
-	assert.ok(Object.hasOwn(wrangler.vars || {}, "CLOUDFLARE_D1_DATABASE_ID"));
-	assert.equal(Object.hasOwn(wrangler.vars || {}, "TELEGRAM_BOT_TOKEN"), false);
 	assert.equal(Object.hasOwn(wrangler.vars || {}, "APP_MASTER_KEY"), false);
+
+	for (const key of [...LEGACY_RUNTIME_ENV_KEYS, ...LEGACY_SECURE_ENV_KEYS]) {
+		assert.equal(Object.hasOwn(wrangler.vars || {}, key), false, `${key} must not return to wrangler vars`);
+	}
 });
 
-test(".env.example separates permanent configuration from migration-only inputs", async () => {
+test(".env.example documents only permanent setup and D1 ownership after cleanup", async () => {
 	const env = await readFile(new URL("../.env.example", import.meta.url), "utf8");
 	assert.match(env, /PERMANENT DEPLOYMENT IDENTITY/);
 	assert.match(env, /PERMANENT INFRASTRUCTURE SECRET/);
-	assert.match(env, /LEGACY MIGRATION INPUTS/);
-	assert.match(env, /Do not remove these from an existing production environment until/);
+	assert.match(env, /D1-MANAGED APPLICATION CONFIGURATION/);
+	assert.doesNotMatch(env, /LEGACY MIGRATION INPUTS/);
+
+	for (const key of [...LEGACY_RUNTIME_ENV_KEYS, ...LEGACY_SECURE_ENV_KEYS]) {
+		assert.doesNotMatch(env, new RegExp(`^${key}=`, "m"), `${key} must not return to .env.example`);
+	}
 });
 
 test("Phase 12.2 does not change schema or application version", async () => {

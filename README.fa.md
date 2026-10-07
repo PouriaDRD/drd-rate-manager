@@ -323,7 +323,7 @@ cloudflare.d1_database_id
 cloudflare.d1_database_limit_mb
 ```
 
-در محیط migrate‌شده، D1 source of truth است. Legacy ENV فقط bootstrap/backward-compatibility input است.
+در deployment فعلی، D1 source of truth است. compatibility code هنوز می‌تواند برای installationهای قدیمی Legacy ENV را بخواند، اما templateهای فعلی دیگر این inputها را provision نمی‌کنند.
 
 ### Secure Settings
 
@@ -360,11 +360,11 @@ Web Admin تمام 25 Runtime Setting و 4 Secure Setting را مدیریت می
 - runtime refresh بدون deploy
 - `APP_MASTER_KEY` فقط status دارد و مقدارش نمایش داده نمی‌شود
 
-## 19) ENV Migration و Cleanup
+## 19) Legacy ENV Migration و Cleanup تکمیل‌شده
 
-`.env.example` migration inputها را مستند می‌کند؛ ownership دائمی ENV را نشان نمی‌دهد.
+در baseline پروداکشن v0.2.1، پاک‌سازی Legacy Runtime ENV و Legacy Worker Secretها کامل شده است. `.env.example` و `wrangler.jsonc` فعلی عمداً این legacy inputها را provision نمی‌کنند.
 
-فرآیند:
+برای installation قدیمی که هنوز migration لازم دارد، روند همچنان proof-driven است:
 
 1. Runtime/Secure migration کامل شود.
 2. System diagnostics باید readiness کامل را گزارش کند.
@@ -382,7 +382,9 @@ npm run config:finalize -- system-snapshot.json --wrangler wrangler.production.j
 npm run config:finalize -- system-snapshot.json --wrangler wrangler.production.jsonc --write
 ```
 
-این script deploy نمی‌کند و Worker Secretها را خودکار حذف نمی‌کند. `APP_MASTER_KEY` هرگز جزو cleanup نیست.
+این script deploy نمی‌کند و Worker Secretها را خودکار حذف نمی‌کند. حذف Legacy Worker Secretها یک عملیات جداگانه و version-aware در Cloudflare بعد از production verification است. `APP_MASTER_KEY` هرگز جزو cleanup نیست.
+
+در baseline تمیز v0.2.1، inventory مورد انتظار Worker Secret فقط `APP_MASTER_KEY` است.
 
 ## 20) Version Skew در Staged Deployment
 
@@ -417,7 +419,7 @@ npm install
 
 ## 22) Wrangler و D1
 
-`wrangler.jsonc` template است و placeholder دارد. production config واقعی را commit نکنید.
+`wrangler.jsonc` template است و در `vars` فقط deployment identity را نگه می‌دارد؛ D1 binding همچنان database ID placeholder دارد. production config واقعی را commit نکنید.
 
 Bindings:
 
@@ -442,7 +444,7 @@ Cron:
 wrangler secret put APP_MASTER_KEY
 ```
 
-Legacy secure inputs ممکن است برای migration اولیه لازم باشند، اما target architecture مقادیر managed را از encrypted D1 می‌خواند.
+بعد از bootstrap، Runtime Settings و Secure Settings replace-only را از Configuration خصوصی تنظیم کنید تا D1 source of truth برنامه باشد. در deployment تمیز جدید Legacy Worker Secret اضافه نکنید.
 
 ## 24) Web Admin Bootstrap
 

@@ -144,7 +144,8 @@ A failed audit write must not create false success records or corrupt the primar
 Before release:
 
 - confirm `APP_MASTER_KEY` exists and is unchanged;
-- confirm production Wrangler vars contain no secret values;
+- confirm production Wrangler vars contain only deployment identity and no legacy runtime/secure values;
+- confirm the cleaned production Worker secret inventory contains only `APP_MASTER_KEY`;
 - confirm encrypted secure settings are healthy;
 - run secret-leakage regression tests;
 - verify public docs contain no private path;
