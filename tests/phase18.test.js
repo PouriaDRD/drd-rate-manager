@@ -40,7 +40,7 @@ test("release preflight passes the current repository candidate", () => {
 	assert.equal(result.status, 0, result.stderr || result.stdout);
 	const report = JSON.parse(result.stdout);
 	assert.equal(report.ok, true);
-	assert.equal(report.version, "0.2.0");
+	assert.equal(report.version, "0.2.1");
 	assert.equal(report.schemaVersion, 13);
 });
 
@@ -53,7 +53,7 @@ test("preflight reports the actual Wrangler APP_VERSION on mismatch", async () =
 		await writeFile(
 			wranglerPath,
 			source.replace(
-				/"APP_VERSION":\s*"0\.2\.0"/,
+				/"APP_VERSION":\s*"0\.2\.1"/,
 				'"APP_VERSION": "9.9.9"',
 			),
 			"utf8",
@@ -80,7 +80,7 @@ test("preflight reports the actual Wrangler APP_VERSION on mismatch", async () =
 		);
 		assert.ok(failure);
 		assert.match(failure.message, /9\.9\.9/);
-		assert.match(failure.message, /expected 0\.2\.0/);
+		assert.match(failure.message, /expected 0\.2\.1/);
 	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
@@ -184,16 +184,16 @@ test("release preflight validates critical D1 and Worker bindings", async () => 
 	}
 });
 
-test("release candidate keeps v0.2.0 and schema 13", async () => {
+test("release candidate keeps v0.2.1 and schema 13", async () => {
 	const [app, pkg, wrangler] = await Promise.all([
 		text("src/config/app.js"),
 		json("package.json"),
 		json("wrangler.jsonc"),
 	]);
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
-	assert.equal(pkg.version, "0.2.0");
-	assert.equal(wrangler.vars.APP_VERSION, "0.2.0");
+	assert.equal(pkg.version, "0.2.1");
+	assert.equal(wrangler.vars.APP_VERSION, "0.2.1");
 });
 
 test("Phase 18.1 changes release tooling and docs only, not runtime schema", async () => {

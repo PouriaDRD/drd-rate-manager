@@ -19,8 +19,8 @@ import {
 } from "../src/utils/formatters.js";
 import { normalizePublishInterval } from "../src/utils/automation.js";
 
-test("application constants preserve v0.2.0 behavior", () => {
-	assert.equal(APP.version, "0.2.0");
+test("application constants preserve v0.2.1 behavior", () => {
+	assert.equal(APP.version, "0.2.1");
 	assert.equal(APP.schemaVersion, 13);
 	assert.deepEqual(APP.publishIntervals, [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]);
 	assert.deepEqual(USDT_SOURCE_PRIORITY, ["wallex", "tabdeal", "exir", "bitpin", "nobitex", "ompfinex", "ramzinex"]);
@@ -28,7 +28,7 @@ test("application constants preserve v0.2.0 behavior", () => {
 
 test("Config preserves current env-backed defaults", () => {
 	const config = new Config({});
-	assert.equal(config.version, "0.2.0");
+	assert.equal(config.version, "0.2.1");
 	assert.equal(config.timezone, "Asia/Tehran");
 	assert.equal(config.displayName, "DRD Rate Manager");
 	assert.equal(config.coinGeckoPlan, "demo");

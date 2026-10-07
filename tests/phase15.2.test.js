@@ -299,8 +299,8 @@ test("API enforcement is centralized before endpoint switch work", async () => {
 	assert.match(source, /accessErrorResponse/);
 });
 
-test("Phase 15.2 keeps app version 0.2.0 and schema 12", async () => {
+test("Phase 15.2 keeps app version 0.2.1 and schema 12", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.2\.0"/);
+	assert.match(source, /version:\s*"0\.2\.1"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

@@ -34,28 +34,29 @@ const VERSION_TARGETS = Object.freeze([
 	"tests/phase19.test.js",
 ]);
 
-const ALLOWED_TARGET_EXTENSIONS = new Set([
-	".js",
-	".mjs",
-	".json",
-	".jsonc",
-	".md",
-	".html",
-	".env",
-	".example",
+const VERSION_ASSERTION_TARGETS = Object.freeze([
+	"tests/phase12.2.test.js",
+	"tests/phase13.1.test.js",
+	"tests/phase13.2.test.js",
+	"tests/phase13.3.test.js",
+	"tests/phase14.1.test.js",
+	"tests/phase14.2.test.js",
+	"tests/phase14.3.test.js",
+	"tests/phase15.1.test.js",
+	"tests/phase15.2.test.js",
+	"tests/phase15.3.test.js",
+	"tests/phase15.4.test.js",
+	"tests/phase15.5.test.js",
+	"tests/phase16.1.test.js",
+	"tests/phase16.2.test.js",
+	"tests/phase16.3.test.js",
+	"tests/phase16.4.test.js",
+	"tests/phase17.test.js",
+	"tests/phase19.8.test.js",
+	"tests/phase19.8b.test.js",
+	"tests/phase19.8c.test.js",
+	"tests/phase19.8d.test.js",
 ]);
-
-function targetExtension(filePath) {
-	const base = path.basename(filePath);
-	if (base === ".env" || base === ".env.example") return ".example";
-	return path.extname(filePath).toLowerCase();
-}
-
-for (const target of VERSION_TARGETS) {
-	if (!ALLOWED_TARGET_EXTENSIONS.has(targetExtension(target))) {
-		throw new Error(`Version target has an unsupported extension: ${target}`);
-	}
-}
 
 const packagePath = path.join(ROOT, "package.json");
 const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
@@ -69,7 +70,7 @@ if (currentVersion === newVersion) {
 const escapedCurrent = currentVersion.replaceAll(".", "\\.");
 const escapedNew = newVersion.replaceAll(".", "\\.");
 
-function replaceVersionReferences(source) {
+function replaceAllVersionReferences(source) {
 	let replacements = 0;
 
 	const literalParts = source.split(currentVersion);
@@ -87,16 +88,60 @@ function replaceVersionReferences(source) {
 	return { source, replacements };
 }
 
+function replaceCurrentVersionAssertions(source) {
+	let assertionReplacements = 0;
+	let titleReplacements = 0;
+
+	const lines = source.split("\n").map((line) => {
+		let next = line;
+
+		if (/\btest\(["']/.test(next) && next.includes(currentVersion)) {
+			const parts = next.split(currentVersion);
+			titleReplacements += parts.length - 1;
+			next = parts.join(newVersion);
+		}
+
+		if (
+			next.includes("assert.match(") &&
+			next.includes("version:") &&
+			next.includes(escapedCurrent)
+		) {
+			const parts = next.split(escapedCurrent);
+			assertionReplacements += parts.length - 1;
+			next = parts.join(escapedNew);
+		}
+
+		if (
+			next.includes("assert.equal(") &&
+			next.includes("APP_VERSION") &&
+			next.includes(`"${currentVersion}"`)
+		) {
+			const parts = next.split(`"${currentVersion}"`);
+			assertionReplacements += parts.length - 1;
+			next = parts.join(`"${newVersion}"`);
+		}
+
+		return next;
+	});
+
+	return {
+		source: lines.join("\n"),
+		replacements: assertionReplacements + titleReplacements,
+		assertionReplacements,
+		titleReplacements,
+	};
+}
+
 const plan = [];
 
 for (const relativePath of VERSION_TARGETS) {
 	const absolutePath = path.join(ROOT, relativePath);
 	const before = await readFile(absolutePath, "utf8");
-	const result = replaceVersionReferences(before);
+	const result = replaceAllVersionReferences(before);
 
 	if (result.replacements === 0) {
 		throw new Error(
-			`Expected current version ${currentVersion} in allowlisted target: ${relativePath}`,
+			`Expected current version ${currentVersion} in identity target: ${relativePath}`,
 		);
 	}
 
@@ -104,15 +149,37 @@ for (const relativePath of VERSION_TARGETS) {
 		result.source.includes(currentVersion) ||
 		result.source.includes(escapedCurrent)
 	) {
-		throw new Error(`Version replacement is incomplete in: ${relativePath}`);
+		throw new Error(`Version replacement is incomplete in identity target: ${relativePath}`);
 	}
 
 	plan.push({
+		kind: "identity",
 		relativePath,
 		absolutePath,
-		before,
 		after: result.source,
 		replacements: result.replacements,
+	});
+}
+
+for (const relativePath of VERSION_ASSERTION_TARGETS) {
+	const absolutePath = path.join(ROOT, relativePath);
+	const before = await readFile(absolutePath, "utf8");
+	const result = replaceCurrentVersionAssertions(before);
+
+	if (result.assertionReplacements === 0) {
+		throw new Error(
+			`Expected a current-version assertion for ${currentVersion} in: ${relativePath}`,
+		);
+	}
+
+	plan.push({
+		kind: "test-assertion",
+		relativePath,
+		absolutePath,
+		after: result.source,
+		replacements: result.replacements,
+		assertionReplacements: result.assertionReplacements,
+		titleReplacements: result.titleReplacements,
 	});
 }
 
@@ -122,10 +189,15 @@ console.log(
 		? "Mode: write"
 		: "Mode: dry-run (no files written; re-run with --write to apply)",
 );
-console.log(`Allowlisted targets: ${plan.length}`);
+console.log(`Identity targets: ${VERSION_TARGETS.length}`);
+console.log(`Current-version test targets: ${VERSION_ASSERTION_TARGETS.length}`);
 
 for (const item of plan) {
-	console.log(` - ${item.relativePath} (${item.replacements} replacement(s))`);
+	const details =
+		item.kind === "test-assertion"
+			? `${item.assertionReplacements} assertion(s), ${item.titleReplacements} title reference(s)`
+			: `${item.replacements} replacement(s)`;
+	console.log(` - [${item.kind}] ${item.relativePath} (${details})`);
 }
 
 if (!shouldWrite) {

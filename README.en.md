@@ -2,7 +2,7 @@
 
 This is the complete English guide for **DRD Rate Manager**. For the compact GitHub overview, see [`README.md`](README.md).
 
-**Application version:** `0.2.0`
+**Application version:** `0.2.1`
 **D1 schema:** `13`
 **Runtime settings catalog:** `3`
 **Secure settings catalog:** `1`

@@ -400,8 +400,8 @@ test("auth source records success failure and locked events without credential f
 	assert.doesNotMatch(source, /loginHistory\.record\([^)]*password/s);
 });
 
-test("Phase 16.1 keeps application version 0.2.0 while schema advances to 13", async () => {
+test("Phase 16.1 keeps application version 0.2.1 while schema advances to 13", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.2\.0"/);
+	assert.match(source, /version:\s*"0\.2\.1"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

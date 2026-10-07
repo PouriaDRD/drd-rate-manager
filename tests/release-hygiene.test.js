@@ -16,7 +16,7 @@ const SETTER_PATH = fileURLToPath(
 	new URL("../scripts/set-app-version.mjs", import.meta.url),
 );
 
-const TEXT_TARGETS = [
+const IDENTITY_TARGETS = [
 	".env.example",
 	"wrangler.jsonc",
 	"src/config/app.js",
@@ -30,6 +30,34 @@ const TEXT_TARGETS = [
 	"tests/phase18.test.js",
 	"tests/phase19.test.js",
 ];
+
+const ASSERTION_TARGETS = [
+	"tests/phase12.2.test.js",
+	"tests/phase13.1.test.js",
+	"tests/phase13.2.test.js",
+	"tests/phase13.3.test.js",
+	"tests/phase14.1.test.js",
+	"tests/phase14.2.test.js",
+	"tests/phase14.3.test.js",
+	"tests/phase15.1.test.js",
+	"tests/phase15.2.test.js",
+	"tests/phase15.3.test.js",
+	"tests/phase15.4.test.js",
+	"tests/phase15.5.test.js",
+	"tests/phase16.1.test.js",
+	"tests/phase16.2.test.js",
+	"tests/phase16.3.test.js",
+	"tests/phase16.4.test.js",
+	"tests/phase17.test.js",
+	"tests/phase19.8.test.js",
+	"tests/phase19.8b.test.js",
+	"tests/phase19.8c.test.js",
+	"tests/phase19.8d.test.js",
+];
+
+async function text(relativePath) {
+	return readFile(new URL(`../${relativePath}`, import.meta.url), "utf8");
+}
 
 async function writeFixture(root, relativePath, content) {
 	const target = path.join(root, relativePath);
@@ -51,12 +79,32 @@ async function makeVersionFixture() {
 		'{\n  "name": "drd-rate-manager",\n  "version": "0.2.0",\n  "packages": {"": {"version": "0.2.0"}}\n}\n',
 	);
 
-	for (const relativePath of TEXT_TARGETS) {
+	for (const relativePath of IDENTITY_TARGETS) {
 		const content =
 			relativePath === "tests/phase19.test.js"
 				? 'assert.match(source, /0\\.2\\.0/);\n'
-				: `current=0.2.0\n`;
+				: "current=0.2.0\n";
 		await writeFixture(root, relativePath, content);
+	}
+
+	for (const relativePath of ASSERTION_TARGETS) {
+		const extra =
+			relativePath === "tests/phase12.2.test.js"
+				? 'assert.equal(wrangler.vars?.APP_VERSION, "0.2.0");\n'
+				: "";
+		await writeFixture(
+			root,
+			relativePath,
+			[
+				'test("historical phase kept 0.2.0", () => {});',
+				'const fixture = { version: "0.2.0" };',
+				'assert.match(app, /version:\\s*"0\\.2\\.0"/);',
+				extra.trim(),
+				"",
+			]
+				.filter(Boolean)
+				.join("\n"),
+		);
 	}
 
 	await writeFixture(
@@ -68,28 +116,24 @@ async function makeVersionFixture() {
 	return root;
 }
 
-test("version setter is explicit allowlist tooling rather than a repository-wide scanner", async () => {
+test("version setter uses explicit identity and current-version assertion targets", async () => {
 	const source = await readFile(SETTER_PATH, "utf8");
 
 	assert.match(source, /VERSION_TARGETS/);
+	assert.match(source, /VERSION_ASSERTION_TARGETS/);
+	assert.match(source, /replaceCurrentVersionAssertions/);
 	assert.match(source, /Mode: dry-run/);
 	assert.match(source, /--write/);
 	assert.doesNotMatch(source, /\breaddir\b/);
 	assert.doesNotMatch(source, /collect\(/);
-	assert.ok(source.includes('"public/admin/index.html"'));
-	assert.ok(source.includes('"tests/phase19.test.js"'));
-	assert.equal(source.includes('"docs/historical-release-note.md"'), false);
 });
 
-test("version setter dry-run writes nothing and --write touches only allowlisted identity surfaces", async () => {
+test("version setter updates current identity/assertions while preserving historical fixtures", async () => {
 	const root = await makeVersionFixture();
 
 	try {
-		const historicalPath = path.join(
-			root,
-			"docs/historical-release-note.md",
-		);
-		const packagePath = path.join(root, "package.json");
+		const historicalPath = path.join(root, "docs/historical-release-note.md");
+		const fixtureTarget = path.join(root, "tests/phase15.5.test.js");
 
 		const dryRun = spawnSync(process.execPath, [SETTER_PATH, "0.2.1"], {
 			cwd: root,
@@ -97,68 +141,51 @@ test("version setter dry-run writes nothing and --write touches only allowlisted
 		});
 		assert.equal(dryRun.status, 0, dryRun.stderr || dryRun.stdout);
 		assert.match(dryRun.stdout, /Mode: dry-run/);
-		assert.match(await readFile(packagePath, "utf8"), /0\.2\.0/);
-		assert.match(await readFile(historicalPath, "utf8"), /0\.2\.0/);
 
 		const writeRun = spawnSync(
 			process.execPath,
 			[SETTER_PATH, "0.2.1", "--write"],
-			{
-				cwd: root,
-				encoding: "utf8",
-			},
+			{ cwd: root, encoding: "utf8" },
 		);
 		assert.equal(writeRun.status, 0, writeRun.stderr || writeRun.stdout);
-		assert.match(writeRun.stdout, /Mode: write/);
-		assert.match(writeRun.stdout, /Updated 14 allowlisted file\(s\)/);
-
-		for (const relativePath of [
-			"package.json",
-			"package-lock.json",
-			...TEXT_TARGETS,
-		]) {
-			const source = await readFile(path.join(root, relativePath), "utf8");
-			assert.doesNotMatch(
-				source,
-				/0\.2\.0|0\\\.2\\\.0/,
-				`stale version in ${relativePath}`,
-			);
-			assert.match(
-				source,
-				/0\.2\.1|0\\\.2\\\.1/,
-				`new version missing in ${relativePath}`,
-			);
-		}
+		assert.match(writeRun.stdout, /Identity targets: 14/);
+		assert.match(writeRun.stdout, /Current-version test targets: 21/);
+		assert.match(writeRun.stdout, /Updated 35 allowlisted file\(s\)/);
 
 		assert.equal(
 			await readFile(historicalPath, "utf8"),
 			"Production baseline was 0.2.0 and must remain historical.\n",
 		);
+
+		const fixtureSource = await readFile(fixtureTarget, "utf8");
+		assert.match(fixtureSource, /fixture = \{ version: "0\.2\.0" \}/);
+		assert.match(fixtureSource, /historical phase kept 0\.2\.1/);
+		assert.match(fixtureSource, /version:\\s\*"0\\\.2\\\.1"/);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test("version setter fails before writes when an allowlisted target has no current version", async () => {
+test("version setter fails before writing if a current-version assertion target is inconsistent", async () => {
 	const root = await makeVersionFixture();
 
 	try {
-		const target = path.join(root, "README.md");
-		await writeFile(target, "no version marker here\n", "utf8");
+		await writeFile(
+			path.join(root, "tests/phase13.1.test.js"),
+			'const fixture = { version: "0.2.0" };\n',
+			"utf8",
+		);
 
 		const result = spawnSync(
 			process.execPath,
 			[SETTER_PATH, "0.2.1", "--write"],
-			{
-				cwd: root,
-				encoding: "utf8",
-			},
+			{ cwd: root, encoding: "utf8" },
 		);
 
 		assert.equal(result.status, 1);
 		assert.match(
 			result.stderr,
-			/Expected current version 0\.2\.0 in allowlisted target: README\.md/,
+			/Expected a current-version assertion for 0\.2\.0 in: tests\/phase13\.1\.test\.js/,
 		);
 		assert.match(
 			await readFile(path.join(root, "package.json"), "utf8"),
@@ -166,5 +193,33 @@ test("version setter fails before writes when an allowlisted target has no curre
 		);
 	} finally {
 		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("release changelog and versioned notes match the current application identity", async () => {
+	const pkg = JSON.parse(await text("package.json"));
+	const version = String(pkg.version);
+	const escapedVersion = version.replaceAll(".", "\\.");
+
+	const [changelog, releaseNotes] = await Promise.all([
+		text("CHANGELOG.md"),
+		text(`docs/releases/v${version}.md`),
+	]);
+
+	assert.match(changelog, new RegExp(`\\[${escapedVersion}\\]`));
+	assert.match(
+		releaseNotes,
+		new RegExp(`DRD Rate Manager v${escapedVersion}`),
+	);
+
+	for (const source of [changelog, releaseNotes]) {
+		assert.match(source, /D1 schema:\s*`13`|schema remains `13`/i);
+		assert.match(source, /Runtime Settings Catalog.*`3`/i);
+		assert.match(source, /Secure Settings Catalog.*`1`/i);
+		assert.match(source, /APP_MASTER_KEY/);
+		assert.doesNotMatch(source, /APP_MASTER_KEY\s*=\s*\S+/);
+		assert.doesNotMatch(source, /TELEGRAM_BOT_TOKEN\s*=\s*\S+/);
+		assert.doesNotMatch(source, /COINGECKO_API_KEY\s*=\s*\S+/);
+		assert.doesNotMatch(source, /CLOUDFLARE_API_TOKEN\s*=\s*\S+/);
 	}
 });

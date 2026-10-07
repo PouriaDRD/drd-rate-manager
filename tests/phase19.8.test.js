@@ -300,6 +300,6 @@ test("Phase 19.8 foundation keeps APP_MASTER_KEY out of runtime/provider catalog
 
 test("Phase 19.8A changes neither schema nor application version", async () => {
 	const source = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(source, /version:\s*"0\.2\.0"/);
+	assert.match(source, /version:\s*"0\.2\.1"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });

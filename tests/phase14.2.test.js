@@ -165,7 +165,7 @@ test("Telegram System renders the same 24-hour automation metrics", async () => 
 
 test("Phase 14.2 adds no schema or application version bump", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
 });
 

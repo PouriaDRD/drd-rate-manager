@@ -2,7 +2,7 @@
 
 **DRD Rate Manager** is a Cloudflare Workers application for resilient market-rate aggregation, Telegram operations, scheduled publishing, a private Web Admin control plane, scoped external APIs, and D1-backed configuration/security state.
 
-**Current application version:** `0.2.0`
+**Current application version:** `0.2.1`
 Schema version: **13**
 **Runtime settings catalog:** `3`
 **Secure settings catalog:** `1`

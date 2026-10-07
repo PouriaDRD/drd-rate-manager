@@ -273,7 +273,7 @@ test("composition root shares one resilience service across providers", async ()
 test("Phase 13.1 reuses runtime_locks without schema or app-version bump", async () => {
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
 	const database = await readFile(new URL("../src/database/database.js", import.meta.url), "utf8");
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
 	assert.doesNotMatch(database, /provider_resilience/);
 });

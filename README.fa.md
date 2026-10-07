@@ -2,7 +2,7 @@
 
 این فایل راهنمای جامع فارسی پروژه **DRD Rate Manager** است. برای معرفی کوتاه پروژه، [`README.md`](README.md) را ببینید.
 
-**نسخه برنامه:** `0.2.0`
+**نسخه برنامه:** `0.2.1`
 **نسخه Schema دیتابیس D1:** `13`
 **نسخه Runtime Settings Catalog:** `3`
 **نسخه Secure Settings Catalog:** `1`

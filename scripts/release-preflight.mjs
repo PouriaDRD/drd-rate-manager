@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const EXPECTED_NAME = "drd-rate-manager";
-const EXPECTED_VERSION = "0.2.0";
+const EXPECTED_VERSION = "0.2.1";
 const EXPECTED_SCHEMA = 13;
 const REQUIRED_CHANNELS = ["@DRDNetwork", "@DRDrate"];
 const FORBIDDEN_WRANGLER_SECRETS = [

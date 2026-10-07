@@ -727,7 +727,7 @@ test("Phase 19.8D remains a hardening-only slice with stable app and schema iden
 		new URL("../src/config/app.js", import.meta.url),
 		"utf8",
 	);
-	assert.match(source, /version:\s*"0\.2\.0"/);
+	assert.match(source, /version:\s*"0\.2\.1"/);
 	assert.match(source, /schemaVersion:\s*13/);
 });
 

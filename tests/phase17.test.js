@@ -365,6 +365,6 @@ test("Phase 17 reuses settings storage and keeps schema and application version 
 	assert.doesNotMatch(repository, /CREATE TABLE|ALTER TABLE/);
 	assert.doesNotMatch(service, /CREATE TABLE|ALTER TABLE/);
 	assert.match(repository, /telegram_required_extra_channels_v1/);
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
 });

@@ -4,7 +4,7 @@ This directory contains operator and developer documentation for DRD Rate Manage
 
 Current baseline:
 
-- Application version: `0.2.0`
+- Application version: `0.2.1`
 - D1 schema: `13`
 - Runtime settings catalog: `3`
 - Secure settings catalog: `1`
@@ -26,6 +26,11 @@ Current baseline:
 - [Troubleshooting](troubleshooting.md)
 - [Release checklist](release-checklist.md)
 - [Phase 19.8 hardening test matrix](phase19.8-test-matrix.md)
+- [v0.2.1 release notes](releases/v0.2.1.md)
+
+Release history:
+
+- [Project changelog](../CHANGELOG.md)
 
 Public project overviews:
 

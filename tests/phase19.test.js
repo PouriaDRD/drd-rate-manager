@@ -10,7 +10,7 @@ import {
 } from "../src/services/operational-alert.service.js";
 import { WebLoginAlertService } from "../src/services/web-login-alert.service.js";
 
-test("application identity is consistently version 0.2.0", async () => {
+test("application identity is consistently version 0.2.1", async () => {
 	const [packageJson, packageLock, appConfig, wrangler, envExample] =
 		await Promise.all([
 			readFile(new URL("../package.json", import.meta.url), "utf8"),
@@ -27,11 +27,11 @@ test("application identity is consistently version 0.2.0", async () => {
 		wrangler,
 		envExample,
 	]) {
-		assert.match(source, /0\.2\.0/);
+		assert.match(source, /0\.2\.1/);
 	}
-	assert.match(appConfig, /version:\s*"0\.2\.0"/);
-	assert.match(wrangler, /"APP_VERSION":\s*"0\.2\.0"/);
-	assert.match(wrangler, /DRD-Rate-Manager\/0\.2\.0/);
+	assert.match(appConfig, /version:\s*"0\.2\.1"/);
+	assert.match(wrangler, /"APP_VERSION":\s*"0\.2\.1"/);
+	assert.match(wrangler, /DRD-Rate-Manager\/0\.2\.1/);
 });
 
 test("Web Admin login alert renders a compact device summary instead of a raw browser blob", async () => {
@@ -233,7 +233,7 @@ test("Web Admin static shell contains only the current application version", asy
 		"utf8",
 	);
 	const forbiddenLegacyVersion = ["0", "13", "0"].join(".");
-	assert.match(html, /v0\.2\.0/);
+	assert.match(html, /v0\.2\.1/);
 	assert.ok(!html.includes(`v${forbiddenLegacyVersion}`));
 });
 
@@ -242,7 +242,7 @@ test("version tool handles HTML and escaped regex version guards", async () => {
 		new URL("../scripts/set-app-version.mjs", import.meta.url),
 		"utf8",
 	);
-	assert.match(script, /"\.html"/);
+	assert.match(script, /"public\/admin\/index\.html"/);
 	assert.match(script, /escapedCurrent/);
 	assert.match(script, /replaceAll\("\.", "\\\\\."\)/);
 });

@@ -149,7 +149,7 @@ test("Phase 19.8B composition root constructs configuration management without T
 test("Phase 19.8B advances runtime catalog version without changing schema/app version", async () => {
 	assert.equal(RUNTIME_SETTINGS_VERSION, 3);
 	const app = await readFile(new URL("../src/config/app.js", import.meta.url), "utf8");
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
 });
 

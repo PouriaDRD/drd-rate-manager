@@ -166,7 +166,7 @@ test("Phase 16.2 reuses Phase 16.1 service and adds no schema or app-version cha
 	assert.match(controller, /this\.s\.loginHistory\.stats/);
 	assert.doesNotMatch(controller, /DB\.prepare/);
 	assert.equal((container.match(/new LoginHistoryService\(/g) || []).length, 1);
-	assert.match(appConfig, /version:\s*"0\.2\.0"/);
+	assert.match(appConfig, /version:\s*"0\.2\.1"/);
 	assert.match(appConfig, /schemaVersion:\s*13/);
 	assert.equal((database.match(/CREATE TABLE IF NOT EXISTS web_admin_login_history/g) || []).length, 1);
 });

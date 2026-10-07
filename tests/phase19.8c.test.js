@@ -120,6 +120,6 @@ test("browser artifacts are ignored and application identity remains unchanged",
 	]);
 	assert.match(ignore, /^playwright-report\/$/m);
 	assert.match(ignore, /^test-results\/$/m);
-	assert.match(app, /version:\s*"0\.2\.0"/);
+	assert.match(app, /version:\s*"0\.2\.1"/);
 	assert.match(app, /schemaVersion:\s*13/);
 });
