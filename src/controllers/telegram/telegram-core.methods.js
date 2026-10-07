@@ -67,6 +67,9 @@ async _message(message) {
 	const input = await this.s.adminInput.get(user.id);
 	if (unknownSlashCommand) return;
 
+	if (input?.action === "add_admin" && command) {
+		await this.s.adminInput.clear(user.id);
+	}
 	if (input?.action === "add_admin" && !command) {
 		return this._handleAddAdminInput(message, admin);
 	}
@@ -285,7 +288,10 @@ async _callback(query) {
 	}
 	if (data === "system:home") return this._showSystem(message);
 	if (data === "database:home") return this._showDatabase(message);
-	if (data === "admins:home") return this._showAdmins(message, admin);
+	if (data === "admins:home") {
+		await this.s.adminInput.clear(user.id);
+		return this._showAdmins(message, admin);
+	}
 	if (data === "admins:add") return this._beginAddAdmin(message, admin, user);
 	if (data.startsWith("admins:view:")) {
 		return this._showAdminDetail(message, admin, data.slice("admins:view:".length));

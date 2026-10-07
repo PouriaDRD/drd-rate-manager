@@ -40,7 +40,23 @@ export class MarketService {
 			return this.#withCacheMeta(cached.payload, cached, ttlSeconds, true, false);
 		}
 
-		const token = await this.locks.acquire(APP.marketRefreshLockKey, APP.marketRefreshLockMs);
+		let token;
+		try {
+			token = await this.locks.acquire(APP.marketRefreshLockKey, APP.marketRefreshLockMs);
+		} catch (error) {
+			console.warn("market.refresh_lock_failed", errorMessage(error));
+			if (cached) {
+				return this.#withCacheMeta(
+					cached.payload,
+					cached,
+					ttlSeconds,
+					true,
+					true,
+					"refresh_lock_unavailable",
+				);
+			}
+			throw error;
+		}
 		if (!token) {
 			if (cached) {
 				return this.#withCacheMeta(

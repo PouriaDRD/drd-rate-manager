@@ -142,3 +142,44 @@ This phase is a release blocker for configuration cleanup and the next productio
 - Regression tests for the above.
 
 Remaining work is intentionally split into subsequent 19.8 slices so each slice can be tested before commit/push.
+
+
+## Phase 19.8B completed
+
+- Full runtime configuration management in Web Admin.
+- All 13 provider URLs exposed through the managed catalog.
+- Four managed secure settings are replace-only and never returned in plaintext.
+- Current Web Admin password confirmation protects secret replacement.
+- `APP_MASTER_KEY` remains deployment-only and immutable.
+- Runtime configuration catalog advanced independently of the D1 schema.
+
+## Phase 19.8C completed
+
+- Real-browser Playwright coverage added.
+- Chromium, Firefox and WebKit are mandatory browser gates.
+- Neutral session boot gate prevents login/app-shell flash.
+- API Management and Login History blank-view regressions are covered.
+- Full Configuration Management is exercised in the browser.
+- Session expiry is handled centrally.
+- Mobile navigation and visible failure states are covered.
+- Trace, screenshot and video evidence are retained on browser failure.
+
+## Phase 19.8D — final integration, security and failure hardening
+
+This final slice intentionally adds no product feature or schema/version change.
+
+Mandatory focus:
+
+- Telegram pending-input cancellation is deterministic.
+- Back/cancel callbacks cannot leave stale add-admin state behind.
+- Market cache remains usable when refresh-lock persistence fails.
+- A missing cache still fails closed when refresh coordination is unavailable.
+- Cache write failures cannot destroy the last known-good snapshot.
+- Expired and credential-invalid Web Admin sessions are removed.
+- Invalid CSRF fails closed without destroying a valid session.
+- Failed runtime/secure persistence cannot emit false audit-success records.
+- Audit storage itself remains fail-open and never logs mutation payload data.
+- Automation history-storage failure cannot replace publish success/failure semantics.
+- The full Node, browser, syntax, format and diff gates remain mandatory.
+
+After 19.8D is green, Phase 19.8 is considered complete and the project may proceed to configuration cleanup/release preparation.
