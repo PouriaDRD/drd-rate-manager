@@ -26,7 +26,7 @@ import {
 import { createRuntimeEnv } from "../src/config/runtime-env.js";
 
 test("Phase 12.1 runtime catalog version adds CoinGecko user-agent ownership", () => {
-	assert.equal(RUNTIME_SETTINGS_VERSION, 2);
+	assert.equal(RUNTIME_SETTINGS_VERSION, 3);
 	const definition = RUNTIME_SETTING_DEFINITIONS.find((item) => item.key === "coingecko.user_agent");
 	assert.ok(definition);
 	assert.equal(definition.legacyEnvKey, "COINGECKO_USER_AGENT");

@@ -4,6 +4,7 @@ import { TelegramController } from "../controllers/telegram.controller.js";
 import { WebAdminAdminsController } from "../controllers/web-admin-admins.controller.js";
 import { WebAdminApiManagementController } from "../controllers/web-admin-api-management.controller.js";
 import { WebAdminAuthController } from "../controllers/web-admin-auth.controller.js";
+import { WebAdminConfigurationController } from "../controllers/web-admin-configuration.controller.js";
 import { WebAdminDataController } from "../controllers/web-admin-data.controller.js";
 import { WebAdminSystemController } from "../controllers/web-admin-system.controller.js";
 import { WebAdminUiController } from "../controllers/web-admin-ui.controller.js";
@@ -24,6 +25,7 @@ export class Application {
 		this.webAdmin = new WebAdminAuthController(this.services);
 		this.webAdminAdmins = new WebAdminAdminsController(this.services);
 		this.webAdminApiManagement = new WebAdminApiManagementController(this.services);
+		this.webAdminConfiguration = new WebAdminConfigurationController(this.services);
 		this.webAdminSystem = new WebAdminSystemController(this.services);
 		this.webAdminData = new WebAdminDataController(this.services);
 		this.webAdminUi = new WebAdminUiController(this.services);
@@ -50,6 +52,8 @@ export class Application {
 		if (webAdminAdminsResponse) return webAdminAdminsResponse;
 		const webAdminApiManagementResponse = await this.webAdminApiManagement.route(request, url);
 		if (webAdminApiManagementResponse) return webAdminApiManagementResponse;
+		const webAdminConfigurationResponse = await this.webAdminConfiguration.route(request, url);
+		if (webAdminConfigurationResponse) return webAdminConfigurationResponse;
 		const webAdminSystemResponse = await this.webAdminSystem.route(request, url);
 		if (webAdminSystemResponse) return webAdminSystemResponse;
 		const webAdminDataResponse = await this.webAdminData.route(request, url);

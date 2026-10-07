@@ -1,6 +1,6 @@
 import { APP } from "./app.js";
 
-export const RUNTIME_SETTINGS_VERSION = 2;
+export const RUNTIME_SETTINGS_VERSION = 3;
 
 const DEFAULT_ASSETS = "bitcoin,ethereum,binancecoin,ripple,solana,tron";
 

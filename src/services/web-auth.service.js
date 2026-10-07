@@ -199,6 +199,24 @@ export class WebAuthService {
 		return { user, session, tokenHash };
 	}
 
+	async confirmPassword(authenticated, passwordInput) {
+		const user = authenticated?.user;
+		if (!user) {
+			throw Object.assign(new Error("Authentication is required."), {
+				statusCode: 401,
+				code: "authentication_required",
+			});
+		}
+		const valid = await this.passwordHasher.verify(String(passwordInput || ""), user);
+		if (!valid) {
+			throw Object.assign(new Error("Current password is incorrect."), {
+				statusCode: 403,
+				code: "password_confirmation_failed",
+			});
+		}
+		return true;
+	}
+
 	async rotateCsrf(authenticated) {
 		const csrfToken = randomToken();
 		await this.sessions.rotateCsrf(authenticated.tokenHash, await sha256(csrfToken));

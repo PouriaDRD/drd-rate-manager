@@ -38,6 +38,20 @@ export class AdminApi {
     return this.#request("/api/v1/preferences", { method: "PATCH", body: payload, csrfToken });
   }
 
+  configuration() { return this.#request("/api/v1/configuration"); }
+  updateRuntimeConfiguration(values, csrfToken) {
+    return this.#request("/api/v1/configuration/runtime", {
+      method: "PATCH", body: { values }, csrfToken,
+    });
+  }
+  replaceSecureConfiguration(key, value, currentPassword, csrfToken) {
+    return this.#request(`/api/v1/configuration/secrets/${encodeURIComponent(key)}`, {
+      method: "PATCH",
+      body: { value, current_password: currentPassword },
+      csrfToken,
+    });
+  }
+
   sources() { return this.#request("/api/v1/sources"); }
   updateSource(source, enabled, csrfToken) {
     return this.#request(`/api/v1/sources/${encodeURIComponent(source)}`, {

@@ -28,6 +28,7 @@ import { ApiAccessService } from "../services/api-access.service.js";
 import { ApiManagementService } from "../services/api-management.service.js";
 import { AutomationManagementService } from "../services/automation-management.service.js";
 import { AutomationService } from "../services/automation.service.js";
+import { ConfigurationManagementService } from "../services/configuration-management.service.js";
 import { ApiTokenService } from "../services/api-token.service.js";
 import { LoginHistoryService } from "../services/login-history.service.js";
 import { MarketPublisher } from "../services/market-publisher.service.js";
@@ -79,6 +80,13 @@ export function createServices(env) {
 	const webLoginHistoryRepository = new WebLoginHistoryRepository(runtimeEnv);
 	const loginHistory = new LoginHistoryService(webLoginHistoryRepository);
 	const webAuth = new WebAuthService(runtimeEnv, webAdmins, webSessions, webAuthAttempts, undefined, loginHistory);
+	const configurationManagement = new ConfigurationManagementService({
+		settingsService,
+		secureSettingsService,
+		audit,
+		webAuth,
+		rawEnv: env,
+	});
 	const http = new HttpClient();
 	const coinGecko = new CoinGeckoClient(runtimeEnv, config, http, resilience);
 	const sources = new MarketSources(runtimeEnv, http, statuses, config, sourceSettings, resilience);
@@ -158,6 +166,7 @@ export function createServices(env) {
 		webLoginHistoryRepository,
 		loginHistory,
 		webAuth,
+		configurationManagement,
 		http,
 		coinGecko,
 		sources,

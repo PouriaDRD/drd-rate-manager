@@ -13,7 +13,7 @@
     "config:finalize": "node scripts/finalize-config-cleanup.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:check": "npm test && npm run check && npm run release:preflight",
-    "test:phase19.8": "node --test tests/phase19.8.test.js"
+    "test:phase19.8": "node --test tests/phase19.8.test.js tests/phase19.8b.test.js"
   },
   "devDependencies": {
     "prettier": "3.9.9"

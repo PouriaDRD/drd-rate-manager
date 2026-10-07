@@ -2,6 +2,7 @@ import { AdminApi, ApiError } from "./api.js";
 import { applyLanguage, normalizeLanguage, t } from "./i18n.js";
 import { apiManagementView } from "./api-management.js";
 import { loginHistoryView } from "./login-history.js";
+import { configurationView } from "./configuration.js";
 
 const THEME_KEY = "drd-admin-theme";
 const LANG_KEY = "drd-admin-lang";
@@ -55,6 +56,11 @@ window.DRDAdminShell = Object.freeze({
   revokeApiToken: (id) => api.revokeApiToken(id, state.csrfToken),
   setMarketApiMode: (mode) => api.setMarketApiMode(mode, state.csrfToken),
   loginHistory: (options = {}) => api.loginHistory(options),
+  configurationSnapshot: () => api.configuration(),
+  updateRuntimeConfiguration: (values) => api.updateRuntimeConfiguration(values, state.csrfToken),
+  replaceSecureConfiguration: (key, value, currentPassword) =>
+    api.replaceSecureConfiguration(key, value, currentPassword, state.csrfToken),
+  testConfiguredSource: (source) => api.testSource(source, state.csrfToken),
   toast: (message, type = "info") => showToast(message, type),
 });
 
@@ -221,6 +227,7 @@ async function submitLogout() {
   stopAutomationCountdown();
   apiManagementView.reset();
   loginHistoryView.reset();
+  configurationView.reset();
   state.user = null;
   state.csrfToken = "";
   showLogin();
@@ -338,7 +345,10 @@ async function activateView(view) {
     if (view === "loginHistory") await loginHistoryView.load();
     if (view === "system") await window.DRDSystem?.load?.();
     else stopAutomationCountdown();
-    if (view === "settings") syncPreferencesForm();
+    if (view === "settings") {
+      syncPreferencesForm();
+      await configurationView.load();
+    }
   } catch (error) {
     showToast(error.message || t(state.language, "networkError"), "error");
   }

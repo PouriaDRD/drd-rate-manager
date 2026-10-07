@@ -14,6 +14,8 @@ const ADMIN_ASSETS = new Set([
 	"assets/api-management.js",
 	"assets/login-history.css",
 	"assets/login-history.js",
+	"assets/configuration.css",
+	"assets/configuration.js",
 ]);
 
 export class WebAdminUiController {

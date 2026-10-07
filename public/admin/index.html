@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="assets/system.css">
   <link rel="stylesheet" href="assets/api-management.css">
   <link rel="stylesheet" href="assets/login-history.css">
+  <link rel="stylesheet" href="assets/configuration.css">
 </head>
 <body>
   <noscript class="noscript">JavaScript is required for DRD Rate Manager Web Admin.</noscript>
@@ -452,8 +453,13 @@
         </section>
 
         <section id="settings-view" class="view-section" hidden>
-          <div class="section-heading-row"><div><span class="eyebrow">DRD / 10</span><h2 data-i18n="preferences">ترجیحات</h2></div></div>
+          <div class="section-heading-row configuration-hero">
+            <div><span class="eyebrow">DRD / 10</span><h2 data-config-i18n="title">پیکربندی سیستم</h2><p class="section-description" data-config-i18n="intro">تنظیمات Runtime، منابع و Secretها را مدیریت کنید.</p></div>
+            <button id="configuration-reload" class="secondary-button" type="button" data-config-i18n="reload">بروزرسانی</button>
+          </div>
+
           <form id="preferences-form" class="panel-card form-card">
+            <div class="card-heading"><div><h3 data-i18n="preferences">ترجیحات</h3></div></div>
             <div class="field-grid">
               <label class="field"><span data-i18n="adminLanguage">زبان پنل</span><select id="admin-language-select"><option value="fa">فارسی</option><option value="en">English</option></select></label>
               <label class="field"><span data-i18n="adminTheme">تم پنل</span><select id="admin-theme-select"><option value="system" data-i18n="systemTheme">سیستم</option><option value="dark" data-i18n="darkTheme">تیره</option><option value="light" data-i18n="lightTheme">روشن</option></select></label>
@@ -461,6 +467,20 @@
             </div>
             <button class="primary-button" type="submit" data-i18n="savePreferences">ذخیره ترجیحات</button>
           </form>
+
+          <div id="configuration-panel" class="configuration-stack">
+            <div id="configuration-runtime-groups" class="configuration-stack"></div>
+
+            <article class="panel-card configuration-intro-card">
+              <div class="card-heading"><div><h3 data-config-i18n="secure">Secure settings</h3><p data-config-i18n="secureIntro">مقدار فعلی Secret نمایش داده نمی‌شود.</p></div></div>
+            </article>
+            <div id="configuration-secure-list" class="configuration-secret-grid"></div>
+
+            <article class="panel-card">
+              <div class="card-heading"><div><h3 data-config-i18n="protected">تنظیمات محافظت‌شده</h3><p data-config-i18n="protectedIntro">این مقادیر از پنل قابل تغییر نیستند.</p></div></div>
+              <div id="configuration-protected-list" class="configuration-protected-list"></div>
+            </article>
+          </div>
         </section>
 
         <section id="placeholder-view" class="view-section" hidden>
