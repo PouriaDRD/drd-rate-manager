@@ -1,12 +1,60 @@
-import { readFile, readdir, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const ROOT = process.cwd();
-const newVersion = String(process.argv[2] || "").trim();
+const args = process.argv.slice(2);
+const newVersion = String(args.find((arg) => !arg.startsWith("--")) || "").trim();
+const shouldWrite = args.includes("--write");
+const unknownOptions = args.filter((arg) => arg.startsWith("--") && arg !== "--write");
 
-if (!/^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$/.test(newVersion)) {
-	console.error("Usage: node scripts/set-app-version.mjs <new-version>");
+if (unknownOptions.length) {
+	console.error(`Unknown option(s): ${unknownOptions.join(", ")}`);
 	process.exit(1);
+}
+
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(newVersion)) {
+	console.error("Usage: node scripts/set-app-version.mjs <new-version> [--write]");
+	process.exit(1);
+}
+
+const VERSION_TARGETS = Object.freeze([
+	"package.json",
+	"package-lock.json",
+	".env.example",
+	"wrangler.jsonc",
+	"src/config/app.js",
+	"public/admin/index.html",
+	"scripts/release-preflight.mjs",
+	"README.md",
+	"README.fa.md",
+	"README.en.md",
+	"docs/README.md",
+	"tests/foundation.test.js",
+	"tests/phase18.test.js",
+	"tests/phase19.test.js",
+]);
+
+const ALLOWED_TARGET_EXTENSIONS = new Set([
+	".js",
+	".mjs",
+	".json",
+	".jsonc",
+	".md",
+	".html",
+	".env",
+	".example",
+]);
+
+function targetExtension(filePath) {
+	const base = path.basename(filePath);
+	if (base === ".env" || base === ".env.example") return ".example";
+	return path.extname(filePath).toLowerCase();
+}
+
+for (const target of VERSION_TARGETS) {
+	if (!ALLOWED_TARGET_EXTENSIONS.has(targetExtension(target))) {
+		throw new Error(`Version target has an unsupported extension: ${target}`);
+	}
 }
 
 const packagePath = path.join(ROOT, "package.json");
@@ -14,67 +62,78 @@ const packageJson = JSON.parse(await readFile(packagePath, "utf8"));
 const currentVersion = String(packageJson.version || "").trim();
 
 if (!currentVersion) throw new Error("Current package version is missing.");
-
-const SKIP_DIRS = new Set([
-	".git", "node_modules", ".wrangler", "coverage", "dist", "build",
-]);
-
-const TEXT_EXTENSIONS = new Set([
-	".js", ".mjs", ".cjs", ".json", ".jsonc", ".md", ".txt",
-	".yml", ".yaml", ".env", ".example", ".toml", ".html", ".css",
-	".svg", ".xml",
-]);
-
-function isTextFile(filePath) {
-	const base = path.basename(filePath);
-	if (base === ".env" || base === ".env.example") return true;
-	return TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
-
-async function collect(dir, result = []) {
-	for (const entry of await readdir(dir, { withFileTypes: true })) {
-		if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
-		const fullPath = path.join(dir, entry.name);
-		if (entry.isDirectory()) {
-			await collect(fullPath, result);
-			continue;
-		}
-		if (entry.isFile() && isTextFile(fullPath)) result.push(fullPath);
-	}
-	return result;
+if (currentVersion === newVersion) {
+	throw new Error(`Version is already ${newVersion}.`);
 }
 
 const escapedCurrent = currentVersion.replaceAll(".", "\\.");
 const escapedNew = newVersion.replaceAll(".", "\\.");
-const files = await collect(ROOT);
-const changed = [];
 
-for (const filePath of files) {
-	let source = await readFile(filePath, "utf8");
-	const before = source;
-	source = source.split(currentVersion).join(newVersion);
-	source = source.split(escapedCurrent).join(escapedNew);
+function replaceVersionReferences(source) {
+	let replacements = 0;
 
-	if (source !== before) {
-		await writeFile(filePath, source, "utf8");
-		changed.push(path.relative(ROOT, filePath));
+	const literalParts = source.split(currentVersion);
+	if (literalParts.length > 1) {
+		replacements += literalParts.length - 1;
+		source = literalParts.join(newVersion);
 	}
-}
 
-const leftovers = [];
-for (const filePath of files) {
-	const source = await readFile(filePath, "utf8");
-	if (source.includes(currentVersion) || source.includes(escapedCurrent)) {
-		leftovers.push(path.relative(ROOT, filePath));
+	const escapedParts = source.split(escapedCurrent);
+	if (escapedParts.length > 1) {
+		replacements += escapedParts.length - 1;
+		source = escapedParts.join(escapedNew);
 	}
+
+	return { source, replacements };
 }
 
-if (leftovers.length) {
-	console.error("Version replacement is incomplete:");
-	for (const file of leftovers) console.error(` - ${file}`);
-	process.exit(1);
+const plan = [];
+
+for (const relativePath of VERSION_TARGETS) {
+	const absolutePath = path.join(ROOT, relativePath);
+	const before = await readFile(absolutePath, "utf8");
+	const result = replaceVersionReferences(before);
+
+	if (result.replacements === 0) {
+		throw new Error(
+			`Expected current version ${currentVersion} in allowlisted target: ${relativePath}`,
+		);
+	}
+
+	if (
+		result.source.includes(currentVersion) ||
+		result.source.includes(escapedCurrent)
+	) {
+		throw new Error(`Version replacement is incomplete in: ${relativePath}`);
+	}
+
+	plan.push({
+		relativePath,
+		absolutePath,
+		before,
+		after: result.source,
+		replacements: result.replacements,
+	});
 }
 
-console.log(`Version: ${currentVersion} -> ${newVersion}`);
-console.log(`Updated ${changed.length} file(s).`);
-for (const file of changed) console.log(` - ${file}`);
+console.log(`Version plan: ${currentVersion} -> ${newVersion}`);
+console.log(
+	shouldWrite
+		? "Mode: write"
+		: "Mode: dry-run (no files written; re-run with --write to apply)",
+);
+console.log(`Allowlisted targets: ${plan.length}`);
+
+for (const item of plan) {
+	console.log(` - ${item.relativePath} (${item.replacements} replacement(s))`);
+}
+
+if (!shouldWrite) {
+	process.exit(0);
+}
+
+for (const item of plan) {
+	await writeFile(item.absolutePath, item.after, "utf8");
+}
+
+console.log(`Updated ${plan.length} allowlisted file(s).`);
