@@ -11,6 +11,11 @@ import {
 	OPERATIONAL_METRICS_WINDOW_MS,
 } from "./operational-metrics.js";
 
+export const AUTOMATION_HEALTH_LIMITS = Object.freeze({
+	heartbeatStaleMs: 7 * 60 * 1000,
+	publishOverdueGraceMs: 2 * 60 * 1000,
+});
+
 function sourceHealth(snapshot = {}) {
 	const items = Object.values(snapshot.sources || {});
 	const enabled = items.filter((item) => item.enabled);
@@ -207,6 +212,54 @@ function secureStatus(status = {}) {
 	};
 }
 
+function automationHealth(state = {}, botEnabled, now) {
+	const settings = state.settings || {};
+	const diagnostics = state.diagnostics || {};
+	const enabled = Boolean(botEnabled && settings.enabled);
+	const lastTickAt = Number(settings.lastTickAt || 0);
+	const scheduleChangedAt = Number(settings.scheduleChangedAt || 0);
+	const lastAttemptAt = Number(settings.lastAttemptAt || 0);
+	const lastSuccessAt = Number(settings.lastSuccessAt || 0);
+	const lastErrorAt = Number(settings.lastErrorAt || 0);
+	const heartbeatReferenceAt =
+		lastTickAt || scheduleChangedAt || lastAttemptAt || lastSuccessAt;
+	const heartbeatAgeMs = heartbeatReferenceAt
+		? Math.max(0, now - heartbeatReferenceAt)
+		: null;
+	const currentSlotAt = Number(diagnostics.currentSlotAt || 0);
+	const cronStalled = Boolean(
+		enabled &&
+		(!heartbeatReferenceAt ||
+			heartbeatAgeMs > AUTOMATION_HEALTH_LIMITS.heartbeatStaleMs),
+	);
+	const publishOverdue = Boolean(
+		enabled &&
+		Boolean(diagnostics.canPublishNow) &&
+		currentSlotAt > 0 &&
+		now - currentSlotAt > AUTOMATION_HEALTH_LIMITS.publishOverdueGraceMs,
+	);
+	const lastRunFailed = Boolean(enabled && lastErrorAt > lastSuccessAt);
+
+	return {
+		enabled: Boolean(settings.enabled),
+		intervalMinutes: Number(settings.intervalMinutes || 0),
+		reason: diagnostics.reason || "unknown",
+		canPublishNow: Boolean(diagnostics.canPublishNow),
+		currentSlotAt,
+		nextPublishAt: Number(diagnostics.nextPublishAt || 0),
+		lastTickAt,
+		heartbeatAgeSeconds:
+			heartbeatAgeMs == null ? null : Math.floor(heartbeatAgeMs / 1000),
+		cronStalled,
+		publishOverdue,
+		lastRunFailed,
+		lastSuccessAt,
+		lastAttemptAt,
+		lastErrorAt,
+		lastError: settings.lastError || null,
+	};
+}
+
 function buildHealth({
 	database,
 	integrity,
@@ -215,6 +268,7 @@ function buildHealth({
 	cache,
 	runtimeSettings,
 	operationalMetrics,
+	automation,
 }) {
 	const critical = [];
 	const warnings = [];
@@ -237,6 +291,9 @@ function buildHealth({
 	if (operationalMetrics?.supported && !operationalMetrics.available) {
 		warnings.push("operational_metrics_unavailable");
 	}
+	if (automation?.cronStalled) warnings.push("automation_cron_stalled");
+	if (automation?.publishOverdue) warnings.push("automation_publish_overdue");
+	if (automation?.lastRunFailed) warnings.push("automation_last_run_failed");
 	if (runtimeSettings.legacyFallbackKeys?.length) notices.push("runtime_settings_legacy_fallback");
 	if (runtimeSettings.defaultFallbackKeys?.length) notices.push("runtime_settings_default_fallback");
 
@@ -273,6 +330,7 @@ export class SystemManagementService {
 			sourceSnapshot,
 			cacheRow,
 			botEnabledRaw,
+			automationState,
 			automationMetrics,
 		] = await Promise.all([
 			this.databaseStatusFn(this.s, { details: false }),
@@ -281,6 +339,7 @@ export class SystemManagementService {
 				: this.s.sourceSettings.snapshot(),
 			this.s.cache.read(),
 			this.s.settings.get("bot_enabled", "1"),
+			this.s.automationManagement.state(now, 1),
 			automationMetricStats(this.s.automationRuns, now),
 		]);
 
@@ -289,6 +348,7 @@ export class SystemManagementService {
 		const sources = sourceHealth(sourceSnapshot);
 		const cache = cacheHealth(cacheRow, now);
 		const runtimeSettings = this.s.settingsService.status();
+		const automation = automationHealth(automationState, botEnabled, now);
 		const health = buildHealth({
 			database,
 			integrity,
@@ -297,6 +357,7 @@ export class SystemManagementService {
 			cache,
 			runtimeSettings,
 			operationalMetrics: automationMetrics,
+			automation,
 		});
 		const metrics = buildOperationalMetrics({
 			now,
@@ -319,6 +380,7 @@ export class SystemManagementService {
 			},
 			database,
 			cache,
+			automation,
 			sources,
 			metrics,
 		};
@@ -355,6 +417,7 @@ export class SystemManagementService {
 		const sources = sourceHealth(sourceSnapshot);
 		const cache = cacheHealth(cacheRow, now);
 		const runtimeSettings = this.s.settingsService.status();
+		const automation = automationHealth(automationState, botEnabled, now);
 		const rawSecureSettings = this.s.secureSettingsService.status();
 		const secureSettings = secureStatus(rawSecureSettings);
 		const configuration = {
@@ -369,6 +432,7 @@ export class SystemManagementService {
 			cache,
 			runtimeSettings,
 			operationalMetrics: automationMetrics,
+			automation,
 		});
 		const metrics = buildOperationalMetrics({
 			now,
@@ -391,16 +455,7 @@ export class SystemManagementService {
 			},
 			database,
 			cache,
-			automation: {
-				enabled: Boolean(automationState.settings.enabled),
-				reason: automationState.diagnostics.reason,
-				canPublishNow: Boolean(automationState.diagnostics.canPublishNow),
-				nextPublishAt: Number(automationState.diagnostics.nextPublishAt || 0),
-				lastSuccessAt: Number(automationState.settings.lastSuccessAt || 0),
-				lastAttemptAt: Number(automationState.settings.lastAttemptAt || 0),
-				lastErrorAt: Number(automationState.settings.lastErrorAt || 0),
-				lastError: automationState.settings.lastError || null,
-			},
+			automation,
 			sources,
 			admins: {
 				total: adminSnapshot.stats.total,
@@ -430,6 +485,9 @@ export const SYSTEM_HEALTH_REASONS = Object.freeze({
 		"source_failures",
 		"provider_circuit_open",
 		"operational_metrics_unavailable",
+		"automation_cron_stalled",
+		"automation_publish_overdue",
+		"automation_last_run_failed",
 	]),
 	notices: Object.freeze([
 		"bot_disabled",

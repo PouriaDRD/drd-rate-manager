@@ -93,6 +93,15 @@ test("degraded alerts ignore cache lifecycle noise and keep real route failures 
 		}),
 	);
 	assert.deepEqual(candidate.reasons, ["provider_circuit_open"]);
+	const automationCandidate = operationalAlertCandidate(
+		snapshot("degraded", {
+			warnings: ["automation_cron_stalled", "automation_publish_overdue"],
+		}),
+	);
+	assert.deepEqual(automationCandidate.reasons, [
+		"automation_cron_stalled",
+		"automation_publish_overdue",
+	]);
 	assert.equal(
 		operationalAlertCandidate(
 			snapshot("degraded", { warnings: ["sources_unverified", "cache_expired"] }),
@@ -315,12 +324,17 @@ test("SystemManagement exposes a lightweight health snapshot without admin or pr
 	assert.doesNotMatch(method, /forceRefresh|fetchMarketBundle|checkWallex|checkTabdeal|checkExir/);
 });
 
-test("scheduled execution evaluates alerts after both success and failure without replacing cron errors", async () => {
+test("scheduled execution stays CPU-light and loads secure/runtime configuration only for publish work", async () => {
 	const source = await readFile(new URL("../src/app/application.js", import.meta.url), "utf8");
-	assert.match(source, /await this\.services\.operationalAlerts\.evaluate\(snapshot\)/);
-	assert.match(source, /catch \(error\) \{\s*await this\.#evaluateOperationalAlerts\(\);\s*throw error;/);
-	assert.match(source, /result = await this\.services\.automation\.tick\(\)/);
-	assert.match(source, /event: "operational_alert\.check_failed"/);
+	const method = source.slice(source.indexOf("async scheduled"), source.lastIndexOf("\n}"));
+	assert.match(method, /automation\.tick\(Date\.now\(\), \{/);
+	assert.match(method, /preparePublish:/);
+	assert.match(method, /secureSettingsService\.refresh/);
+	assert.match(method, /config\.refresh/);
+	assert.doesNotMatch(
+		method,
+		/systemManagement\.healthSnapshot|operationalAlerts\.evaluate|preferences\.refresh/,
+	);
 });
 
 test("Web and Telegram System surfaces expose persistent alert status", async () => {

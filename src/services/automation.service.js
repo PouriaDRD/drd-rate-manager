@@ -9,6 +9,7 @@ import { errorMessage, normalizeTimestamp, parseBoolean, validTime } from "../ut
 
 const AUTOMATION_LOCK_KEY = "auto_publish_slot";
 const SCHEDULE_SETTING_KEYS = Object.freeze([
+  "general.timezone",
   "bot_enabled",
   "auto_publish_enabled",
   "publish_interval_minutes",
@@ -64,17 +65,23 @@ export class AutomationService {
     };
   }
 
-  async tick(now = Date.now()) {
+  async tick(now = Date.now(), { preparePublish = null } = {}) {
     const rows = await this.#settingsRows(AUTOMATION_SETTING_KEYS);
     const value = (key) => rows[key]?.value;
     const lastTick = normalizeTimestamp(value("auto_publish_last_tick_at"));
-    if (now - lastTick >= 5 * 60 * 1000) {
-      await this.settings.set("auto_publish_last_tick_at", now);
-    }
+    const heartbeatDue = now - lastTick >= 5 * 60 * 1000;
+    const completeTick = async (result) => {
+      if (heartbeatDue) {
+        await this.settings.set("auto_publish_last_tick_at", now);
+      }
+      return result;
+    };
 
-    if (!parseBoolean(value("bot_enabled"), true)) return this.#skip("bot_disabled");
+    if (!parseBoolean(value("bot_enabled"), true)) {
+      return completeTick(await this.#skip("bot_disabled"));
+    }
     if (!parseBoolean(value("auto_publish_enabled"), false)) {
-      return this.#skip("automation_disabled");
+      return completeTick(await this.#skip("automation_disabled"));
     }
 
     const interval = normalizePublishInterval(value("publish_interval_minutes"));
@@ -87,6 +94,10 @@ export class AutomationService {
         ? value("quiet_hours_end")
         : APP.defaultQuietHours.end,
     };
+    const timezone = String(
+      value("general.timezone") || this.config.timezone || "Asia/Tehran",
+    ).trim();
+    const scheduleConfig = { timezone };
     const scheduleChangedAt = this.#scheduleChangedAt(rows);
     const lastRun = normalizeTimestamp(value("auto_publish_last_run_at"));
     const lastSuccessSlot = normalizeTimestamp(value("auto_publish_last_success_slot_at"));
@@ -98,20 +109,28 @@ export class AutomationService {
         auto_publish_last_run_at: now,
         auto_publish_last_skip_reason: "waiting_for_next_slot",
       });
-      return;
+      return completeTick();
     }
 
-    const slotAt = calculateCurrentPublishSlotAt(this.config, interval, now);
-    if (lastSuccessSlot && slotAt <= lastSuccessSlot) return this.#skip("already_published");
-    if (slotAt <= anchor) return this.#skip("interval_not_due");
-    if (quiet.enabled && isInsideQuietHours(this.config, quiet, slotAt)) {
-      return this.#skip("quiet_hours");
+    const slotAt = calculateCurrentPublishSlotAt(scheduleConfig, interval, now);
+    if (lastSuccessSlot && slotAt <= lastSuccessSlot) {
+      return completeTick(await this.#skip("already_published"));
+    }
+    if (slotAt <= anchor) {
+      return completeTick(await this.#skip("interval_not_due"));
+    }
+    if (quiet.enabled && isInsideQuietHours(scheduleConfig, quiet, slotAt)) {
+      return completeTick(await this.#skip("quiet_hours"));
     }
 
-    const nextSlotAt = calculateNextAlignedPublishSlotAt(this.config, interval, slotAt);
+    const nextSlotAt = calculateNextAlignedPublishSlotAt(
+      scheduleConfig,
+      interval,
+      slotAt,
+    );
     const lockTtlMs = Math.max(1000, nextSlotAt - now);
     const token = await this.locks.acquire(AUTOMATION_LOCK_KEY, lockTtlMs);
-    if (!token) return this.#skip("already_claimed");
+    if (!token) return completeTick(await this.#skip("already_claimed"));
 
     let successful = false;
     const startedAt = Date.now();
@@ -120,6 +139,9 @@ export class AutomationService {
       auto_publish_last_skip_reason: "",
     });
     try {
+      if (typeof preparePublish === "function") {
+        await preparePublish();
+      }
       const snapshot = await this.market.getSnapshot();
       const publishResult = await this.publisher.publish(snapshot);
       successful = true;
@@ -131,6 +153,7 @@ export class AutomationService {
         auto_publish_last_error: "",
         auto_publish_last_error_at: 0,
         auto_publish_last_skip_reason: "success",
+        auto_publish_last_tick_at: now,
       });
       await this.#recordRun({
         mode: "scheduled",
@@ -145,6 +168,11 @@ export class AutomationService {
         partial: Boolean(snapshot?.partial),
         details: { intervalMinutes: interval },
       });
+      return {
+        published: true,
+        slotAt,
+        messageId: publishResult?.message_id ?? null,
+      };
     } catch (error) {
       const message = errorMessage(error).slice(0, 1000);
       await this.settings.setMany({

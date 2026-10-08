@@ -119,6 +119,9 @@ const copy = Object.freeze({
     averageDuration: "میانگین زمان اجرا",
     lastMetricError: "آخرین خطای اجرا",
     status_operational_metrics_unavailable: "متریک‌های عملیاتی در دسترس نیستند",
+    status_automation_cron_stalled: "Heartbeat کران اتوماسیون عقب افتاده است",
+    status_automation_publish_overdue: "انتشار زمان‌بندی‌شده عقب افتاده است",
+    status_automation_last_run_failed: "آخرین اجرای اتوماسیون ناموفق بوده است",
     alertState: "وضعیت هشدار",
     lastAlert: "آخرین هشدار",
     alertActive: "فعال",
@@ -247,6 +250,9 @@ const copy = Object.freeze({
     averageDuration: "Average duration",
     lastMetricError: "Last run error",
     status_operational_metrics_unavailable: "Operational metrics are unavailable",
+    status_automation_cron_stalled: "Automation cron heartbeat is stale",
+    status_automation_publish_overdue: "Scheduled publication is overdue",
+    status_automation_last_run_failed: "The last automation run failed",
     alertState: "Alert state",
     lastAlert: "Last alert",
     alertActive: "Active",
@@ -317,7 +323,19 @@ function render() {
 
   const automation = data.automation || {};
   setText("system-automation-status", automation.enabled ? tr("enabled") : tr("disabledValue"));
-  setText("system-automation-reason", humanCode(automation.reason));
+  const automationHealthReason = automation.cron_stalled
+    ? "automation_cron_stalled"
+    : automation.publish_overdue
+      ? "automation_publish_overdue"
+      : automation.last_run_failed
+        ? "automation_last_run_failed"
+        : null;
+  setText(
+    "system-automation-reason",
+    automationHealthReason
+      ? tr(`status_${automationHealthReason}`)
+      : humanCode(automation.reason),
+  );
   setText("system-automation-next", formatDateTime(automation.next_publish_at));
   setText("system-automation-last", formatDateTime(automation.last_success_at));
   setText("system-automation-can-publish", automation.can_publish_now ? tr("yes") : tr("no"));
@@ -577,7 +595,7 @@ function sourceTone(item) {
 
 function reasonIcon(reason) {
   if (["database_unavailable", "runtime_integrity_failed", "runtime_settings_invalid"].includes(reason)) return "●";
-  if (["source_failures", "sources_unverified", "provider_circuit_open", "cache_empty", "cache_expired", "cache_last_error", "no_sources_enabled"].includes(reason)) return "▲";
+  if (["source_failures", "sources_unverified", "provider_circuit_open", "cache_empty", "cache_expired", "cache_last_error", "no_sources_enabled", "automation_cron_stalled", "automation_publish_overdue", "automation_last_run_failed"].includes(reason)) return "▲";
   return "•";
 }
 

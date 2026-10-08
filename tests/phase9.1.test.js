@@ -187,6 +187,138 @@ test("scheduled publish writes a success execution record without changing sched
 	assert.ok(writes.some((row) => row.auto_publish_last_skip_reason === "success"));
 });
 
+test("scheduled non-due tick stays lightweight and records completion heartbeat", async () => {
+	const now = Date.UTC(2026, 9, 5, 12, 6);
+	const lastTick = Date.UTC(2026, 9, 5, 12, 0);
+	const rows = {
+		"general.timezone": { value: "UTC", updatedAt: 0 },
+		bot_enabled: { value: "1", updatedAt: 0 },
+		auto_publish_enabled: { value: "1", updatedAt: 0 },
+		publish_interval_minutes: { value: "15", updatedAt: 0 },
+		quiet_hours_enabled: { value: "0", updatedAt: 0 },
+		quiet_hours_start: { value: "01:00", updatedAt: 0 },
+		quiet_hours_end: { value: "10:30", updatedAt: 0 },
+		auto_publish_last_run_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_last_success_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_last_success_slot_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_retry_slot_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_error: { value: "", updatedAt: 0 },
+		auto_publish_last_tick_at: { value: String(lastTick), updatedAt: 0 },
+		auto_publish_last_attempt_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_error_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_skip_reason: { value: "", updatedAt: 0 },
+	};
+	const heartbeatWrites = [];
+	let prepareCalls = 0;
+	const service = new AutomationService(
+		{},
+		{ timezone: "Asia/Tehran" },
+		{
+			async getManyWithMeta(keys) {
+				return Object.fromEntries(keys.map((key) => [key, rows[key]]));
+			},
+			async set(key, value) {
+				heartbeatWrites.push([key, value]);
+			},
+			async setMany() {},
+		},
+		{ async getSnapshot() { throw new Error("market must not run"); } },
+		{ async publish() { throw new Error("publisher must not run"); } },
+		{
+			async acquire() { throw new Error("lock must not run"); },
+			async release() {},
+		},
+		null,
+	);
+	await service.tick(now, {
+		async preparePublish() {
+			prepareCalls += 1;
+		},
+	});
+	assert.equal(prepareCalls, 0);
+	assert.deepEqual(heartbeatWrites, [["auto_publish_last_tick_at", now]]);
+});
+
+test("scheduled due tick prepares secure/runtime configuration only before publish", async () => {
+	const now = Date.UTC(2026, 9, 5, 12, 16);
+	const rows = {
+		"general.timezone": { value: "UTC", updatedAt: 0 },
+		bot_enabled: { value: "1", updatedAt: 0 },
+		auto_publish_enabled: { value: "1", updatedAt: 0 },
+		publish_interval_minutes: { value: "15", updatedAt: 0 },
+		quiet_hours_enabled: { value: "0", updatedAt: 0 },
+		quiet_hours_start: { value: "01:00", updatedAt: 0 },
+		quiet_hours_end: { value: "10:30", updatedAt: 0 },
+		auto_publish_last_run_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_last_success_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_last_success_slot_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 0)),
+			updatedAt: 0,
+		},
+		auto_publish_retry_slot_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_error: { value: "", updatedAt: 0 },
+		auto_publish_last_tick_at: {
+			value: String(Date.UTC(2026, 9, 5, 12, 10)),
+			updatedAt: 0,
+		},
+		auto_publish_last_attempt_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_error_at: { value: "0", updatedAt: 0 },
+		auto_publish_last_skip_reason: { value: "", updatedAt: 0 },
+	};
+	const writes = [];
+	const order = [];
+	const service = new AutomationService(
+		{},
+		{ timezone: "Asia/Tehran" },
+		{
+			async getManyWithMeta(keys) {
+				return Object.fromEntries(keys.map((key) => [key, rows[key]]));
+			},
+			async set() {},
+			async setMany(values) {
+				writes.push(values);
+			},
+		},
+		{
+			async getSnapshot() {
+				order.push("market");
+				return { partial: false };
+			},
+		},
+		{
+			async publish() {
+				order.push("publish");
+				return { message_id: 91 };
+			},
+		},
+		{ async acquire() { return "slot-token"; }, async release() {} },
+		{ async add() {} },
+	);
+	const result = await service.tick(now, {
+		async preparePublish() {
+			order.push("prepare");
+		},
+	});
+	assert.deepEqual(order, ["prepare", "market", "publish"]);
+	assert.equal(result.published, true);
+	assert.ok(writes.some((row) => row.auto_publish_last_tick_at === now));
+});
+
 test("web admin exposes automation settings, diagnostics, dry-run, force-run and history endpoints", async () => {
 	const source = await readFile(
 		new URL("../src/controllers/web-admin-data.controller.js", import.meta.url),

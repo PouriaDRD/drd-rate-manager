@@ -19,6 +19,13 @@ async _showSystem(message) {
 	const metrics = snapshot.metrics || {};
 	const automationMetrics = metrics.automation || {};
 	const alerts = snapshot.alerts || {};
+	const automationHealthReason = automation.cronStalled
+		? "automation_cron_stalled"
+		: automation.publishOverdue
+			? "automation_publish_overdue"
+			: automation.lastRunFailed
+				? "automation_last_run_failed"
+				: null;
 
 	const lines = [
 		`<b>📊 ${en ? "System status" : "وضعیت سیستم"}</b>`,
@@ -32,7 +39,8 @@ async _showSystem(message) {
 		"",
 		`🗄 D1: <b>${database.connected ? (en ? "Connected" : "متصل") : (en ? "Unavailable" : "در دسترس نیست")}</b> · <code>${Number(database.latency_ms || 0)}ms</code>`,
 		`🧊 ${en ? "Cache" : "کش"}: <b>${escapeHtml(this._systemCacheLabel(cache, en))}</b>`,
-		`🕒 ${en ? "Automation" : "اتوماسیون"}: <b>${automation.enabled ? "ON" : "OFF"}</b> · <code>${escapeHtml(this._systemAutomationReason(automation.reason, en))}</code>`,
+		`🕒 ${en ? "Automation" : "اتوماسیون"}: <b>${automation.enabled ? "ON" : "OFF"}</b> · <code>${escapeHtml(automationHealthReason ? this._systemReasonLabel(automationHealthReason, en) : this._systemAutomationReason(automation.reason, en))}</code>`,
+		`💓 ${en ? "Cron heartbeat" : "Heartbeat کران"}: <code>${escapeHtml(formatOptionalSystemDateTime(this.s.config, automation.lastTickAt))}</code>`,
 		`⏭ ${en ? "Next publish" : "انتشار بعدی"}: <code>${escapeHtml(formatOptionalSystemDateTime(this.s.config, automation.nextPublishAt))}</code>`,
 		"",
 		`📡 ${en ? "Sources" : "منابع"}: <b>${Number(sources.healthy || 0)}/${Number(sources.enabled || 0)}</b> ${en ? "healthy" : "سالم"} · ${Number(sources.failed || 0)} ${en ? "failed" : "ناموفق"} · ${Number(sources.unchecked || 0)} ${en ? "unchecked" : "بررسی‌نشده"}`,
@@ -186,6 +194,9 @@ _systemReasonLabel(reason, en) {
 		cache_expired: en ? "Market cache expired" : "کش بازار منقضی شده",
 		cache_last_error: en ? "Market cache has a last error" : "کش بازار آخرین خطا دارد",
 		operational_metrics_unavailable: en ? "Operational metrics unavailable" : "متریک‌های عملیاتی در دسترس نیستند",
+		automation_cron_stalled: en ? "Automation cron heartbeat is stale" : "Heartbeat کران اتوماسیون عقب افتاده است",
+		automation_publish_overdue: en ? "Scheduled publication is overdue" : "انتشار زمان‌بندی‌شده عقب افتاده است",
+		automation_last_run_failed: en ? "The last automation run failed" : "آخرین اجرای اتوماسیون ناموفق بوده است",
 		bot_disabled: en ? "Bot is disabled" : "ربات غیرفعال است",
 		runtime_settings_legacy_fallback: en ? "Runtime settings use ENV fallback" : "برخی Runtime settingها از ENV خوانده می‌شوند",
 		runtime_settings_default_fallback: en ? "Runtime settings use defaults" : "برخی Runtime settingها از مقدار پیش‌فرض استفاده می‌کنند",

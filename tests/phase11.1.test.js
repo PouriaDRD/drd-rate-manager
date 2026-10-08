@@ -78,6 +78,9 @@ function baseServices(overrides = {}) {
 				return {
 					settings: {
 						enabled: true,
+						intervalMinutes: 15,
+						scheduleChangedAt: now - 60_000,
+						lastTickAt: now - 30_000,
 						lastSuccessAt: now - 60_000,
 						lastAttemptAt: now - 60_000,
 						lastErrorAt: 0,
@@ -86,6 +89,7 @@ function baseServices(overrides = {}) {
 					diagnostics: {
 						reason: "ready",
 						canPublishNow: true,
+						currentSlotAt: now,
 						nextPublishAt: now + 60_000,
 					},
 				};
@@ -249,6 +253,41 @@ test("an unavailable enabled provider group still degrades system health", async
 	assert.equal(snapshot.health.status, "degraded");
 	assert.equal(snapshot.sources.groups.usdt.available, false);
 	assert.ok(snapshot.health.warnings.includes("source_failures"));
+});
+
+test("stale cron heartbeat and overdue publication degrade system health", async () => {
+	const { now, services } = baseServices({
+		automationManagement: {
+			async state() {
+				return {
+					settings: {
+						enabled: true,
+						intervalMinutes: 15,
+						scheduleChangedAt: now - 30 * 60_000,
+						lastTickAt: now - 10 * 60_000,
+						lastSuccessAt: now - 20 * 60_000,
+						lastAttemptAt: now - 10 * 60_000,
+						lastErrorAt: now - 9 * 60_000,
+						lastError: "previous scheduled failure",
+					},
+					diagnostics: {
+						reason: "ready",
+						canPublishNow: true,
+						currentSlotAt: now - 4 * 60_000,
+						nextPublishAt: now + 11 * 60_000,
+					},
+				};
+			},
+		},
+	});
+	const snapshot = await manager(services).snapshot(now);
+	assert.equal(snapshot.health.status, "degraded");
+	assert.ok(snapshot.health.warnings.includes("automation_cron_stalled"));
+	assert.ok(snapshot.health.warnings.includes("automation_publish_overdue"));
+	assert.ok(snapshot.health.warnings.includes("automation_last_run_failed"));
+	assert.equal(snapshot.automation.cronStalled, true);
+	assert.equal(snapshot.automation.publishOverdue, true);
+	assert.equal(snapshot.automation.lastRunFailed, true);
 });
 
 test("disabled bot has explicit disabled health without becoming critical", async () => {

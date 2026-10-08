@@ -10,7 +10,6 @@ import { WebAdminSystemController } from "../controllers/web-admin-system.contro
 import { WebAdminUiController } from "../controllers/web-admin-ui.controller.js";
 import { Database } from "../database/database.js";
 import { jsonResponse } from "../http/responses.js";
-import { errorMessage } from "../utils/core.js";
 import { createServices } from "./container.js";
 
 /** Application-level request and scheduled-event coordinator. */
@@ -64,32 +63,14 @@ export class Application {
 	}
 
 	async scheduled() {
-		await this.services.secureSettingsService.refresh({ tolerateMissingTable: true });
-		await this.services.config.refresh({ tolerateMissingTable: true });
-		let result;
-		try {
-			result = await this.services.automation.tick();
-		} catch (error) {
-			await this.#evaluateOperationalAlerts();
-			throw error;
-		}
-		await this.#evaluateOperationalAlerts();
-		return result;
+		return this.services.automation.tick(Date.now(), {
+			preparePublish: async () => {
+				await Promise.all([
+					this.services.secureSettingsService.refresh({ tolerateMissingTable: true }),
+					this.services.config.refresh({ tolerateMissingTable: true }),
+				]);
+			},
+		});
 	}
 
-	async #evaluateOperationalAlerts() {
-		try {
-			await this.services.preferences.refresh();
-			const snapshot = await this.services.systemManagement.healthSnapshot();
-			return await this.services.operationalAlerts.evaluate(snapshot);
-		} catch (error) {
-			console.warn({
-				timestamp: new Date().toISOString(),
-				level: "warn",
-				event: "operational_alert.check_failed",
-				message: errorMessage(error),
-			});
-			return null;
-		}
-	}
 }

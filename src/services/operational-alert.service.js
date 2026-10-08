@@ -7,6 +7,9 @@ const ACTIONABLE_DEGRADED_REASONS = Object.freeze([
 	"source_failures",
 	"provider_circuit_open",
 	"operational_metrics_unavailable",
+	"automation_cron_stalled",
+	"automation_publish_overdue",
+	"automation_last_run_failed",
 ]);
 
 const ACTIONABLE_DEGRADED_REASON_SET = new Set(
@@ -25,6 +28,9 @@ const LABELS = Object.freeze({
 		cache_expired: "Market cache is expired",
 		cache_last_error: "Market cache reports an error",
 		operational_metrics_unavailable: "Operational metrics are unavailable",
+		automation_cron_stalled: "Automation cron heartbeat is stale",
+		automation_publish_overdue: "Scheduled publication is overdue",
+		automation_last_run_failed: "The last automation run failed",
 	}),
 	fa: Object.freeze({
 		database_unavailable: "دیتابیس در دسترس نیست",
@@ -37,6 +43,9 @@ const LABELS = Object.freeze({
 		cache_expired: "کش بازار منقضی شده",
 		cache_last_error: "کش بازار خطا گزارش می‌کند",
 		operational_metrics_unavailable: "متریک‌های عملیاتی در دسترس نیستند",
+		automation_cron_stalled: "Heartbeat کران اتوماسیون عقب افتاده است",
+		automation_publish_overdue: "انتشار زمان‌بندی‌شده عقب افتاده است",
+		automation_last_run_failed: "آخرین اجرای اتوماسیون ناموفق بوده است",
 	}),
 });
 
